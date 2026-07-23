@@ -2,15 +2,19 @@
 
 import { useEffect, useRef, useState } from "react";
 import { Button } from "@/components/ui/button";
+import { Input } from "@/components/ui/input";
 import { Textarea } from "@/components/ui/textarea";
 import {
   Select,
   SelectContent,
   SelectItem,
+  SelectSeparator,
   SelectTrigger,
   SelectValue,
 } from "@/components/ui/select";
 import { sessions, projects as projectsApi, ApiError, Project } from "@/lib/api";
+
+const NEW_PROJECT_VALUE = "__new__";
 
 function formatElapsed(ms: number) {
   const totalSeconds = Math.floor(ms / 1000);
@@ -24,6 +28,8 @@ export default function AppHomePage() {
   const [projectList, setProjectList] = useState<Project[]>([]);
   const [projectId, setProjectId] = useState<number | null>(null);
   const [description, setDescription] = useState("");
+  const [creatingProject, setCreatingProject] = useState(false);
+  const [newProjectName, setNewProjectName] = useState("");
 
   const [sessionId, setSessionId] = useState<number | null>(null);
   const [startedAt, setStartedAt] = useState<number | null>(null);
@@ -82,6 +88,20 @@ export default function AppHomePage() {
     }
   }
 
+  async function handleCreateProject() {
+    if (!newProjectName.trim()) return;
+
+    try {
+      const project = await projectsApi.create(newProjectName.trim());
+      setProjectList((list) => [...list, project].sort((a, b) => a.name.localeCompare(b.name)));
+      setNewProjectName("");
+      setCreatingProject(false);
+      await handleDetailsChange({ projectId: project.id });
+    } catch (err) {
+      setError(err instanceof ApiError ? err.message : "Something went wrong");
+    }
+  }
+
   async function handleDetailsChange(next: { projectId?: number | null; description?: string }) {
     if (next.projectId !== undefined) setProjectId(next.projectId);
     if (next.description !== undefined) setDescription(next.description);
@@ -117,7 +137,13 @@ export default function AppHomePage() {
       <div className="w-full max-w-sm space-y-3">
         <Select
           value={projectId ? String(projectId) : undefined}
-          onValueChange={(value) => handleDetailsChange({ projectId: Number(value) })}
+          onValueChange={(value) => {
+            if (value === NEW_PROJECT_VALUE) {
+              setCreatingProject(true);
+              return;
+            }
+            handleDetailsChange({ projectId: Number(value) });
+          }}
         >
           <SelectTrigger className="w-full">
             <SelectValue placeholder="No project" />
@@ -128,12 +154,36 @@ export default function AppHomePage() {
                 {project.name}
               </SelectItem>
             ))}
+            {projectList.length > 0 && <SelectSeparator />}
+            <SelectItem value={NEW_PROJECT_VALUE}>+ New project</SelectItem>
           </SelectContent>
         </Select>
-        {projectList.length === 0 && (
-          <p className="text-muted-foreground text-xs">
-            No projects yet, add one in Settings.
-          </p>
+
+        {creatingProject && (
+          <div className="flex gap-2">
+            <Input
+              autoFocus
+              placeholder="Project name"
+              value={newProjectName}
+              onChange={(e) => setNewProjectName(e.target.value)}
+              onKeyDown={(e) => {
+                if (e.key === "Enter") {
+                  e.preventDefault();
+                  handleCreateProject();
+                }
+              }}
+            />
+            <Button onClick={handleCreateProject}>Add</Button>
+            <Button
+              variant="ghost"
+              onClick={() => {
+                setCreatingProject(false);
+                setNewProjectName("");
+              }}
+            >
+              Cancel
+            </Button>
+          </div>
         )}
 
         <Textarea
