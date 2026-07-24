@@ -17,6 +17,7 @@ import {
 import { sessions, projects as projectsApi, ApiError, Project } from "@/lib/api";
 import { useAuth } from "@/lib/auth-context";
 import { ProjectIcon } from "@/lib/icons";
+import { getSocket } from "@/lib/socket";
 
 const NEW_PROJECT_VALUE = "__new__";
 const NO_PROJECT_VALUE = "__none__";
@@ -75,6 +76,45 @@ export default function AppHomePage() {
       })
       .catch(() => {})
       .finally(() => setResuming(false));
+  }, []);
+
+  useEffect(() => {
+    const socket = getSocket();
+
+    function onStarted(payload: {
+      id: number;
+      startedAt: string;
+      projectId: number | null;
+      description: string | null;
+    }) {
+      setSessionId(payload.id);
+      setStartedAt(new Date(payload.startedAt).getTime());
+      setElapsedMs(0);
+      setLastDuration(null);
+      setProjectId(payload.projectId);
+      setDescription(payload.description ?? "");
+    }
+
+    function onStopped(payload: { durationSeconds: number }) {
+      setLastDuration(payload.durationSeconds);
+      setStartedAt(null);
+      setElapsedMs(0);
+    }
+
+    function onUpdated(payload: { id: number; projectId: number | null; description: string | null }) {
+      setProjectId(payload.projectId);
+      setDescription(payload.description ?? "");
+    }
+
+    socket.on("session:started", onStarted);
+    socket.on("session:stopped", onStopped);
+    socket.on("session:updated", onUpdated);
+
+    return () => {
+      socket.off("session:started", onStarted);
+      socket.off("session:stopped", onStopped);
+      socket.off("session:updated", onUpdated);
+    };
   }, []);
 
   useEffect(() => {

@@ -1,6 +1,7 @@
 import { Router } from "express";
 import { db } from "../db.js";
 import { requireAuth, AuthRequest } from "../middleware/auth.js";
+import { notifyUser } from "../socket.js";
 
 export const sessionsRouter = Router();
 
@@ -15,7 +16,10 @@ sessionsRouter.post("/start", async (req: AuthRequest, res) => {
     args: [req.userId!, startedAt, description ?? null, projectId ?? null],
   });
 
-  res.status(201).json({ id: Number(result.lastInsertRowid), startedAt });
+  const id = Number(result.lastInsertRowid);
+  notifyUser(req.userId!, "session:started", { id, startedAt, projectId: projectId ?? null, description: description ?? null });
+
+  res.status(201).json({ id, startedAt });
 });
 
 sessionsRouter.patch("/:id", async (req: AuthRequest, res) => {
@@ -30,6 +34,8 @@ sessionsRouter.patch("/:id", async (req: AuthRequest, res) => {
   if (result.rowsAffected === 0) {
     return res.status(404).json({ error: "Session not found" });
   }
+
+  notifyUser(req.userId!, "session:updated", { id, description: description ?? null, projectId: projectId ?? null });
 
   res.json({ id, description: description ?? null, projectId: projectId ?? null });
 });
@@ -56,6 +62,8 @@ sessionsRouter.patch("/:id/stop", async (req: AuthRequest, res) => {
     sql: "UPDATE sessions SET ended_at = ?, duration_seconds = ? WHERE id = ?",
     args: [endedAt.toISOString(), durationSeconds, id],
   });
+
+  notifyUser(req.userId!, "session:stopped", { id, endedAt: endedAt.toISOString(), durationSeconds });
 
   res.json({ id, endedAt: endedAt.toISOString(), durationSeconds });
 });
