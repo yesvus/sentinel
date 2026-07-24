@@ -1,11 +1,30 @@
 "use client";
 
-import { useEffect, useState } from "react";
-import { Trophy, Hourglass, BarChart3, Layers, History as HistoryIcon, Trash2 } from "lucide-react";
+import { useEffect, useState, FormEvent } from "react";
+import { Trophy, Hourglass, BarChart3, Layers, History as HistoryIcon, Trash2, Plus } from "lucide-react";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
+import { Input } from "@/components/ui/input";
+import { Label } from "@/components/ui/label";
+import { Textarea } from "@/components/ui/textarea";
 import { Card, CardHeader, CardTitle, CardContent } from "@/components/ui/card";
 import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip";
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from "@/components/ui/select";
+import {
+  Dialog,
+  DialogTrigger,
+  DialogContent,
+  DialogHeader,
+  DialogTitle,
+  DialogDescription,
+  DialogFooter,
+} from "@/components/ui/dialog";
 import {
   AlertDialog,
   AlertDialogTrigger,
@@ -17,7 +36,7 @@ import {
   AlertDialogCancel,
   AlertDialogAction,
 } from "@/components/ui/alert-dialog";
-import { sessions as sessionsApi, StudySession } from "@/lib/api";
+import { sessions as sessionsApi, projects as projectsApi, ApiError, StudySession, Project } from "@/lib/api";
 import { ProjectIcon } from "@/lib/icons";
 
 const WEEKS = 14;
@@ -96,12 +115,35 @@ function monthLabelForWeek(week: (Day | null)[], previousWeek: (Day | null)[] | 
 }
 
 const DESCRIPTION_PREVIEW_LENGTH = 80;
+const NO_PROJECT_VALUE = "__none__";
+
+function pad(n: number) {
+  return String(n).padStart(2, "0");
+}
+
+function toDateInput(date: Date) {
+  return `${date.getFullYear()}-${pad(date.getMonth() + 1)}-${pad(date.getDate())}`;
+}
+
+function toTimeInput(date: Date) {
+  return `${pad(date.getHours())}:${pad(date.getMinutes())}`;
+}
 
 export default function StatsPage() {
   const [sessionList, setSessionList] = useState<StudySession[]>([]);
+  const [projectList, setProjectList] = useState<Project[]>([]);
   const [loading, setLoading] = useState(true);
   const [now, setNow] = useState(() => Date.now());
   const [expandedIds, setExpandedIds] = useState<Set<number>>(new Set());
+
+  const [addOpen, setAddOpen] = useState(false);
+  const [addDate, setAddDate] = useState(() => toDateInput(new Date()));
+  const [addStartTime, setAddStartTime] = useState(() => toTimeInput(new Date(Date.now() - 60 * 60 * 1000)));
+  const [addEndTime, setAddEndTime] = useState(() => toTimeInput(new Date()));
+  const [addProjectId, setAddProjectId] = useState<number | null>(null);
+  const [addDescription, setAddDescription] = useState("");
+  const [addError, setAddError] = useState<string | null>(null);
+  const [addBusy, setAddBusy] = useState(false);
 
   function toggleExpanded(id: number) {
     setExpandedIds((current) => {
@@ -117,6 +159,7 @@ export default function StatsPage() {
       .list()
       .then(setSessionList)
       .finally(() => setLoading(false));
+    projectsApi.list().then(setProjectList).catch(() => {});
   }, []);
 
   useEffect(() => {
@@ -160,6 +203,52 @@ export default function StatsPage() {
       setSessionList((list) => list.filter((s) => s.id !== id));
     } catch {
       // best-effort; leave the session in place if the delete failed
+    }
+  }
+
+  async function handleAddSession(e: FormEvent) {
+    e.preventDefault();
+    setAddError(null);
+
+    const startedAt = new Date(`${addDate}T${addStartTime}`);
+    const endedAt = new Date(`${addDate}T${addEndTime}`);
+
+    if (endedAt <= startedAt) {
+      setAddError("End time must be after start time");
+      return;
+    }
+
+    setAddBusy(true);
+    try {
+      const created = await sessionsApi.createManual({
+        startedAt: startedAt.toISOString(),
+        endedAt: endedAt.toISOString(),
+        projectId: addProjectId,
+        description: addDescription || null,
+      });
+      const project = projectList.find((p) => p.id === addProjectId) ?? null;
+      setSessionList((list) =>
+        [
+          {
+            id: created.id,
+            started_at: created.startedAt,
+            ended_at: created.endedAt,
+            duration_seconds: created.durationSeconds,
+            description: addDescription || null,
+            project_id: addProjectId,
+            project_name: project?.name ?? null,
+            project_icon: project?.icon ?? null,
+          },
+          ...list,
+        ].sort((a, b) => new Date(b.started_at).getTime() - new Date(a.started_at).getTime())
+      );
+      setAddOpen(false);
+      setAddDescription("");
+      setAddProjectId(null);
+    } catch (err) {
+      setAddError(err instanceof ApiError ? err.message : "Something went wrong");
+    } finally {
+      setAddBusy(false);
     }
   }
 
@@ -341,11 +430,113 @@ export default function StatsPage() {
       </div>
 
       <Card>
-        <CardHeader>
+        <CardHeader className="flex items-center justify-between">
           <CardTitle className="flex items-center gap-2">
             <HistoryIcon className="text-muted-foreground size-4" />
             History
           </CardTitle>
+          <Dialog open={addOpen} onOpenChange={setAddOpen}>
+            <DialogTrigger
+              render={
+                <Button variant="outline" size="sm" className="gap-1">
+                  <Plus className="size-4" />
+                  Add session
+                </Button>
+              }
+            />
+            <DialogContent>
+              <DialogHeader>
+                <DialogTitle>Add a session</DialogTitle>
+                <DialogDescription>
+                  For time you forgot to track live. It's added as an already-finished session.
+                </DialogDescription>
+              </DialogHeader>
+              <form className="space-y-4" onSubmit={handleAddSession}>
+                <div className="space-y-2">
+                  <Label htmlFor="add-date">Date</Label>
+                  <Input
+                    id="add-date"
+                    type="date"
+                    value={addDate}
+                    onChange={(e) => setAddDate(e.target.value)}
+                    required
+                  />
+                </div>
+                <div className="grid grid-cols-2 gap-3">
+                  <div className="space-y-2">
+                    <Label htmlFor="add-start">Start time</Label>
+                    <Input
+                      id="add-start"
+                      type="time"
+                      value={addStartTime}
+                      onChange={(e) => setAddStartTime(e.target.value)}
+                      required
+                    />
+                  </div>
+                  <div className="space-y-2">
+                    <Label htmlFor="add-end">End time</Label>
+                    <Input
+                      id="add-end"
+                      type="time"
+                      value={addEndTime}
+                      onChange={(e) => setAddEndTime(e.target.value)}
+                      required
+                    />
+                  </div>
+                </div>
+                <div className="space-y-2">
+                  <Label>Project</Label>
+                  <Select
+                    value={addProjectId !== null ? String(addProjectId) : NO_PROJECT_VALUE}
+                    onValueChange={(value) =>
+                      setAddProjectId(value === NO_PROJECT_VALUE ? null : Number(value))
+                    }
+                  >
+                    <SelectTrigger className="w-full">
+                      <SelectValue>
+                        {(value: string) => {
+                          const project = projectList.find((p) => String(p.id) === value);
+                          return (
+                            <span className="flex items-center gap-2">
+                              <ProjectIcon icon={project?.icon ?? null} className="size-4" />
+                              {project?.name ?? "No project"}
+                            </span>
+                          );
+                        }}
+                      </SelectValue>
+                    </SelectTrigger>
+                    <SelectContent>
+                      <SelectItem value={NO_PROJECT_VALUE}>
+                        <ProjectIcon icon={null} className="size-4" />
+                        No project
+                      </SelectItem>
+                      {projectList.map((project) => (
+                        <SelectItem key={project.id} value={String(project.id)}>
+                          <ProjectIcon icon={project.icon} className="size-4" />
+                          {project.name}
+                        </SelectItem>
+                      ))}
+                    </SelectContent>
+                  </Select>
+                </div>
+                <div className="space-y-2">
+                  <Label htmlFor="add-description">Description (optional)</Label>
+                  <Textarea
+                    id="add-description"
+                    value={addDescription}
+                    onChange={(e) => setAddDescription(e.target.value)}
+                    placeholder="What were you working on?"
+                  />
+                </div>
+                {addError && <p className="text-destructive text-sm">{addError}</p>}
+                <DialogFooter>
+                  <Button type="submit" disabled={addBusy}>
+                    {addBusy ? "Adding..." : "Add session"}
+                  </Button>
+                </DialogFooter>
+              </form>
+            </DialogContent>
+          </Dialog>
         </CardHeader>
         <CardContent>
           {sessionList.length === 0 && (

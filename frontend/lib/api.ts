@@ -75,6 +75,16 @@ export const sessions = {
     }),
   list: () => api<StudySession[]>("/api/sessions"),
   remove: (id: number) => api<void>(`/api/sessions/${id}`, { method: "DELETE" }),
+  createManual: (details: {
+    startedAt: string;
+    endedAt: string;
+    projectId?: number | null;
+    description?: string | null;
+  }) =>
+    api<{ id: number; startedAt: string; endedAt: string; durationSeconds: number }>("/api/sessions", {
+      method: "POST",
+      body: JSON.stringify(details),
+    }),
 };
 
 export type Project = { id: number; name: string; icon: string | null };

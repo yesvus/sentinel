@@ -22,6 +22,39 @@ sessionsRouter.post("/start", async (req: AuthRequest, res) => {
   res.status(201).json({ id, startedAt });
 });
 
+sessionsRouter.post("/", async (req: AuthRequest, res) => {
+  const { startedAt, endedAt, description, projectId } = req.body ?? {};
+
+  if (typeof startedAt !== "string" || typeof endedAt !== "string") {
+    return res.status(400).json({ error: "startedAt and endedAt are required" });
+  }
+
+  const start = new Date(startedAt);
+  const end = new Date(endedAt);
+
+  if (Number.isNaN(start.getTime()) || Number.isNaN(end.getTime())) {
+    return res.status(400).json({ error: "startedAt and endedAt must be valid dates" });
+  }
+  if (end <= start) {
+    return res.status(400).json({ error: "endedAt must be after startedAt" });
+  }
+
+  const durationSeconds = Math.round((end.getTime() - start.getTime()) / 1000);
+
+  const result = await db.execute({
+    sql: "INSERT INTO sessions (user_id, started_at, ended_at, duration_seconds, description, project_id) VALUES (?, ?, ?, ?, ?, ?)",
+    args: [req.userId!, start.toISOString(), end.toISOString(), durationSeconds, description ?? null, projectId ?? null],
+  });
+
+  const id = Number(result.lastInsertRowid);
+  res.status(201).json({
+    id,
+    startedAt: start.toISOString(),
+    endedAt: end.toISOString(),
+    durationSeconds,
+  });
+});
+
 sessionsRouter.patch("/:id", async (req: AuthRequest, res) => {
   const id = Number(req.params.id);
   const { description, projectId } = req.body ?? {};
