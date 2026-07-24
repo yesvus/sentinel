@@ -4,6 +4,18 @@ A better study/work tracker app. Modern Pomodoro.
 
 This project was built for the Web Programming course at the University of Catania (UNICT), under Professor Federico Augusto Santoro.
 
+**Live demo:** [sentinel.yesvus.com](https://sentinel.yesvus.com)
+
+## How to Use It
+
+1. Go to [sentinel.yesvus.com](https://sentinel.yesvus.com) and register with an email and password (or log in if you already have an account).
+2. On the Home page, optionally pick a project and write a short description of what you're about to work on.
+3. Hit the play button to start the stopwatch. Study until you feel like stopping, no fixed timer.
+4. Hit the square button to stop. Your session is saved automatically.
+5. Check the Stats page for your activity heatmap, daily study chart, and time spent per project.
+6. Manage your projects (add, rename, delete, pick an icon) from the Settings page.
+7. Update your name, avatar, or password from the Profile page.
+
 ## Core Issue in Current Apps
 
 Recent research suggests we focus in ultradian rhythms, so regular Pomodoro timers aren't the best fit. This app tries to be more suitable for those cycles.
