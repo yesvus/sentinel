@@ -5,11 +5,10 @@ import { db } from "../db.js";
 import { requireAuth, AuthRequest } from "../middleware/auth.js";
 
 const JWT_SECRET = process.env.JWT_SECRET ?? "change-me";
-const isProduction = process.env.NODE_ENV === "production";
 const COOKIE_OPTIONS = {
   httpOnly: true,
-  sameSite: isProduction ? ("none" as const) : ("lax" as const),
-  secure: isProduction,
+  sameSite: "lax" as const,
+  secure: process.env.NODE_ENV === "production",
   maxAge: 7 * 24 * 60 * 60 * 1000,
 };
 
