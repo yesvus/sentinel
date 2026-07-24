@@ -5,9 +5,11 @@ import { db } from "../db.js";
 import { requireAuth, AuthRequest } from "../middleware/auth.js";
 
 const JWT_SECRET = process.env.JWT_SECRET ?? "change-me";
+const isProduction = process.env.NODE_ENV === "production";
 const COOKIE_OPTIONS = {
   httpOnly: true,
-  sameSite: "lax" as const,
+  sameSite: isProduction ? ("none" as const) : ("lax" as const),
+  secure: isProduction,
   maxAge: 7 * 24 * 60 * 60 * 1000,
 };
 
@@ -68,7 +70,7 @@ authRouter.post("/login", async (req, res) => {
 });
 
 authRouter.post("/logout", (_req, res) => {
-  res.clearCookie("token");
+  res.clearCookie("token", { sameSite: COOKIE_OPTIONS.sameSite, secure: COOKIE_OPTIONS.secure });
   res.status(204).send();
 });
 
