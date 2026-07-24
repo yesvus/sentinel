@@ -64,7 +64,7 @@ sessionsRouter.get("/", async (req: AuthRequest, res) => {
   const result = await db.execute({
     sql: `
       SELECT sessions.id, started_at, ended_at, duration_seconds, description,
-             project_id, projects.name AS project_name
+             project_id, projects.name AS project_name, projects.icon AS project_icon
       FROM sessions
       LEFT JOIN projects ON projects.id = sessions.project_id
       WHERE sessions.user_id = ?
@@ -74,4 +74,19 @@ sessionsRouter.get("/", async (req: AuthRequest, res) => {
   });
 
   res.json(result.rows);
+});
+
+sessionsRouter.delete("/:id", async (req: AuthRequest, res) => {
+  const id = Number(req.params.id);
+
+  const result = await db.execute({
+    sql: "DELETE FROM sessions WHERE id = ? AND user_id = ?",
+    args: [id, req.userId!],
+  });
+
+  if (result.rowsAffected === 0) {
+    return res.status(404).json({ error: "Session not found" });
+  }
+
+  res.status(204).send();
 });
