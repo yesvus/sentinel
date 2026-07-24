@@ -1,7 +1,7 @@
 "use client";
 
 import { useEffect, useState, FormEvent } from "react";
-import { Trophy, Hourglass, BarChart3, Layers, History as HistoryIcon, Trash2, Plus } from "lucide-react";
+import { Trophy, Hourglass, BarChart3, Layers, History as HistoryIcon, Trash2, Plus, Pencil } from "lucide-react";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -18,7 +18,6 @@ import {
 } from "@/components/ui/select";
 import {
   Dialog,
-  DialogTrigger,
   DialogContent,
   DialogHeader,
   DialogTitle,
@@ -137,6 +136,7 @@ export default function StatsPage() {
   const [expandedIds, setExpandedIds] = useState<Set<number>>(new Set());
 
   const [addOpen, setAddOpen] = useState(false);
+  const [editingId, setEditingId] = useState<number | null>(null);
   const [addDate, setAddDate] = useState(() => toDateInput(new Date()));
   const [addStartTime, setAddStartTime] = useState(() => toTimeInput(new Date(Date.now() - 60 * 60 * 1000)));
   const [addEndTime, setAddEndTime] = useState(() => toTimeInput(new Date()));
@@ -144,6 +144,30 @@ export default function StatsPage() {
   const [addDescription, setAddDescription] = useState("");
   const [addError, setAddError] = useState<string | null>(null);
   const [addBusy, setAddBusy] = useState(false);
+
+  function openAddDialog() {
+    setEditingId(null);
+    setAddDate(toDateInput(new Date()));
+    setAddStartTime(toTimeInput(new Date(Date.now() - 60 * 60 * 1000)));
+    setAddEndTime(toTimeInput(new Date()));
+    setAddProjectId(null);
+    setAddDescription("");
+    setAddError(null);
+    setAddOpen(true);
+  }
+
+  function openEditDialog(session: StudySession) {
+    const start = new Date(session.started_at);
+    const end = session.ended_at ? new Date(session.ended_at) : new Date();
+    setEditingId(session.id);
+    setAddDate(toDateInput(start));
+    setAddStartTime(toTimeInput(start));
+    setAddEndTime(toTimeInput(end));
+    setAddProjectId(session.project_id);
+    setAddDescription(session.description ?? "");
+    setAddError(null);
+    setAddOpen(true);
+  }
 
   function toggleExpanded(id: number) {
     setExpandedIds((current) => {
@@ -228,33 +252,59 @@ export default function StatsPage() {
       return;
     }
 
+    const project = projectList.find((p) => p.id === addProjectId) ?? null;
+
     setAddBusy(true);
     try {
-      const created = await sessionsApi.createManual({
-        startedAt: startedAt.toISOString(),
-        endedAt: endedAt.toISOString(),
-        projectId: addProjectId,
-        description: addDescription || null,
-      });
-      const project = projectList.find((p) => p.id === addProjectId) ?? null;
-      setSessionList((list) =>
-        [
-          {
-            id: created.id,
-            started_at: created.startedAt,
-            ended_at: created.endedAt,
-            duration_seconds: created.durationSeconds,
-            description: addDescription || null,
-            project_id: addProjectId,
-            project_name: project?.name ?? null,
-            project_icon: project?.icon ?? null,
-          },
-          ...list,
-        ].sort((a, b) => new Date(b.started_at).getTime() - new Date(a.started_at).getTime())
-      );
+      if (editingId !== null) {
+        await sessionsApi.update(editingId, {
+          startedAt: startedAt.toISOString(),
+          endedAt: endedAt.toISOString(),
+          projectId: addProjectId,
+          description: addDescription || null,
+        });
+        setSessionList((list) =>
+          list
+            .map((s) =>
+              s.id === editingId
+                ? {
+                    ...s,
+                    started_at: startedAt.toISOString(),
+                    ended_at: endedAt.toISOString(),
+                    duration_seconds: Math.round((endedAt.getTime() - startedAt.getTime()) / 1000),
+                    description: addDescription || null,
+                    project_id: addProjectId,
+                    project_name: project?.name ?? null,
+                    project_icon: project?.icon ?? null,
+                  }
+                : s
+            )
+            .sort((a, b) => new Date(b.started_at).getTime() - new Date(a.started_at).getTime())
+        );
+      } else {
+        const created = await sessionsApi.createManual({
+          startedAt: startedAt.toISOString(),
+          endedAt: endedAt.toISOString(),
+          projectId: addProjectId,
+          description: addDescription || null,
+        });
+        setSessionList((list) =>
+          [
+            {
+              id: created.id,
+              started_at: created.startedAt,
+              ended_at: created.endedAt,
+              duration_seconds: created.durationSeconds,
+              description: addDescription || null,
+              project_id: addProjectId,
+              project_name: project?.name ?? null,
+              project_icon: project?.icon ?? null,
+            },
+            ...list,
+          ].sort((a, b) => new Date(b.started_at).getTime() - new Date(a.started_at).getTime())
+        );
+      }
       setAddOpen(false);
-      setAddDescription("");
-      setAddProjectId(null);
     } catch (err) {
       setAddError(err instanceof ApiError ? err.message : "Something went wrong");
     } finally {
@@ -445,20 +495,18 @@ export default function StatsPage() {
             <HistoryIcon className="text-muted-foreground size-4" />
             History
           </CardTitle>
+          <Button variant="outline" size="sm" className="gap-1" onClick={openAddDialog}>
+            <Plus className="size-4" />
+            Add session
+          </Button>
           <Dialog open={addOpen} onOpenChange={setAddOpen}>
-            <DialogTrigger
-              render={
-                <Button variant="outline" size="sm" className="gap-1">
-                  <Plus className="size-4" />
-                  Add session
-                </Button>
-              }
-            />
             <DialogContent>
               <DialogHeader>
-                <DialogTitle>Add a session</DialogTitle>
+                <DialogTitle>{editingId !== null ? "Edit session" : "Add a session"}</DialogTitle>
                 <DialogDescription>
-                  For time you forgot to track live. It's added as an already-finished session.
+                  {editingId !== null
+                    ? "Fix a session that ran long, or update its details."
+                    : "For time you forgot to track live. It's added as an already-finished session."}
                 </DialogDescription>
               </DialogHeader>
               <form className="space-y-4" onSubmit={handleAddSession}>
@@ -613,6 +661,14 @@ export default function StatsPage() {
                   <span className="font-mono text-sm whitespace-nowrap">
                     {formatDuration(seconds)}
                   </span>
+                  <Button
+                    variant="ghost"
+                    size="icon-sm"
+                    className="text-muted-foreground"
+                    onClick={() => openEditDialog(session)}
+                  >
+                    <Pencil />
+                  </Button>
                   <AlertDialog>
                     <AlertDialogTrigger
                       render={

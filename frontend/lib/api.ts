@@ -64,11 +64,23 @@ export const sessions = {
       method: "POST",
       body: JSON.stringify(details ?? {}),
     }),
-  update: (id: number, details: { projectId?: number | null; description?: string | null }) =>
-    api<{ id: number; description: string | null; projectId: number | null }>(
-      `/api/sessions/${id}`,
-      { method: "PATCH", body: JSON.stringify(details) }
-    ),
+  update: (
+    id: number,
+    details: {
+      projectId?: number | null;
+      description?: string | null;
+      startedAt?: string;
+      endedAt?: string;
+    }
+  ) =>
+    api<{
+      id: number;
+      description: string | null;
+      projectId: number | null;
+      startedAt: string;
+      endedAt: string | null;
+      durationSeconds: number | null;
+    }>(`/api/sessions/${id}`, { method: "PATCH", body: JSON.stringify(details) }),
   stop: (id: number) =>
     api<{ id: number; endedAt: string; durationSeconds: number }>(`/api/sessions/${id}/stop`, {
       method: "PATCH",

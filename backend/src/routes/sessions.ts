@@ -57,20 +57,53 @@ sessionsRouter.post("/", async (req: AuthRequest, res) => {
 
 sessionsRouter.patch("/:id", async (req: AuthRequest, res) => {
   const id = Number(req.params.id);
-  const { description, projectId } = req.body ?? {};
+  const { description, projectId, startedAt, endedAt } = req.body ?? {};
 
-  const result = await db.execute({
-    sql: "UPDATE sessions SET description = ?, project_id = ? WHERE id = ? AND user_id = ?",
-    args: [description ?? null, projectId ?? null, id, req.userId!],
+  const existing = await db.execute({
+    sql: "SELECT started_at, ended_at FROM sessions WHERE id = ? AND user_id = ?",
+    args: [id, req.userId!],
   });
 
-  if (result.rowsAffected === 0) {
+  const session = existing.rows[0];
+  if (!session) {
     return res.status(404).json({ error: "Session not found" });
   }
 
+  const start = new Date(startedAt ?? (session.started_at as string));
+  const wasActive = session.ended_at === null;
+  const end = endedAt !== undefined ? new Date(endedAt) : wasActive ? null : new Date(session.ended_at as string);
+
+  if (Number.isNaN(start.getTime()) || (end !== null && Number.isNaN(end.getTime()))) {
+    return res.status(400).json({ error: "startedAt and endedAt must be valid dates" });
+  }
+  if (end !== null && end <= start) {
+    return res.status(400).json({ error: "endedAt must be after startedAt" });
+  }
+
+  const durationSeconds = end !== null ? Math.round((end.getTime() - start.getTime()) / 1000) : null;
+
+  await db.execute({
+    sql: "UPDATE sessions SET description = ?, project_id = ?, started_at = ?, ended_at = ?, duration_seconds = ? WHERE id = ?",
+    args: [
+      description ?? null,
+      projectId ?? null,
+      start.toISOString(),
+      end !== null ? end.toISOString() : null,
+      durationSeconds,
+      id,
+    ],
+  });
+
   notifyUser(req.userId!, "session:updated", { id, description: description ?? null, projectId: projectId ?? null });
 
-  res.json({ id, description: description ?? null, projectId: projectId ?? null });
+  res.json({
+    id,
+    description: description ?? null,
+    projectId: projectId ?? null,
+    startedAt: start.toISOString(),
+    endedAt: end !== null ? end.toISOString() : null,
+    durationSeconds,
+  });
 });
 
 sessionsRouter.patch("/:id/stop", async (req: AuthRequest, res) => {
