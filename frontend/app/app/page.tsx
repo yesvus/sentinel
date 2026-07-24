@@ -195,7 +195,7 @@ export default function AppHomePage() {
       <div className="text-center">
         <p className="text-sm font-medium">
           {greeting()}
-          {user?.email ? `, ${user.email.split("@")[0]}` : ""}
+          {user?.name ? `, ${user.name}` : user?.email ? `, ${user.email.split("@")[0]}` : ""}
         </p>
       </div>
 

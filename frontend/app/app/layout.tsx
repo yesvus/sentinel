@@ -27,7 +27,7 @@ export default function AppLayout({ children }: { children: React.ReactNode }) {
     <SidebarProvider>
       <AppSidebar />
       <main className="flex flex-1 flex-col">
-        <header className="flex h-14 shrink-0 items-center gap-3 border-b px-4">
+        <header className="sticky top-0 z-10 flex h-14 shrink-0 items-center gap-3 border-b bg-white px-4">
           <SidebarTrigger />
           <h1 className="text-sm font-medium">{currentPage?.title}</h1>
         </header>
