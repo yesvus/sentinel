@@ -43,6 +43,14 @@ function formatDuration(totalSeconds: number) {
   return `${hours}h ${minutes}m`;
 }
 
+function formatTime(dateStr: string) {
+  return new Date(dateStr).toLocaleTimeString(undefined, {
+    hour: "2-digit",
+    minute: "2-digit",
+    hour12: false,
+  });
+}
+
 function intensityColor(seconds: number) {
   if (seconds === 0) return undefined; // falls back to bg-muted
   if (seconds < 30 * 60) return "#a5f3fc";
@@ -347,6 +355,11 @@ export default function StatsPage() {
                         month: "short",
                         day: "numeric",
                       })}
+                    </span>
+                    <span className="text-muted-foreground font-mono text-xs">
+                      {formatTime(session.started_at)}
+                      {"-"}
+                      {session.ended_at ? formatTime(session.ended_at) : "now"}
                     </span>
                     <Badge variant={session.project_name ? "secondary" : "outline"} className="gap-1">
                       <ProjectIcon icon={session.project_icon} className="size-3" />
