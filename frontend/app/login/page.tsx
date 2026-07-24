@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, FormEvent } from "react";
+import { useState, useEffect, FormEvent } from "react";
 import { useRouter } from "next/navigation";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -15,6 +15,12 @@ export default function LoginPage() {
   const { refresh } = useAuth();
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
+
+  useEffect(() => {
+    if (window.location.hostname.startsWith("demo.")) {
+      router.replace("/demo-login");
+    }
+  }, [router]);
 
   async function handleSubmit(e: FormEvent<HTMLFormElement>, mode: "login" | "register") {
     e.preventDefault();
