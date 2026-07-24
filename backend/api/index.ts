@@ -10,6 +10,5 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
   }
   await dbReady;
 
-  // @ts-expect-error Express request handlers are compatible with Vercel's Node runtime
   return app(req, res);
 }
