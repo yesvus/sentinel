@@ -90,6 +90,7 @@ function monthLabelForWeek(week: (Day | null)[], previousWeek: (Day | null)[] | 
 export default function StatsPage() {
   const [sessionList, setSessionList] = useState<StudySession[]>([]);
   const [loading, setLoading] = useState(true);
+  const [now, setNow] = useState(() => Date.now());
 
   useEffect(() => {
     sessionsApi
@@ -97,6 +98,13 @@ export default function StatsPage() {
       .then(setSessionList)
       .finally(() => setLoading(false));
   }, []);
+
+  useEffect(() => {
+    const hasActiveSession = sessionList.some((s) => s.ended_at === null);
+    if (!hasActiveSession) return;
+    const interval = setInterval(() => setNow(Date.now()), 1000);
+    return () => clearInterval(interval);
+  }, [sessionList]);
 
   const completed = sessionList.filter((s) => s.ended_at !== null && s.duration_seconds !== null);
 
@@ -320,11 +328,17 @@ export default function StatsPage() {
           </CardTitle>
         </CardHeader>
         <CardContent>
-          {completed.length === 0 && (
+          {sessionList.length === 0 && (
             <p className="text-muted-foreground text-sm">No sessions yet, start one on Home.</p>
           )}
           <div className="space-y-2">
-            {completed.map((session) => (
+            {sessionList.map((session) => {
+              const isActive = session.ended_at === null;
+              const seconds = isActive
+                ? Math.floor((now - new Date(session.started_at).getTime()) / 1000)
+                : (session.duration_seconds ?? 0);
+
+              return (
               <div key={session.id} className="flex items-center justify-between gap-4 rounded-lg ring-1 ring-foreground/10 px-3 py-2">
                 <div className="min-w-0 space-y-1">
                   <div className="flex items-center gap-2">
@@ -338,6 +352,12 @@ export default function StatsPage() {
                       <ProjectIcon icon={session.project_icon} className="size-3" />
                       {session.project_name ?? NO_PROJECT_LABEL}
                     </Badge>
+                    {isActive && (
+                      <Badge className="bg-primary/15 text-primary gap-1">
+                        <span className="bg-primary size-1.5 animate-pulse rounded-full" />
+                        In progress
+                      </Badge>
+                    )}
                   </div>
                   {session.description && (
                     <p className="text-muted-foreground truncate text-sm">{session.description}</p>
@@ -345,7 +365,7 @@ export default function StatsPage() {
                 </div>
                 <div className="flex items-center gap-3">
                   <span className="font-mono text-sm whitespace-nowrap">
-                    {formatDuration(session.duration_seconds ?? 0)}
+                    {formatDuration(seconds)}
                   </span>
                   <AlertDialog>
                     <AlertDialogTrigger
@@ -372,7 +392,8 @@ export default function StatsPage() {
                   </AlertDialog>
                 </div>
               </div>
-            ))}
+              );
+            })}
           </div>
         </CardContent>
       </Card>
