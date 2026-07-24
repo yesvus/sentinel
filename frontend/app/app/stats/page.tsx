@@ -169,10 +169,20 @@ export default function StatsPage() {
     return () => clearInterval(interval);
   }, [sessionList]);
 
-  const completed = sessionList.filter((s) => s.ended_at !== null && s.duration_seconds !== null);
+  // Include the in-progress session's elapsed-so-far time in stats too, using its live
+  // duration (computed from `now`) instead of waiting until it's stopped to count it.
+  const forStats = sessionList
+    .map((s) => ({
+      ...s,
+      duration_seconds:
+        s.ended_at === null
+          ? Math.max(0, Math.floor((now - new Date(s.started_at).getTime()) / 1000))
+          : s.duration_seconds,
+    }))
+    .filter((s) => s.duration_seconds !== null);
 
   const totalsByDay = new Map<string, number>();
-  for (const session of completed) {
+  for (const session of forStats) {
     const key = dayKey(new Date(session.started_at));
     totalsByDay.set(key, (totalsByDay.get(key) ?? 0) + session.duration_seconds!);
   }
@@ -183,7 +193,7 @@ export default function StatsPage() {
   const maxBarSeconds = Math.max(1, ...barDays.map((d) => d.seconds));
 
   const projectTotals = new Map<string, { name: string; icon: string | null; seconds: number }>();
-  for (const session of completed) {
+  for (const session of forStats) {
     const key = session.project_id !== null ? String(session.project_id) : "none";
     const name = session.project_name ?? NO_PROJECT_LABEL;
     const existing = projectTotals.get(key);
