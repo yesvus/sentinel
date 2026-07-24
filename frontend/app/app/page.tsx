@@ -51,12 +51,30 @@ export default function AppHomePage() {
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [lastDuration, setLastDuration] = useState<number | null>(null);
+  const [resuming, setResuming] = useState(true);
   const intervalRef = useRef<ReturnType<typeof setInterval> | null>(null);
 
   const isRunning = sessionId !== null && lastDuration === null;
 
   useEffect(() => {
     projectsApi.list().then(setProjectList).catch(() => {});
+  }, []);
+
+  useEffect(() => {
+    sessions
+      .list()
+      .then((list) => {
+        const active = list.find((s) => s.ended_at === null);
+        if (active) {
+          setSessionId(active.id);
+          setStartedAt(new Date(active.started_at).getTime());
+          setElapsedMs(Date.now() - new Date(active.started_at).getTime());
+          setProjectId(active.project_id);
+          setDescription(active.description ?? "");
+        }
+      })
+      .catch(() => {})
+      .finally(() => setResuming(false));
   }, []);
 
   useEffect(() => {
@@ -148,7 +166,7 @@ export default function AppHomePage() {
 
         <Button
           size="icon"
-          disabled={busy}
+          disabled={busy || resuming}
           onClick={isRunning ? handleStop : handleStart}
           className="size-16 rounded-full shadow-sm"
         >
