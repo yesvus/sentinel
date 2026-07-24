@@ -116,3 +116,7 @@ pnpm install
 pnpm dev                # runs on http://localhost:3000
 ```
 By default the frontend proxies `/api/*` and `/socket.io/*` to `http://localhost:4000` (see `frontend/.env.local`). In production these point at separate `API_ORIGIN` (Vercel) and `REALTIME_ORIGIN` (Render) env vars.
+
+## License
+
+[PolyForm Noncommercial 1.0.0](LICENSE). Free to view, use, and modify for noncommercial purposes. Commercial use requires a separate paid license, contact me.
