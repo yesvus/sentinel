@@ -12,15 +12,19 @@ import { useAuth } from "@/lib/auth-context";
 
 export default function LoginPage() {
   const router = useRouter();
-  const { refresh } = useAuth();
+  const { user, loading: authLoading, refresh } = useAuth();
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
   useEffect(() => {
     if (window.location.hostname.startsWith("demo.")) {
       router.replace("/demo-login");
+      return;
     }
-  }, [router]);
+    if (!authLoading && user) {
+      router.replace("/app");
+    }
+  }, [router, authLoading, user]);
 
   async function handleSubmit(e: FormEvent<HTMLFormElement>, mode: "login" | "register") {
     e.preventDefault();
@@ -53,6 +57,10 @@ export default function LoginPage() {
     } finally {
       setLoading(false);
     }
+  }
+
+  if (authLoading || user) {
+    return null;
   }
 
   return (
