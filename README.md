@@ -50,17 +50,6 @@ frontend/   Next.js app
 backend/    Express API (auth + study sessions)
 ```
 
-## How the Frontend and Backend Communicate (HTTP)
-
-The frontend and backend are two separate applications that only talk to each other over HTTP, the frontend never touches the database directly. Every request from the browser is a `fetch()` call to the Express server, with `credentials: "include"` so the auth cookie is sent along.
-
-```
-Browser (Next.js, :3000)  --HTTP request-->  Express API (:4000)  -->  Turso (SQLite)
-                          <--JSON response--
-```
-
-Because the frontend and backend run on different origins (`localhost:3000` vs `localhost:4000`), the browser enforces CORS. The backend explicitly allows the frontend's origin and sets `credentials: true`, otherwise the browser would block the request and refuse to send/receive the cookie.
-
 ### Auth: JWT in an httpOnly cookie
 
 1. `POST /api/auth/register` or `/login`, password is hashed with `bcrypt` (register) or compared against the hash (login).
