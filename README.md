@@ -47,11 +47,11 @@ The tracking model (start/stop, tag with a project, add a description, see stats
 
 ## Real-time with Socket.IO
 
-Sentinel uses **Socket.IO** so an active study session stays in sync live across every open tab or device for the same account, start the stopwatch on your laptop, and it's already ticking on your phone or a second tab, no refresh needed.
+Sentinel uses **Socket.IO** so an active study session stays in sync live across every open tab or device for the same account. Start the stopwatch on your laptop, and it's already ticking on your phone or a second tab, no refresh needed.
 
 - **Authenticated sockets**: the same JWT used for HTTP auth is read from the cookie during the socket handshake, verified, and each socket is joined into a private room (`user:<id>`) so events only ever reach that user's own connections.
 - **Two deployment targets, one real-time layer**: the REST API runs on Vercel serverless functions (fast, always-on, no cold starts), but serverless functions can't hold a persistent WebSocket connection. So the Socket.IO server runs separately on **Render**, which supports a real long-lived Node process.
-- **Decoupled by design**: because the API and the socket server are two separate processes, the socket server watches the database directly (a lightweight poll per connected client, a few times a second) instead of relying on the API process to push events to it directly. This means real-time sync keeps working correctly no matter which backend actually handled the write, and the core app (auth, sessions, projects) never depends on the real-time layer being up, if Render is asleep or slow, the site still works perfectly via the normal HTTP API, it just re-syncs the next time you load a page instead of pushing live.
+- **Decoupled by design**: because the API and the socket server are two separate processes, the socket server watches the database directly (a lightweight poll per connected client, a few times a second) instead of relying on the API process to push events to it directly. This means real-time sync keeps working correctly no matter which backend actually handled the write, and the core app (auth, sessions, projects) never depends on the real-time layer being up. If Render is asleep or slow, the site still works perfectly via the normal HTTP API, it just re-syncs the next time you load a page instead of pushing live.
 
 ## Project Structure
 ```
@@ -61,7 +61,7 @@ backend/    Express API (auth + study sessions)
 
 ### Auth: JWT in an httpOnly cookie
 
-1. `POST /api/auth/register` or `/login`, password is hashed with `bcrypt` (register) or compared against the hash (login).
+1. `POST /api/auth/register` or `/login`. Password is hashed with `bcrypt` (register) or compared against the hash (login).
 2. On success, the server signs a JWT (`jsonwebtoken`) containing the user's id and sends it back via a `Set-Cookie` header, marked `httpOnly` (so client-side JS can never read it, only the browser can send it automatically).
 3. Every subsequent request automatically includes that cookie. A middleware (`requireAuth`) reads it, verifies the signature against `JWT_SECRET`, and attaches the user id to the request, or responds `401 Unauthorized` if it's missing/invalid.
 

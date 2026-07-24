@@ -1,6 +1,6 @@
 import type { NextConfig } from "next";
 
-// Reliable, always-on serverless API (no cold starts), the site must work even if REALTIME_ORIGIN is down.
+// Reliable, always-on serverless API (no cold starts). The site must work even if REALTIME_ORIGIN is down.
 const API_ORIGIN = process.env.API_ORIGIN ?? "http://localhost:4000";
 // Optional real-time layer (Socket.IO needs a persistent process, which serverless can't provide).
 // Free-tier hosts like Render sleep when idle, that's fine, the app degrades gracefully without it.

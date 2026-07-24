@@ -52,7 +52,7 @@ export function createSocketServer(httpServer: HttpServer) {
     socket.join(`user:${userId}`);
 
     // Polling here (instead of relying only on direct notifyUser calls) means real-time
-    // updates work regardless of which backend process/deployment handled the write ,
+    // updates work regardless of which backend process/deployment handled the write,
     // important since the REST API and the socket server can be on separate hosts.
     let lastSnapshot: SessionSnapshot | null = null;
 

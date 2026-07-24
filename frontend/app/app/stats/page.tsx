@@ -196,7 +196,7 @@ export default function StatsPage() {
                             }
                           />
                           <TooltipContent>
-                            {day.date.toLocaleDateString(undefined, { month: "short", day: "numeric" })} :{" "}
+                            {day.date.toLocaleDateString(undefined, { month: "short", day: "numeric" })}:{" "}
                             {day.seconds > 0 ? formatDuration(day.seconds) : "no study"}
                           </TooltipContent>
                         </Tooltip>
@@ -233,7 +233,7 @@ export default function StatsPage() {
               <p className="text-lg font-medium">
                 {topProject.name}{" "}
                 <span className="text-muted-foreground text-sm font-normal">
-                 , {formatDuration(topProject.seconds)}
+                  ({formatDuration(topProject.seconds)})
                 </span>
               </p>
             ) : (
@@ -268,7 +268,7 @@ export default function StatsPage() {
                     }
                   />
                   <TooltipContent>
-                    {day.date.toLocaleDateString(undefined, { month: "short", day: "numeric" })} :{" "}
+                    {day.date.toLocaleDateString(undefined, { month: "short", day: "numeric" })}:{" "}
                     {day.seconds > 0 ? formatDuration(day.seconds) : "no study"}
                   </TooltipContent>
                 </Tooltip>
