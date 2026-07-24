@@ -1,13 +1,14 @@
 "use client";
 
 import { useEffect } from "react";
-import { useRouter } from "next/navigation";
+import { useRouter, usePathname } from "next/navigation";
 import { SidebarProvider, SidebarTrigger } from "@/components/ui/sidebar";
-import { AppSidebar } from "@/components/app-sidebar";
+import { AppSidebar, NAV_ITEMS } from "@/components/app-sidebar";
 import { useAuth } from "@/lib/auth-context";
 
 export default function AppLayout({ children }: { children: React.ReactNode }) {
   const router = useRouter();
+  const pathname = usePathname();
   const { user, loading } = useAuth();
 
   useEffect(() => {
@@ -20,14 +21,17 @@ export default function AppLayout({ children }: { children: React.ReactNode }) {
     return null;
   }
 
+  const currentPage = NAV_ITEMS.find((item) => item.url === pathname);
+
   return (
     <SidebarProvider>
       <AppSidebar />
       <main className="flex flex-1 flex-col">
-        <div className="p-2">
+        <header className="flex h-14 shrink-0 items-center gap-3 border-b px-4">
           <SidebarTrigger />
-        </div>
-        <div className="flex flex-1 flex-col px-6 pb-6">{children}</div>
+          <h1 className="text-sm font-medium">{currentPage?.title}</h1>
+        </header>
+        <div className="flex flex-1 flex-col px-6 py-6">{children}</div>
       </main>
     </SidebarProvider>
   );

@@ -13,11 +13,12 @@ import {
   SidebarMenu,
   SidebarMenuButton,
   SidebarMenuItem,
+  useSidebar,
 } from "@/components/ui/sidebar";
 import { auth } from "@/lib/api";
 import { useAuth } from "@/lib/auth-context";
 
-const NAV_ITEMS = [
+export const NAV_ITEMS = [
   { title: "Home", url: "/app", icon: Home },
   { title: "Stats", url: "/app/stats", icon: BarChart2 },
   { title: "Profile", url: "/app/profile", icon: User },
@@ -28,6 +29,7 @@ export function AppSidebar() {
   const pathname = usePathname();
   const router = useRouter();
   const { user, refresh } = useAuth();
+  const { state } = useSidebar();
 
   async function handleLogout() {
     await auth.logout();
@@ -37,12 +39,12 @@ export function AppSidebar() {
 
   return (
     <Sidebar collapsible="icon">
-      <SidebarHeader>
+      <SidebarHeader className="h-14 justify-center border-b">
         <p
-          className="text-primary px-2 py-1 text-lg tracking-tight"
+          className="text-primary px-2 text-lg tracking-tight"
           style={{ fontFamily: "var(--font-wordmark)", fontWeight: 800 }}
         >
-          Sentinel
+          {state === "collapsed" ? "S" : "Sentinel"}
         </p>
       </SidebarHeader>
       <SidebarContent>
