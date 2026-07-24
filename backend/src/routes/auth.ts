@@ -74,7 +74,7 @@ authRouter.post("/logout", (_req, res) => {
 
 authRouter.get("/me", requireAuth, async (req: AuthRequest, res) => {
   const result = await db.execute({
-    sql: "SELECT id, email FROM users WHERE id = ?",
+    sql: "SELECT id, email, name, avatar FROM users WHERE id = ?",
     args: [req.userId],
   });
 
@@ -84,5 +84,44 @@ authRouter.get("/me", requireAuth, async (req: AuthRequest, res) => {
     return res.status(404).json({ error: "User not found" });
   }
 
-  res.json({ id: user.id, email: user.email });
+  res.json({ id: user.id, email: user.email, name: user.name, avatar: user.avatar });
+});
+
+authRouter.patch("/me", requireAuth, async (req: AuthRequest, res) => {
+  const { name, avatar } = req.body ?? {};
+
+  await db.execute({
+    sql: "UPDATE users SET name = ?, avatar = ? WHERE id = ?",
+    args: [name ?? null, avatar ?? null, req.userId!],
+  });
+
+  res.json({ name: name ?? null, avatar: avatar ?? null });
+});
+
+authRouter.post("/change-password", requireAuth, async (req: AuthRequest, res) => {
+  const { currentPassword, newPassword } = req.body ?? {};
+
+  if (typeof currentPassword !== "string" || typeof newPassword !== "string" || newPassword.length < 8) {
+    return res.status(400).json({ error: "Current password and a new password of at least 8 characters are required" });
+  }
+
+  const result = await db.execute({
+    sql: "SELECT password_hash FROM users WHERE id = ?",
+    args: [req.userId!],
+  });
+
+  const user = result.rows[0];
+
+  if (!user || !(await bcrypt.compare(currentPassword, user.password_hash as string))) {
+    return res.status(401).json({ error: "Current password is incorrect" });
+  }
+
+  const passwordHash = await bcrypt.hash(newPassword, 10);
+
+  await db.execute({
+    sql: "UPDATE users SET password_hash = ? WHERE id = ?",
+    args: [passwordHash, req.userId!],
+  });
+
+  res.status(204).send();
 });

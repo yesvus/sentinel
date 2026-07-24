@@ -28,7 +28,7 @@ export async function api<T>(path: string, options: RequestInit = {}): Promise<T
   return res.json();
 }
 
-export type User = { id: number; email: string };
+export type User = { id: number; email: string; name: string | null; avatar: string | null };
 
 export const auth = {
   register: (email: string, password: string) =>
@@ -37,6 +37,16 @@ export const auth = {
     api<User>("/api/auth/login", { method: "POST", body: JSON.stringify({ email, password }) }),
   logout: () => api<void>("/api/auth/logout", { method: "POST" }),
   me: () => api<User>("/api/auth/me"),
+  updateProfile: (details: { name?: string | null; avatar?: string | null }) =>
+    api<{ name: string | null; avatar: string | null }>("/api/auth/me", {
+      method: "PATCH",
+      body: JSON.stringify(details),
+    }),
+  changePassword: (currentPassword: string, newPassword: string) =>
+    api<void>("/api/auth/change-password", {
+      method: "POST",
+      body: JSON.stringify({ currentPassword, newPassword }),
+    }),
 };
 
 export type StudySession = {
@@ -47,6 +57,7 @@ export type StudySession = {
   description: string | null;
   project_id: number | null;
   project_name: string | null;
+  project_icon: string | null;
 };
 
 export const sessions = {
@@ -65,15 +76,16 @@ export const sessions = {
       method: "PATCH",
     }),
   list: () => api<StudySession[]>("/api/sessions"),
+  remove: (id: number) => api<void>(`/api/sessions/${id}`, { method: "DELETE" }),
 };
 
-export type Project = { id: number; name: string };
+export type Project = { id: number; name: string; icon: string | null };
 
 export const projects = {
   list: () => api<Project[]>("/api/projects"),
-  create: (name: string) =>
-    api<Project>("/api/projects", { method: "POST", body: JSON.stringify({ name }) }),
-  rename: (id: number, name: string) =>
-    api<Project>(`/api/projects/${id}`, { method: "PATCH", body: JSON.stringify({ name }) }),
+  create: (name: string, icon?: string | null) =>
+    api<Project>("/api/projects", { method: "POST", body: JSON.stringify({ name, icon }) }),
+  rename: (id: number, name: string, icon?: string | null) =>
+    api<Project>(`/api/projects/${id}`, { method: "PATCH", body: JSON.stringify({ name, icon }) }),
   remove: (id: number) => api<void>(`/api/projects/${id}`, { method: "DELETE" }),
 };

@@ -43,4 +43,18 @@ export async function initDb() {
       // column already exists
     }
   }
+
+  for (const column of ["name TEXT", "avatar TEXT"]) {
+    try {
+      await db.execute(`ALTER TABLE users ADD COLUMN ${column}`);
+    } catch {
+      // column already exists
+    }
+  }
+
+  try {
+    await db.execute(`ALTER TABLE projects ADD COLUMN icon TEXT`);
+  } catch {
+    // column already exists
+  }
 }
