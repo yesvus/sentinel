@@ -75,7 +75,7 @@ authRouter.post("/logout", (_req, res) => {
 authRouter.get("/me", requireAuth, async (req: AuthRequest, res) => {
   const result = await db.execute({
     sql: "SELECT id, email, name, avatar FROM users WHERE id = ?",
-    args: [req.userId],
+    args: [req.userId!],
   });
 
   const user = result.rows[0];
