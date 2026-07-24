@@ -95,10 +95,22 @@ function monthLabelForWeek(week: (Day | null)[], previousWeek: (Day | null)[] | 
   return MONTH_LABELS[firstDay.date.getMonth()];
 }
 
+const DESCRIPTION_PREVIEW_LENGTH = 80;
+
 export default function StatsPage() {
   const [sessionList, setSessionList] = useState<StudySession[]>([]);
   const [loading, setLoading] = useState(true);
   const [now, setNow] = useState(() => Date.now());
+  const [expandedIds, setExpandedIds] = useState<Set<number>>(new Set());
+
+  function toggleExpanded(id: number) {
+    setExpandedIds((current) => {
+      const next = new Set(current);
+      if (next.has(id)) next.delete(id);
+      else next.add(id);
+      return next;
+    });
+  }
 
   useEffect(() => {
     sessionsApi
@@ -346,9 +358,14 @@ export default function StatsPage() {
                 ? Math.floor((now - new Date(session.started_at).getTime()) / 1000)
                 : (session.duration_seconds ?? 0);
 
+              const isExpanded = expandedIds.has(session.id);
+              const isLong =
+                !!session.description &&
+                (session.description.length > DESCRIPTION_PREVIEW_LENGTH || session.description.includes("\n"));
+
               return (
-              <div key={session.id} className="flex items-center justify-between gap-4 rounded-lg ring-1 ring-foreground/10 px-3 py-2">
-                <div className="min-w-0 space-y-1">
+              <div key={session.id} className="flex items-start justify-between gap-4 rounded-lg ring-1 ring-foreground/10 px-3 py-2">
+                <div className="min-w-0 flex-1 space-y-1">
                   <div className="flex items-center gap-2">
                     <span className="text-sm font-medium">
                       {new Date(session.started_at).toLocaleDateString(undefined, {
@@ -373,10 +390,25 @@ export default function StatsPage() {
                     )}
                   </div>
                   {session.description && (
-                    <p className="text-muted-foreground truncate text-sm">{session.description}</p>
+                    <div>
+                      <p
+                        className={`text-muted-foreground text-sm whitespace-pre-wrap ${isExpanded ? "" : "line-clamp-2"}`}
+                      >
+                        {session.description}
+                      </p>
+                      {isLong && (
+                        <button
+                          type="button"
+                          onClick={() => toggleExpanded(session.id)}
+                          className="text-primary text-xs hover:underline"
+                        >
+                          {isExpanded ? "Show less" : "Show more"}
+                        </button>
+                      )}
+                    </div>
                   )}
                 </div>
-                <div className="flex items-center gap-3">
+                <div className="flex shrink-0 items-center gap-3">
                   <span className="font-mono text-sm whitespace-nowrap">
                     {formatDuration(seconds)}
                   </span>
