@@ -2,7 +2,7 @@
 
 A better study/work tracker app. Modern Pomodoro.
 
-This project was built for the Web Programming course at the University of Catania (UNICT), under Professor Federico Augusto Santoro.
+This project was built for the Web Programming course at the University of Catania (UNICT), under Professor Federico Fausto Santoro.
 
 **Live demo:** [sentinel.yesvus.com](https://sentinel.yesvus.com)
 
@@ -38,10 +38,29 @@ So when you're done or distracted, you start a break. When you feel ready, you s
 The tracking model (start/stop, tag with a project, add a description, see stats broken down by project and by day) is inspired by time trackers like Toggl. Sentinel narrows that down specifically for solo studiers: instead of tracking billable hours across a team, it's built around respecting your own ultradian cycle.
 
 ## Tech Stack
-- Next.js (TypeScript)
+- Next.js + React (TypeScript)
+- shadcn/ui components (Tailwind CSS under the hood)
 - Node.js backend with a REST API (HTTP requests from the frontend to the backend)
 - Turso for the DB
 - Vercel for deployment
+
+## Course Topics Covered
+
+This project touches most of the Web Programming syllabus directly:
+
+- **HTTP / client-server architecture**: two separate apps (frontend, backend) communicating only over HTTP, see below for the full breakdown.
+- **JavaScript / TypeScript**: the entire app (frontend and backend) is written in TypeScript.
+- **Node.js + Express**: the backend is a plain Express REST API.
+- **REST architecture**: resource-oriented endpoints (`/api/auth`, `/api/sessions`, `/api/projects`) using proper HTTP methods and status codes.
+- **Databases (relational)**: Turso (SQLite-compatible) with a normalized schema (`users`, `projects`, `sessions`).
+- **Security**: password hashing (`bcrypt`), JWT auth in an httpOnly cookie, CORS configuration.
+- **JSON**: every request/response body is JSON.
+- **UI/UX**: component-based design system (shadcn/ui), consistent color/typography identity, responsive layout.
+
+Not currently used, but could be added to cover more of the syllabus:
+- **WebSockets / Socket.IO**, not used anywhere yet. Could add a real-time feature, e.g. live-updating the stopwatch across multiple open tabs/devices for the same account.
+- **Non-relational database**, the whole DB is relational (SQLite/Turso). Could add a secondary use case (e.g. caching, activity log) with something like Redis or MongoDB to demonstrate the NoSQL side.
+- **SOAP / XML**, the course mentions SOAP and XML alongside REST/JSON; the project only uses REST/JSON, which is the modern standard, but worth mentioning explicitly if the syllabus expects a SOAP example.
 
 ## Project Structure
 ```
