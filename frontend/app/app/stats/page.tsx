@@ -259,7 +259,7 @@ export default function StatsPage() {
                 <Tooltip key={day.key}>
                   <TooltipTrigger
                     render={
-                      <div className="flex flex-1 flex-col items-center justify-end gap-1">
+                      <div className="flex h-full flex-1 flex-col items-center justify-end gap-1">
                         <div
                           className="bg-primary min-h-[2px] w-full rounded-t-sm"
                           style={{ height: `${(day.seconds / maxBarSeconds) * 100}%` }}
