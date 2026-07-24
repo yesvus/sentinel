@@ -54,6 +54,8 @@ export default function AppHomePage() {
   const [lastDuration, setLastDuration] = useState<number | null>(null);
   const [resuming, setResuming] = useState(true);
   const intervalRef = useRef<ReturnType<typeof setInterval> | null>(null);
+  const lastLocalEditAt = useRef(0);
+  const descriptionSaveTimeout = useRef<ReturnType<typeof setTimeout> | null>(null);
 
   const isRunning = sessionId !== null && lastDuration === null;
 
@@ -102,6 +104,9 @@ export default function AppHomePage() {
     }
 
     function onUpdated(payload: { id: number; projectId: number | null; description: string | null }) {
+      // Ignore updates for a couple seconds after our own edits, this is likely just
+      // the real-time layer echoing back a save we just made (it polls, so it lags).
+      if (Date.now() - lastLocalEditAt.current < 2000) return;
       setProjectId(payload.projectId);
       setDescription(payload.description ?? "");
     }
@@ -175,18 +180,28 @@ export default function AppHomePage() {
   }
 
   async function handleDetailsChange(next: { projectId?: number | null; description?: string }) {
+    lastLocalEditAt.current = Date.now();
     if (next.projectId !== undefined) setProjectId(next.projectId);
     if (next.description !== undefined) setDescription(next.description);
 
     if (sessionId === null) return;
 
-    try {
-      await sessions.update(sessionId, {
-        projectId: next.projectId !== undefined ? next.projectId : projectId,
-        description: next.description !== undefined ? next.description : description,
-      });
-    } catch {
-      // best-effort save, not worth surfacing to the user mid-session
+    const save = () =>
+      sessions
+        .update(sessionId, {
+          projectId: next.projectId !== undefined ? next.projectId : projectId,
+          description: next.description !== undefined ? next.description : description,
+        })
+        .catch(() => {
+          // best-effort save, not worth surfacing to the user mid-session
+        });
+
+    if (next.description !== undefined) {
+      // Debounce so we're not firing a request (and a self-echo update) on every keystroke.
+      if (descriptionSaveTimeout.current) clearTimeout(descriptionSaveTimeout.current);
+      descriptionSaveTimeout.current = setTimeout(save, 600);
+    } else {
+      await save();
     }
   }
 
