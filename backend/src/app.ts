@@ -1,0 +1,18 @@
+import express from "express";
+import cors from "cors";
+import cookieParser from "cookie-parser";
+import { authRouter } from "./routes/auth.js";
+import { sessionsRouter } from "./routes/sessions.js";
+import { projectsRouter } from "./routes/projects.js";
+
+export const app = express();
+
+app.use(cors({ origin: process.env.FRONTEND_ORIGIN ?? "http://localhost:3000", credentials: true }));
+app.use(express.json());
+app.use(cookieParser());
+
+app.use("/api/auth", authRouter);
+app.use("/api/sessions", sessionsRouter);
+app.use("/api/projects", projectsRouter);
+
+app.get("/api/health", (_req, res) => res.json({ ok: true }));
