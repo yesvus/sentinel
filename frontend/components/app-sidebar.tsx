@@ -29,12 +29,16 @@ export function AppSidebar() {
   const pathname = usePathname();
   const router = useRouter();
   const { user, refresh } = useAuth();
-  const { state } = useSidebar();
+  const { state, isMobile, setOpenMobile } = useSidebar();
 
   async function handleLogout() {
     await auth.logout();
     await refresh();
     router.push("/login");
+  }
+
+  function handleNavigate() {
+    if (isMobile) setOpenMobile(false);
   }
 
   return (
@@ -57,6 +61,7 @@ export function AppSidebar() {
                     render={<Link href={item.url} />}
                     isActive={pathname === item.url}
                     tooltip={item.title}
+                    onClick={handleNavigate}
                   >
                     <item.icon />
                     <span>{item.title}</span>

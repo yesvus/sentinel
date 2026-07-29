@@ -26,12 +26,12 @@ export default function AppLayout({ children }: { children: React.ReactNode }) {
   return (
     <SidebarProvider>
       <AppSidebar />
-      <main className="flex flex-1 flex-col">
+      <main className="flex min-w-0 flex-1 flex-col overflow-x-hidden">
         <header className="bg-sidebar sticky top-0 z-10 flex h-14 shrink-0 items-center gap-3 border-b px-4">
           <SidebarTrigger />
           <h1 className="text-sm font-medium">{currentPage?.title}</h1>
         </header>
-        <div className="flex flex-1 flex-col px-6 py-6">{children}</div>
+        <div className="flex min-w-0 flex-1 flex-col px-4 py-6 sm:px-6">{children}</div>
       </main>
     </SidebarProvider>
   );

@@ -322,8 +322,8 @@ export default function StatsPage() {
 
   return (
     <div className="mx-auto w-full max-w-5xl space-y-8">
-      <div className="flex flex-wrap items-stretch gap-8">
-        <Card className="shrink-0">
+      <div className="flex flex-wrap items-stretch gap-4 sm:gap-8">
+        <Card className="w-full shrink-0 sm:w-auto">
           <CardHeader>
             <CardTitle className="flex items-center gap-2">
               <Hourglass className="text-muted-foreground size-4" />
@@ -490,7 +490,7 @@ export default function StatsPage() {
       </div>
 
       <Card>
-        <CardHeader className="flex items-center justify-between">
+        <CardHeader className="flex flex-wrap items-center justify-between gap-2">
           <CardTitle className="flex items-center gap-2">
             <HistoryIcon className="text-muted-foreground size-4" />
             History
@@ -613,9 +613,9 @@ export default function StatsPage() {
                 (session.description.length > DESCRIPTION_PREVIEW_LENGTH || session.description.includes("\n"));
 
               return (
-              <div key={session.id} className="flex items-start justify-between gap-4 rounded-lg ring-1 ring-foreground/10 px-3 py-2">
+              <div key={session.id} className="flex flex-col gap-2 rounded-lg ring-1 ring-foreground/10 px-3 py-2 sm:flex-row sm:items-start sm:justify-between sm:gap-4">
                 <div className="min-w-0 flex-1 space-y-1">
-                  <div className="flex items-center gap-2">
+                  <div className="flex flex-wrap items-center gap-2">
                     <span className="text-sm font-medium">
                       {new Date(session.started_at).toLocaleDateString(undefined, {
                         month: "short",
@@ -657,7 +657,7 @@ export default function StatsPage() {
                     </div>
                   )}
                 </div>
-                <div className="flex shrink-0 items-center gap-3">
+                <div className="flex shrink-0 items-center justify-between gap-3 sm:justify-end">
                   <span className="font-mono text-sm whitespace-nowrap">
                     {formatDuration(seconds)}
                   </span>
