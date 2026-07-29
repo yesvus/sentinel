@@ -99,6 +99,17 @@ export const sessions = {
     }),
 };
 
+export type Note = { id: number; scope: "day" | "week"; date_key: string; content: string; updated_at: string };
+
+export const notes = {
+  list: () => api<Note[]>("/api/notes"),
+  upsert: (scope: "day" | "week", dateKey: string, content: string) =>
+    api<Note | undefined>(`/api/notes/${scope}/${dateKey}`, {
+      method: "PUT",
+      body: JSON.stringify({ content }),
+    }),
+};
+
 export type Project = { id: number; name: string; icon: string | null };
 
 export const projects = {
