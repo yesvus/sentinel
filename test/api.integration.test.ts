@@ -83,6 +83,35 @@ describe("Next API", () => {
     expect(note.body.content).toBe("Finished the outline");
   });
 
+  it("supports three project levels and rejects invalid hierarchy moves", async () => {
+    const cookie = await register("hierarchy@example.test");
+    const root = await request("POST", "projects", { cookie, body: { name: "Erasmus", pinned: true } });
+    const child = await request("POST", "projects", {
+      cookie, body: { name: "Web Programming", parentId: root.body.id },
+    });
+    const leaf = await request("POST", "projects", {
+      cookie, body: { name: "Authentication", parentId: child.body.id },
+    });
+    expect(leaf.body).toMatchObject({
+      path: "Erasmus / Web Programming / Authentication",
+      depth: 3,
+    });
+
+    const fourth = await request("POST", "projects", {
+      cookie, body: { name: "Tokens", parentId: leaf.body.id },
+    });
+    expect(fourth.response.status).toBe(400);
+
+    const cycle = await request("PATCH", `projects/${root.body.id}`, {
+      cookie, body: { parentId: leaf.body.id },
+    });
+    expect(cycle.response.status).toBe(400);
+
+    await request("PATCH", `projects/${root.body.id}`, { cookie, body: { archived: true } });
+    const projects = await request("GET", "projects", { cookie });
+    expect(projects.body.filter((project: { archived: boolean }) => project.archived)).toHaveLength(3);
+  });
+
   it("saves the final description when stopping a session", async () => {
     const cookie = await register("stop@example.test");
     const started = await request("POST", "sessions/start", {

@@ -68,6 +68,9 @@ export default function AppHomePage() {
   const [creatingProject, setCreatingProject] = useState(false);
   const [newProjectName, setNewProjectName] = useState("");
   const [newProjectIcon, setNewProjectIcon] = useState<string | null>(null);
+  const [newProjectParentId, setNewProjectParentId] = useState<number | null>(null);
+  const [newProjectPinned, setNewProjectPinned] = useState(false);
+  const [projectSearch, setProjectSearch] = useState("");
 
   const [sessionId, setSessionId] = useState<number | null>(null);
   const [startedAt, setStartedAt] = useState<number | null>(null);
@@ -251,16 +254,30 @@ export default function AppHomePage() {
     if (!newProjectName.trim()) return;
 
     try {
-      const project = await projectsApi.create(newProjectName.trim(), newProjectIcon);
+      const project = await projectsApi.create(
+        newProjectName.trim(),
+        newProjectIcon,
+        null,
+        newProjectParentId,
+        newProjectPinned,
+      );
       setProjectList((list) => [...list, project].sort((a, b) => a.name.localeCompare(b.name)));
       setNewProjectName("");
       setNewProjectIcon(null);
+      setNewProjectParentId(null);
+      setNewProjectPinned(false);
       setCreatingProject(false);
       await handleDetailsChange({ projectId: project.id });
     } catch (err) {
       setError(err instanceof ApiError ? err.message : "Something went wrong");
     }
   }
+
+  const selectableProjects = projectList.filter(
+    (project) =>
+      (!project.archived || project.id === projectId) &&
+      project.path.toLowerCase().includes(projectSearch.trim().toLowerCase()),
+  );
 
   async function handleDetailsChange(next: { projectId?: number | null; description?: string }) {
     const nextProjectId = next.projectId !== undefined ? next.projectId : projectId;
@@ -394,6 +411,13 @@ export default function AppHomePage() {
 
       <Card className="w-full max-w-sm">
         <CardContent className="space-y-3">
+          <Input
+            type="search"
+            value={projectSearch}
+            onChange={(event) => setProjectSearch(event.target.value)}
+            placeholder="Search projects by name or path"
+            aria-label="Search projects"
+          />
           <Select
             value={projectId !== null ? String(projectId) : NO_PROJECT_VALUE}
             onValueChange={(value) => {
@@ -426,12 +450,15 @@ export default function AppHomePage() {
                 <ProjectIcon icon={null} className="size-4" />
                 No project
               </SelectItem>
-              {projectList.map((project) => (
+              {selectableProjects.map((project) => (
                 <SelectItem key={project.id} value={String(project.id)}>
                   <ProjectIcon icon={project.icon} className="size-4" />
-                  {project.name}
+                  {project.path}{project.pinned ? " · Pinned" : ""}
                 </SelectItem>
               ))}
+              {selectableProjects.length === 0 && projectSearch && (
+                <div className="text-muted-foreground px-2 py-3 text-center text-sm">No matching projects</div>
+              )}
               <SelectSeparator />
               <SelectItem value={NEW_PROJECT_VALUE}>+ New project</SelectItem>
             </SelectContent>
@@ -465,6 +492,20 @@ export default function AppHomePage() {
                 </Button>
               </div>
               <ProjectIconPicker value={newProjectIcon} onChange={setNewProjectIcon} />
+              <select
+                value={newProjectParentId ?? ""}
+                onChange={(event) => setNewProjectParentId(event.target.value ? Number(event.target.value) : null)}
+                aria-label="Parent project"
+                className="border-input bg-background h-9 w-full rounded-md border px-3 text-sm"
+              >
+                <option value="">Root project</option>
+                {projectList.filter((project) => !project.archived && project.depth < 3).map((project) => (
+                  <option key={project.id} value={project.id}>{project.path}</option>
+                ))}
+              </select>
+              <Button type="button" variant={newProjectPinned ? "default" : "outline"} onClick={() => setNewProjectPinned((value) => !value)}>
+                {newProjectPinned ? "Pinned" : "Pin project"}
+              </Button>
             </div>
           )}
 

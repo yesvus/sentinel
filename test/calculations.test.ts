@@ -19,6 +19,12 @@ const project: Project = {
   name: "Thesis",
   icon: "book",
   description: "Research project",
+  parentId: null,
+  pinned: false,
+  archived: false,
+  path: "Thesis",
+  depth: 1,
+  lastUsedAt: null,
 };
 
 describe("statistics and exports", () => {

@@ -49,7 +49,7 @@ function sessionCsvRow(session: StudySession, now: number): CsvRow {
       end ? end.toLocaleTimeString(undefined, { hour: "2-digit", minute: "2-digit", hour12: false }) : "",
       Math.round(seconds / 60),
       isActive ? "In progress" : "Completed",
-      session.project_name ?? "",
+      session.project_path ?? session.project_name ?? "",
       session.description ?? "",
       session.started_at,
       session.ended_at ?? "",

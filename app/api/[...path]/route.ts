@@ -48,8 +48,16 @@ async function activeSession(userId: number) {
     sql: `
       SELECT sessions.id, sessions.started_at, sessions.ended_at,
              sessions.duration_seconds, sessions.description, sessions.production_percentage,
-             project_id, projects.name AS project_name, projects.icon AS project_icon
+             project_id, projects.name AS project_name, projects.icon AS project_icon,
+             projects.archived AS project_archived,
+             CASE WHEN grandparent.id IS NOT NULL THEN grandparent.name || ' / ' || parent.name || ' / ' || projects.name
+                  WHEN parent.id IS NOT NULL THEN parent.name || ' / ' || projects.name ELSE projects.name END AS project_path,
+             COALESCE(grandparent.id, parent.id, projects.id) AS root_project_id,
+             COALESCE(grandparent.name, parent.name, projects.name) AS root_project_name,
+             COALESCE(grandparent.icon, parent.icon, projects.icon) AS root_project_icon
       FROM sessions LEFT JOIN projects ON projects.id = sessions.project_id
+      LEFT JOIN projects parent ON parent.id = projects.parent_id
+      LEFT JOIN projects grandparent ON grandparent.id = parent.parent_id
       WHERE sessions.user_id = ? AND sessions.ended_at IS NULL
     `,
     args: [userId],
@@ -243,8 +251,16 @@ async function sessionRoutes(request: NextRequest, parts: string[], userId: numb
       sql: `
         SELECT sessions.id, sessions.started_at, sessions.ended_at,
                sessions.duration_seconds, sessions.description, sessions.production_percentage,
-               project_id, projects.name AS project_name, projects.icon AS project_icon
+               project_id, projects.name AS project_name, projects.icon AS project_icon,
+               projects.archived AS project_archived,
+               CASE WHEN grandparent.id IS NOT NULL THEN grandparent.name || ' / ' || parent.name || ' / ' || projects.name
+                    WHEN parent.id IS NOT NULL THEN parent.name || ' / ' || projects.name ELSE projects.name END AS project_path,
+               COALESCE(grandparent.id, parent.id, projects.id) AS root_project_id,
+               COALESCE(grandparent.name, parent.name, projects.name) AS root_project_name,
+               COALESCE(grandparent.icon, parent.icon, projects.icon) AS root_project_icon
         FROM sessions LEFT JOIN projects ON projects.id = sessions.project_id
+        LEFT JOIN projects parent ON parent.id = projects.parent_id
+        LEFT JOIN projects grandparent ON grandparent.id = parent.parent_id
         WHERE sessions.user_id = ? ${cursorClause}
         ORDER BY sessions.started_at DESC, sessions.id DESC
         ${limit !== null ? "LIMIT ?" : ""}
@@ -351,38 +367,135 @@ async function sessionRoutes(request: NextRequest, parts: string[], userId: numb
   return error("Not found", 404);
 }
 
+type ProjectRow = {
+  id: number; name: string; icon: string | null; description: string | null;
+  parent_id: number | null; pinned: number; archived: number; last_used_at: string | null;
+};
+
+async function userProjects(userId: number) {
+  const result = await db.execute({
+    sql: `SELECT projects.id, projects.name, projects.icon, projects.description,
+                 projects.parent_id, projects.pinned, projects.archived,
+                 MAX(sessions.started_at) AS last_used_at
+          FROM projects LEFT JOIN sessions ON sessions.project_id = projects.id
+          WHERE projects.user_id = ?
+          GROUP BY projects.id`,
+    args: [userId],
+  });
+  return result.rows.map((row) => ({
+    ...row,
+    id: Number(row.id),
+    parent_id: row.parent_id === null ? null : Number(row.parent_id),
+    pinned: Number(row.pinned),
+    archived: Number(row.archived),
+  })) as unknown as ProjectRow[];
+}
+
+function decorateProjects(rows: ProjectRow[]) {
+  const byId = new Map(rows.map((row) => [row.id, row]));
+  const pathFor = (row: ProjectRow) => {
+    const names = [row.name];
+    let parentId = row.parent_id;
+    const seen = new Set([row.id]);
+    while (parentId !== null && !seen.has(parentId)) {
+      seen.add(parentId);
+      const parent = byId.get(parentId);
+      if (!parent) break;
+      names.unshift(parent.name);
+      parentId = parent.parent_id;
+    }
+    return names;
+  };
+  return rows.map((row) => {
+    const names = pathFor(row);
+    return {
+      id: row.id, name: row.name, icon: row.icon, description: row.description,
+      parentId: row.parent_id, pinned: Boolean(row.pinned), archived: Boolean(row.archived),
+      path: names.join(" / "), depth: names.length, lastUsedAt: row.last_used_at,
+    };
+  }).sort((a, b) => Number(b.pinned) - Number(a.pinned) ||
+    (b.lastUsedAt ?? "").localeCompare(a.lastUsedAt ?? "") || a.path.localeCompare(b.path));
+}
+
+function validateProjectParent(rows: ProjectRow[], id: number | null, parentId: number | null) {
+  if (parentId === null) return null;
+  if (parentId === id) return "A project cannot be its own parent";
+  const byId = new Map(rows.map((row) => [row.id, row]));
+  if (!byId.has(parentId)) return "Parent project not found";
+  let depth = 1;
+  let cursor: number | null = parentId;
+  const ancestors = new Set<number>();
+  while (cursor !== null) {
+    if (cursor === id) return "A project cannot be moved below its descendant";
+    if (ancestors.has(cursor)) return "Project hierarchy contains a cycle";
+    ancestors.add(cursor);
+    cursor = byId.get(cursor)?.parent_id ?? null;
+    depth += 1;
+  }
+  const descendants = (projectId: number): number =>
+    1 + Math.max(0, ...rows.filter((row) => row.parent_id === projectId).map((row) => descendants(row.id)));
+  const subtreeDepth = id === null ? 1 : descendants(id);
+  return depth - 1 + subtreeDepth > 3 ? "Projects can be nested to a maximum of three levels" : null;
+}
+
 async function projectRoutes(request: NextRequest, parts: string[], userId: number) {
   const id = parts[1] ? Number(parts[1]) : null;
   if (id === null && request.method === "GET") {
-    const result = await db.execute({
-      sql: "SELECT id, name, icon, description FROM projects WHERE user_id = ? ORDER BY name",
-      args: [userId],
-    });
-    return NextResponse.json(result.rows);
+    return NextResponse.json(decorateProjects(await userProjects(userId)));
   }
   if (id === null && request.method === "POST") {
     const data = await body(request);
     if (typeof data.name !== "string" || !data.name.trim()) return error("Name is required");
+    const parentId = data.parentId == null ? null : Number(data.parentId);
+    const rows = await userProjects(userId);
+    const parentError = validateProjectParent(rows, null, parentId);
+    if (parentError) return error(parentError);
     const description = typeof data.description === "string" ? data.description.trim() || null : null;
     const result = await db.execute({
-      sql: "INSERT INTO projects (user_id, name, icon, description) VALUES (?, ?, ?, ?)",
-      args: [userId, data.name.trim(), data.icon ?? null, description],
+      sql: "INSERT INTO projects (user_id, name, icon, description, parent_id, pinned) VALUES (?, ?, ?, ?, ?, ?)",
+      args: [userId, data.name.trim(), data.icon ?? null, description, parentId, data.pinned ? 1 : 0],
     });
-    return NextResponse.json({
-      id: Number(result.lastInsertRowid), name: data.name.trim(), icon: data.icon ?? null, description,
-    }, { status: 201 });
+    const projects = decorateProjects(await userProjects(userId));
+    return NextResponse.json(projects.find((project) => project.id === Number(result.lastInsertRowid)), { status: 201 });
   }
   if (!Number.isInteger(id)) return error("Not found", 404);
   if (request.method === "PATCH") {
     const data = await body(request);
-    if (typeof data.name !== "string" || !data.name.trim()) return error("Name is required");
-    const description = typeof data.description === "string" ? data.description.trim() || null : null;
+    const rows = await userProjects(userId);
+    const existing = rows.find((row) => row.id === id);
+    if (!existing) return error("Project not found", 404);
+    const parentId = data.parentId !== undefined
+      ? (data.parentId === null ? null : Number(data.parentId))
+      : existing.parent_id;
+    const parentError = validateProjectParent(rows, id, parentId);
+    if (parentError) return error(parentError);
+    const name = data.name !== undefined ? (typeof data.name === "string" ? data.name.trim() : "") : existing.name;
+    if (!name) return error("Name is required");
+    const description = data.description !== undefined
+      ? (typeof data.description === "string" ? data.description.trim() || null : null)
+      : existing.description;
+    const archived = data.archived !== undefined ? Boolean(data.archived) : Boolean(existing.archived);
     const result = await db.execute({
-      sql: "UPDATE projects SET name = ?, icon = ?, description = ? WHERE id = ? AND user_id = ?",
-      args: [data.name.trim(), data.icon ?? null, description, id!, userId],
+      sql: "UPDATE projects SET name = ?, icon = ?, description = ?, parent_id = ?, pinned = ?, archived = ? WHERE id = ? AND user_id = ?",
+      args: [name, data.icon !== undefined ? data.icon : existing.icon, description, parentId,
+        data.pinned !== undefined ? (data.pinned ? 1 : 0) : existing.pinned,
+        archived ? 1 : 0, id!, userId],
     });
     if (!result.rowsAffected) return error("Project not found", 404);
-    return NextResponse.json({ id, name: data.name.trim(), icon: data.icon ?? null, description });
+    if (data.archived !== undefined) {
+      const descendants = new Set<number>([id!]);
+      let changed = true;
+      while (changed) {
+        changed = false;
+        for (const row of rows) if (row.parent_id !== null && descendants.has(row.parent_id) && !descendants.has(row.id)) {
+          descendants.add(row.id); changed = true;
+        }
+      }
+      for (const descendantId of descendants) {
+        await db.execute({ sql: "UPDATE projects SET archived = ? WHERE id = ? AND user_id = ?", args: [archived ? 1 : 0, descendantId, userId] });
+      }
+    }
+    return NextResponse.json(decorateProjects(await userProjects(userId)).find((project) => project.id === id));
   }
   if (request.method === "DELETE") {
     await db.execute({

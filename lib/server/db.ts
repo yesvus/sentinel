@@ -51,6 +51,13 @@ async function initialize() {
     try { await db.execute(`ALTER TABLE projects ADD COLUMN ${column}`); } catch {}
   }
   for (const column of [
+    "parent_id INTEGER REFERENCES projects(id)",
+    "pinned INTEGER NOT NULL DEFAULT 0",
+    "archived INTEGER NOT NULL DEFAULT 0",
+  ]) {
+    try { await db.execute(`ALTER TABLE projects ADD COLUMN ${column}`); } catch {}
+  }
+  for (const column of [
     "description TEXT",
     "project_id INTEGER REFERENCES projects(id)",
     "production_percentage INTEGER CHECK (production_percentage IS NULL OR (production_percentage BETWEEN 0 AND 100 AND production_percentage % 10 = 0))",
@@ -95,6 +102,10 @@ async function initialize() {
   try {
     await db.execute("CREATE UNIQUE INDEX IF NOT EXISTS idx_one_active_session_per_user ON sessions (user_id) WHERE ended_at IS NULL");
   } catch {}
+  await db.execute("CREATE INDEX IF NOT EXISTS idx_sessions_user_started ON sessions (user_id, started_at)");
+  await db.execute("CREATE INDEX IF NOT EXISTS idx_sessions_user_project ON sessions (user_id, project_id)");
+  await db.execute("CREATE INDEX IF NOT EXISTS idx_projects_user_parent ON projects (user_id, parent_id)");
+  await db.execute("CREATE INDEX IF NOT EXISTS idx_projects_user_archived ON projects (user_id, archived)");
 }
 
 export function ensureDb() {

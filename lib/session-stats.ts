@@ -56,12 +56,14 @@ export type ProjectTotal = { key: string; name: string; icon: string | null; sec
 export function projectTotals(sessionList: StudySession[], now: number): ProjectTotal[] {
   const totals = new Map<string, ProjectTotal>();
   for (const session of sessionList) {
-    const key = session.project_id !== null ? String(session.project_id) : "none";
+    const key = session.root_project_id != null
+      ? String(session.root_project_id)
+      : session.project_id !== null ? String(session.project_id) : "none";
     const existing = totals.get(key);
     totals.set(key, {
       key,
-      name: session.project_name ?? NO_PROJECT_LABEL,
-      icon: session.project_icon,
+      name: session.root_project_name ?? session.project_name ?? NO_PROJECT_LABEL,
+      icon: session.root_project_icon ?? session.project_icon,
       seconds: (existing?.seconds ?? 0) + sessionDurationSeconds(session, now),
     });
   }

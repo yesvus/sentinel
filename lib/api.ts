@@ -86,6 +86,11 @@ export type StudySession = {
   project_id: number | null;
   project_name: string | null;
   project_icon: string | null;
+  project_path?: string | null;
+  root_project_id?: number | null;
+  root_project_name?: string | null;
+  root_project_icon?: string | null;
+  project_archived?: number | boolean | null;
   production_percentage?: number | null;
 };
 
@@ -153,17 +158,30 @@ export const notes = {
     }),
 };
 
-export type Project = { id: number; name: string; icon: string | null; description: string | null };
+export type Project = {
+  id: number;
+  name: string;
+  icon: string | null;
+  description: string | null;
+  parentId: number | null;
+  pinned: boolean;
+  archived: boolean;
+  path: string;
+  depth: number;
+  lastUsedAt: string | null;
+};
 
 export const projects = {
   list: () => api<Project[]>("/api/projects"),
-  create: (name: string, icon?: string | null, description?: string | null) =>
-    api<Project>("/api/projects", { method: "POST", body: JSON.stringify({ name, icon, description }) }),
-  rename: (id: number, name: string, icon?: string | null, description?: string | null) =>
+  create: (name: string, icon?: string | null, description?: string | null, parentId?: number | null, pinned?: boolean) =>
+    api<Project>("/api/projects", { method: "POST", body: JSON.stringify({ name, icon, description, parentId, pinned }) }),
+  rename: (id: number, name: string, icon?: string | null, description?: string | null, parentId?: number | null) =>
     api<Project>(`/api/projects/${id}`, {
       method: "PATCH",
-      body: JSON.stringify({ name, icon, description }),
+      body: JSON.stringify({ name, icon, description, parentId }),
     }),
+  updateState: (id: number, details: { pinned?: boolean; archived?: boolean }) =>
+    api<Project>(`/api/projects/${id}`, { method: "PATCH", body: JSON.stringify(details) }),
   remove: (id: number) => api<void>(`/api/projects/${id}`, { method: "DELETE" }),
 };
 

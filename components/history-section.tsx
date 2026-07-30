@@ -403,7 +403,7 @@ export function HistorySection({
                         return (
                           <span className="flex items-center gap-2">
                             <ProjectIcon icon={project?.icon ?? null} className="size-4" />
-                            {project?.name ?? "No project"}
+                            {project?.path ?? "No project"}
                           </span>
                         );
                       }}
@@ -414,10 +414,10 @@ export function HistorySection({
                       <ProjectIcon icon={null} className="size-4" />
                       No project
                     </SelectItem>
-                    {projectList.map((project) => (
+                    {projectList.filter((project) => !project.archived || project.id === addProjectId).map((project) => (
                       <SelectItem key={project.id} value={String(project.id)}>
                         <ProjectIcon icon={project.icon} className="size-4" />
-                        {project.name}
+                        {project.path}
                       </SelectItem>
                     ))}
                   </SelectContent>
@@ -584,7 +584,7 @@ export function HistorySection({
                                         </span>
                                         <Badge variant={session.project_name ? "secondary" : "outline"} className="gap-1">
                                           <ProjectIcon icon={session.project_icon} className="size-3" />
-                                          {session.project_name ?? NO_PROJECT_LABEL}
+                                          {session.project_path ?? session.project_name ?? NO_PROJECT_LABEL}
                                         </Badge>
                                         {isActive && (
                                           <Badge className="bg-primary/15 text-primary gap-1">
