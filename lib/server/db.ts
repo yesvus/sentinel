@@ -56,6 +56,7 @@ async function initialize() {
     "auto_start_noise INTEGER NOT NULL DEFAULT 0",
     "focus_audio_type TEXT NOT NULL DEFAULT 'speech-blocker'",
     "default_session_type TEXT NOT NULL DEFAULT 'learning'",
+    "calendar_token TEXT",
   ]) {
     try { await db.execute(`ALTER TABLE users ADD COLUMN ${column}`); } catch {}
   }

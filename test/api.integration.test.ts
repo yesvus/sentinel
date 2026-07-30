@@ -20,7 +20,11 @@ async function request(method: Method, path: string, options: { body?: unknown; 
   const response = await handlers[method](nextRequest, {
     params: Promise.resolve({ path: path.split("?")[0].split("/") }),
   });
-  const responseBody = response.status === 204 ? null : await response.json();
+  const responseBody = response.status === 204
+    ? null
+    : response.headers.get("content-type")?.includes("application/json")
+      ? await response.json()
+      : await response.text();
   return { response, body: responseBody };
 }
 
@@ -188,6 +192,27 @@ describe("Next API", () => {
     const second = await request("GET", "reports/weekly?timezone=UTC", { cookie });
     expect(second.body.find((item: { weekStart: string }) => item.weekStart === "2026-07-20").finalizedAt)
       .toBe(report.finalizedAt);
+  });
+
+  it("creates and revokes a private iCalendar activity feed", async () => {
+    const cookie = await register("calendar@example.test");
+    await request("POST", "sessions", {
+      cookie,
+      body: {
+        startedAt: "2026-07-29T08:00:00.000Z",
+        endedAt: "2026-07-29T09:00:00.000Z",
+        description: "Write outline",
+      },
+    });
+    const token = await request("POST", "calendar/token", { cookie });
+    const feed = await request("GET", `calendar/feed?token=${token.body.token}`);
+    expect(feed.response.status).toBe(200);
+    expect(feed.response.headers.get("content-type")).toContain("text/calendar");
+    expect(feed.body).toContain("BEGIN:VEVENT");
+    expect(feed.body).toContain("Write outline");
+
+    await request("DELETE", "calendar/token", { cookie });
+    expect((await request("GET", `calendar/feed?token=${token.body.token}`)).response.status).toBe(404);
   });
 
   it("edits an active session without finishing it", async () => {

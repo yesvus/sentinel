@@ -1,10 +1,10 @@
 "use client";
 
 import { useState } from "react";
-import { Clock3, Gauge, Monitor, Moon, ShieldCheck, Sun } from "lucide-react";
+import { CalendarDays, Clock3, Copy, Gauge, Monitor, Moon, ShieldCheck, Sun } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
-import { ApiError, auth } from "@/lib/api";
+import { ApiError, auth, calendar } from "@/lib/api";
 import { useAuth } from "@/lib/auth-context";
 import { ThemeMode, useTheme } from "@/lib/theme-context";
 
@@ -13,6 +13,7 @@ export default function SettingsPage() {
   const { mode, schedule, setMode, setSchedule } = useTheme();
   const [savingPrivacy, setSavingPrivacy] = useState(false);
   const [savingSessionDefault, setSavingSessionDefault] = useState(false);
+  const [calendarToken, setCalendarToken] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
 
   async function update() {
@@ -27,6 +28,20 @@ export default function SettingsPage() {
     } finally {
       setSavingPrivacy(false);
     }
+  }
+
+  async function createCalendarFeed() {
+    setError(null);
+    try {
+      setCalendarToken((await calendar.token()).token);
+    } catch (err) {
+      setError(err instanceof ApiError ? err.message : "Could not create calendar feed");
+    }
+  }
+
+  async function revokeCalendarFeed() {
+    await calendar.revoke();
+    setCalendarToken(null);
   }
 
   async function updateSessionDefault(defaultSessionType: "learning" | "producing") {
@@ -55,6 +70,54 @@ export default function SettingsPage() {
           <Button variant={user?.shareSessionDescriptions ? "default" : "outline"} role="switch" aria-checked={user?.shareSessionDescriptions ?? false} onClick={update} disabled={savingPrivacy}>
             {savingPrivacy ? "Saving..." : user?.shareSessionDescriptions ? "Sharing on" : "Sharing off"}
           </Button>
+        </CardContent>
+      </Card>
+      <Card>
+        <CardHeader>
+          <CardTitle className="flex items-center gap-2">
+            <CalendarDays className="text-muted-foreground size-4" />
+            Calendar sync
+          </CardTitle>
+        </CardHeader>
+        <CardContent className="space-y-4">
+          <div>
+            <p className="text-sm font-medium">Sentinel activity calendar</p>
+            <p className="text-muted-foreground text-sm">
+              Subscribe from Google Calendar, Apple Calendar, Outlook, or another iCalendar app.
+              Completed sessions appear as events. Treat the private link like a password.
+            </p>
+          </div>
+          {!calendarToken ? (
+            <Button type="button" variant="outline" onClick={createCalendarFeed}>
+              Create private calendar link
+            </Button>
+          ) : (
+            <div className="space-y-3">
+              <code className="bg-muted block overflow-x-auto rounded-md p-3 text-xs">
+                {`${typeof window === "undefined" ? "" : window.location.origin}/api/calendar/feed?token=${calendarToken}`}
+              </code>
+              <div className="flex flex-wrap gap-2">
+                <Button
+                  type="button"
+                  variant="outline"
+                  onClick={() => navigator.clipboard.writeText(`${window.location.origin}/api/calendar/feed?token=${calendarToken}`)}
+                >
+                  <Copy />
+                  Copy subscription URL
+                </Button>
+                <Button
+                  type="button"
+                  variant="outline"
+                  render={<a href={`/api/calendar/feed?token=${calendarToken}`} download="sentinel-activity.ics" />}
+                >
+                  Download .ics
+                </Button>
+                <Button type="button" variant="destructive" onClick={revokeCalendarFeed}>
+                  Revoke link
+                </Button>
+              </div>
+            </div>
+          )}
         </CardContent>
       </Card>
       <Card>

@@ -242,6 +242,11 @@ export const reports = {
     api<WeeklyReport[]>(`/api/reports/weekly?timezone=${encodeURIComponent(timezone)}`),
 };
 
+export const calendar = {
+  token: () => api<{ token: string }>("/api/calendar/token", { method: "POST" }),
+  revoke: () => api<void>("/api/calendar/token", { method: "DELETE" }),
+};
+
 export type SocialUser = {
   id: number;
   name: string | null;
