@@ -1,0 +1,459 @@
+import bcrypt from "bcrypt";
+import { NextRequest, NextResponse } from "next/server";
+import { db, ensureDb } from "@/lib/server/db";
+import { COOKIE_OPTIONS, createToken, getUserId, unauthorized } from "@/lib/server/auth";
+
+export const runtime = "nodejs";
+export const dynamic = "force-dynamic";
+
+type Context = { params: Promise<{ path: string[] }> };
+const noContent = () => new NextResponse(null, { status: 204 });
+const error = (message: string, status = 400) => NextResponse.json({ error: message }, { status });
+const body = (request: NextRequest) => request.json().catch(() => ({}));
+
+async function activeSession(userId: number) {
+  const result = await db.execute({
+    sql: `
+      SELECT sessions.id, sessions.started_at, sessions.ended_at,
+             sessions.duration_seconds, sessions.description,
+             project_id, projects.name AS project_name, projects.icon AS project_icon
+      FROM sessions LEFT JOIN projects ON projects.id = sessions.project_id
+      WHERE sessions.user_id = ? AND sessions.ended_at IS NULL
+    `,
+    args: [userId],
+  });
+  return result.rows[0] ?? null;
+}
+
+function uniqueActiveError(value: unknown) {
+  return value instanceof Error && "code" in value &&
+    (value as { code?: string }).code === "SQLITE_CONSTRAINT" &&
+    value.message.includes("sessions.user_id");
+}
+
+async function authRoutes(request: NextRequest, parts: string[]) {
+  const action = parts[1];
+  if (action === "register" && request.method === "POST") {
+    const data = await body(request);
+    const email = typeof data.email === "string" ? data.email.trim().toLowerCase() : "";
+    const password = data.password;
+    if (!email || typeof password !== "string" || password.length < 8) {
+      return error("Email and a password of at least 8 characters are required");
+    }
+    const existing = await db.execute({ sql: "SELECT id FROM users WHERE lower(email) = ?", args: [email] });
+    if (existing.rows.length) return error("Email already registered", 409);
+    const passwordHash = await bcrypt.hash(password, 10);
+    const result = await db.execute({
+      sql: "INSERT INTO users (email, password_hash) VALUES (?, ?)",
+      args: [email, passwordHash],
+    });
+    const id = Number(result.lastInsertRowid);
+    const response = NextResponse.json({
+      id, email, name: null, avatar: null, shareSessionDescriptions: false, autoStartNoise: false,
+    }, { status: 201 });
+    response.cookies.set("token", createToken(id), COOKIE_OPTIONS);
+    return response;
+  }
+  if (action === "login" && request.method === "POST") {
+    const data = await body(request);
+    if (typeof data.email !== "string" || typeof data.password !== "string") return error("Email and password are required");
+    const result = await db.execute({
+      sql: "SELECT id, email, password_hash, name, avatar, share_session_descriptions, auto_start_noise FROM users WHERE lower(email) = ?",
+      args: [data.email.trim().toLowerCase()],
+    });
+    const user = result.rows[0];
+    if (!user || !(await bcrypt.compare(data.password, user.password_hash as string))) return error("Invalid email or password", 401);
+    const response = NextResponse.json({
+      id: Number(user.id), email: user.email, name: user.name, avatar: user.avatar,
+      shareSessionDescriptions: Boolean(user.share_session_descriptions),
+      autoStartNoise: Boolean(user.auto_start_noise),
+    });
+    response.cookies.set("token", createToken(Number(user.id)), COOKIE_OPTIONS);
+    return response;
+  }
+  if (action === "logout" && request.method === "POST") {
+    const response = noContent();
+    response.cookies.set("token", "", { ...COOKIE_OPTIONS, maxAge: 0 });
+    return response;
+  }
+
+  const userId = getUserId(request);
+  if (!userId) return unauthorized();
+  if (action === "me" && request.method === "GET") {
+    const result = await db.execute({
+      sql: "SELECT id, email, name, avatar, share_session_descriptions, auto_start_noise FROM users WHERE id = ?",
+      args: [userId],
+    });
+    const user = result.rows[0];
+    if (!user) return error("User not found", 404);
+    return NextResponse.json({
+      id: Number(user.id), email: user.email, name: user.name, avatar: user.avatar,
+      shareSessionDescriptions: Boolean(user.share_session_descriptions),
+      autoStartNoise: Boolean(user.auto_start_noise),
+    });
+  }
+  if (action === "me" && request.method === "PATCH") {
+    const data = await body(request);
+    await db.execute({
+      sql: "UPDATE users SET name = ?, avatar = ? WHERE id = ?",
+      args: [data.name ?? null, data.avatar ?? null, userId],
+    });
+    return NextResponse.json({ name: data.name ?? null, avatar: data.avatar ?? null });
+  }
+  if (action === "privacy" && request.method === "PATCH") {
+    const data = await body(request);
+    if (typeof data.shareSessionDescriptions !== "boolean") return error("shareSessionDescriptions must be a boolean");
+    await db.execute({
+      sql: "UPDATE users SET share_session_descriptions = ? WHERE id = ?",
+      args: [data.shareSessionDescriptions ? 1 : 0, userId],
+    });
+    return NextResponse.json({ shareSessionDescriptions: data.shareSessionDescriptions });
+  }
+  if (action === "audio-settings" && request.method === "PATCH") {
+    const data = await body(request);
+    if (typeof data.autoStartNoise !== "boolean") return error("autoStartNoise must be a boolean");
+    await db.execute({
+      sql: "UPDATE users SET auto_start_noise = ? WHERE id = ?",
+      args: [data.autoStartNoise ? 1 : 0, userId],
+    });
+    return NextResponse.json({ autoStartNoise: data.autoStartNoise });
+  }
+  if (action === "change-password" && request.method === "POST") {
+    const data = await body(request);
+    if (typeof data.currentPassword !== "string" || typeof data.newPassword !== "string" || data.newPassword.length < 8) {
+      return error("Current password and a new password of at least 8 characters are required");
+    }
+    const result = await db.execute({ sql: "SELECT password_hash FROM users WHERE id = ?", args: [userId] });
+    if (!result.rows[0] || !(await bcrypt.compare(data.currentPassword, result.rows[0].password_hash as string))) {
+      return error("Current password is incorrect", 401);
+    }
+    await db.execute({
+      sql: "UPDATE users SET password_hash = ? WHERE id = ?",
+      args: [await bcrypt.hash(data.newPassword, 10), userId],
+    });
+    return noContent();
+  }
+  return error("Not found", 404);
+}
+
+async function sessionRoutes(request: NextRequest, parts: string[], userId: number) {
+  const action = parts[1];
+  if (action === "active" && request.method === "GET") return NextResponse.json(await activeSession(userId));
+  if (action === "start" && request.method === "POST") {
+    const data = await body(request);
+    const startedAt = new Date().toISOString();
+    try {
+      const result = await db.execute({
+        sql: "INSERT INTO sessions (user_id, started_at, description, project_id) VALUES (?, ?, ?, ?)",
+        args: [userId, startedAt, data.description ?? null, data.projectId ?? null],
+      });
+      return NextResponse.json({ id: Number(result.lastInsertRowid), startedAt }, { status: 201 });
+    } catch (caught) {
+      if (!uniqueActiveError(caught)) throw caught;
+      return NextResponse.json({ error: "A session is already in progress", session: await activeSession(userId) }, { status: 409 });
+    }
+  }
+  if (!action && request.method === "GET") {
+    const result = await db.execute({
+      sql: `
+        SELECT sessions.id, sessions.started_at, sessions.ended_at,
+               sessions.duration_seconds, sessions.description,
+               project_id, projects.name AS project_name, projects.icon AS project_icon
+        FROM sessions LEFT JOIN projects ON projects.id = sessions.project_id
+        WHERE sessions.user_id = ? ORDER BY sessions.started_at DESC
+      `,
+      args: [userId],
+    });
+    return NextResponse.json(result.rows);
+  }
+  if (!action && request.method === "POST") {
+    const data = await body(request);
+    if (typeof data.startedAt !== "string" || typeof data.endedAt !== "string") return error("startedAt and endedAt are required");
+    const start = new Date(data.startedAt);
+    const end = new Date(data.endedAt);
+    if (Number.isNaN(start.getTime()) || Number.isNaN(end.getTime())) return error("startedAt and endedAt must be valid dates");
+    if (end <= start) return error("endedAt must be after startedAt");
+    const durationSeconds = Math.round((end.getTime() - start.getTime()) / 1000);
+    const result = await db.execute({
+      sql: "INSERT INTO sessions (user_id, started_at, ended_at, duration_seconds, description, project_id) VALUES (?, ?, ?, ?, ?, ?)",
+      args: [userId, start.toISOString(), end.toISOString(), durationSeconds, data.description ?? null, data.projectId ?? null],
+    });
+    return NextResponse.json({
+      id: Number(result.lastInsertRowid), startedAt: start.toISOString(), endedAt: end.toISOString(), durationSeconds,
+    }, { status: 201 });
+  }
+
+  const id = Number(action);
+  if (!Number.isInteger(id)) return error("Not found", 404);
+  if (parts[2] === "stop" && request.method === "PATCH") {
+    const existing = await db.execute({
+      sql: "SELECT started_at FROM sessions WHERE id = ? AND user_id = ?",
+      args: [id, userId],
+    });
+    if (!existing.rows[0]) return error("Session not found", 404);
+    const endedAt = new Date();
+    const durationSeconds = Math.round((endedAt.getTime() - new Date(existing.rows[0].started_at as string).getTime()) / 1000);
+    await db.execute({
+      sql: "UPDATE sessions SET ended_at = ?, duration_seconds = ? WHERE id = ? AND user_id = ?",
+      args: [endedAt.toISOString(), durationSeconds, id, userId],
+    });
+    return NextResponse.json({ id, endedAt: endedAt.toISOString(), durationSeconds });
+  }
+  if (request.method === "DELETE") {
+    const result = await db.execute({ sql: "DELETE FROM sessions WHERE id = ? AND user_id = ?", args: [id, userId] });
+    return result.rowsAffected ? noContent() : error("Session not found", 404);
+  }
+  if (request.method === "PATCH") {
+    const data = await body(request);
+    const existing = await db.execute({
+      sql: "SELECT started_at, ended_at, description, project_id FROM sessions WHERE id = ? AND user_id = ?",
+      args: [id, userId],
+    });
+    const session = existing.rows[0];
+    if (!session) return error("Session not found", 404);
+    const start = new Date(data.startedAt ?? session.started_at as string);
+    const wasActive = session.ended_at === null;
+    const end = data.endedAt !== undefined ? new Date(data.endedAt) : wasActive ? null : new Date(session.ended_at as string);
+    if (Number.isNaN(start.getTime()) || (end && Number.isNaN(end.getTime()))) return error("startedAt and endedAt must be valid dates");
+    if (end && end <= start) return error("endedAt must be after startedAt");
+    const durationSeconds = end ? Math.round((end.getTime() - start.getTime()) / 1000) : null;
+    const description = data.description !== undefined ? data.description : session.description;
+    const projectId = data.projectId !== undefined ? data.projectId : session.project_id;
+    await db.execute({
+      sql: "UPDATE sessions SET description = ?, project_id = ?, started_at = ?, ended_at = ?, duration_seconds = ? WHERE id = ? AND user_id = ?",
+      args: [description ?? null, projectId ?? null, start.toISOString(), end?.toISOString() ?? null, durationSeconds, id, userId],
+    });
+    return NextResponse.json({
+      id, description: description ?? null, projectId: projectId ?? null,
+      startedAt: start.toISOString(), endedAt: end?.toISOString() ?? null, durationSeconds,
+    });
+  }
+  return error("Not found", 404);
+}
+
+async function projectRoutes(request: NextRequest, parts: string[], userId: number) {
+  const id = parts[1] ? Number(parts[1]) : null;
+  if (id === null && request.method === "GET") {
+    const result = await db.execute({
+      sql: "SELECT id, name, icon, description FROM projects WHERE user_id = ? ORDER BY name",
+      args: [userId],
+    });
+    return NextResponse.json(result.rows);
+  }
+  if (id === null && request.method === "POST") {
+    const data = await body(request);
+    if (typeof data.name !== "string" || !data.name.trim()) return error("Name is required");
+    const description = typeof data.description === "string" ? data.description.trim() || null : null;
+    const result = await db.execute({
+      sql: "INSERT INTO projects (user_id, name, icon, description) VALUES (?, ?, ?, ?)",
+      args: [userId, data.name.trim(), data.icon ?? null, description],
+    });
+    return NextResponse.json({
+      id: Number(result.lastInsertRowid), name: data.name.trim(), icon: data.icon ?? null, description,
+    }, { status: 201 });
+  }
+  if (!Number.isInteger(id)) return error("Not found", 404);
+  if (request.method === "PATCH") {
+    const data = await body(request);
+    if (typeof data.name !== "string" || !data.name.trim()) return error("Name is required");
+    const description = typeof data.description === "string" ? data.description.trim() || null : null;
+    const result = await db.execute({
+      sql: "UPDATE projects SET name = ?, icon = ?, description = ? WHERE id = ? AND user_id = ?",
+      args: [data.name.trim(), data.icon ?? null, description, id!, userId],
+    });
+    if (!result.rowsAffected) return error("Project not found", 404);
+    return NextResponse.json({ id, name: data.name.trim(), icon: data.icon ?? null, description });
+  }
+  if (request.method === "DELETE") {
+    await db.execute({
+      sql: "UPDATE sessions SET project_id = NULL WHERE project_id = ? AND user_id = ?",
+      args: [id!, userId],
+    });
+    const result = await db.execute({
+      sql: "DELETE FROM projects WHERE id = ? AND user_id = ?",
+      args: [id!, userId],
+    });
+    return result.rowsAffected ? noContent() : error("Project not found", 404);
+  }
+  return error("Not found", 404);
+}
+
+async function noteRoutes(request: NextRequest, parts: string[], userId: number) {
+  if (!parts[1] && request.method === "GET") {
+    const result = await db.execute({
+      sql: "SELECT id, scope, date_key, content, updated_at FROM notes WHERE user_id = ?",
+      args: [userId],
+    });
+    return NextResponse.json(result.rows);
+  }
+  const scope = parts[1];
+  const dateKey = parts[2];
+  if ((scope !== "day" && scope !== "week") || !/^\d{4}-\d{2}-\d{2}$/.test(dateKey ?? "")) return error("Invalid note scope or date");
+  if (request.method === "DELETE") {
+    await db.execute({
+      sql: "DELETE FROM notes WHERE user_id = ? AND scope = ? AND date_key = ?",
+      args: [userId, scope, dateKey],
+    });
+    return noContent();
+  }
+  if (request.method === "PUT") {
+    const data = await body(request);
+    if (typeof data.content !== "string") return error("content is required");
+    const content = data.content.trim();
+    if (!content) {
+      await db.execute({
+        sql: "DELETE FROM notes WHERE user_id = ? AND scope = ? AND date_key = ?",
+        args: [userId, scope, dateKey],
+      });
+      return noContent();
+    }
+    const updatedAt = new Date().toISOString();
+    await db.execute({
+      sql: `INSERT INTO notes (user_id, scope, date_key, content, updated_at)
+            VALUES (?, ?, ?, ?, ?)
+            ON CONFLICT (user_id, scope, date_key)
+            DO UPDATE SET content = excluded.content, updated_at = excluded.updated_at`,
+      args: [userId, scope, dateKey, content, updatedAt],
+    });
+    const result = await db.execute({
+      sql: "SELECT id, scope, date_key, content, updated_at FROM notes WHERE user_id = ? AND scope = ? AND date_key = ?",
+      args: [userId, scope, dateKey],
+    });
+    return NextResponse.json(result.rows[0]);
+  }
+  return error("Not found", 404);
+}
+
+function socialUser(row: Record<string, unknown>) {
+  return { id: Number(row.user_id), name: row.name ?? null, email: row.email, avatar: row.avatar ?? null };
+}
+
+async function socialRoutes(request: NextRequest, parts: string[], userId: number) {
+  const section = parts[1];
+  const id = parts[2] ? Number(parts[2]) : null;
+  if (section === "connections" && id === null && request.method === "GET") {
+    const result = await db.execute({
+      sql: `SELECT f.id, f.status, f.requester_id, f.addressee_id,
+                   u.id AS user_id, u.name, u.email, u.avatar
+            FROM friendships f
+            JOIN users u ON u.id = CASE WHEN f.requester_id = ? THEN f.addressee_id ELSE f.requester_id END
+            WHERE f.requester_id = ? OR f.addressee_id = ?
+            ORDER BY f.created_at DESC`,
+      args: [userId, userId, userId],
+    });
+    return NextResponse.json(result.rows.map((row) => ({
+      friendshipId: Number(row.id), status: row.status,
+      direction: row.status === "accepted" ? "friend" : Number(row.requester_id) === userId ? "outgoing" : "incoming",
+      user: socialUser(row),
+    })));
+  }
+  if (section === "requests" && id === null && request.method === "POST") {
+    const data = await body(request);
+    const email = typeof data.email === "string" ? data.email.trim().toLowerCase() : "";
+    if (!email) return error("Email is required");
+    const found = await db.execute({
+      sql: "SELECT id, name, email, avatar FROM users WHERE lower(email) = ?",
+      args: [email],
+    });
+    const target = found.rows[0];
+    if (!target) return error("No Sentinel user has that email", 404);
+    const targetId = Number(target.id);
+    if (targetId === userId) return error("You cannot send a friend request to yourself");
+    const existing = await db.execute({
+      sql: `SELECT id, status, requester_id FROM friendships
+            WHERE (requester_id = ? AND addressee_id = ?) OR (requester_id = ? AND addressee_id = ?)`,
+      args: [userId, targetId, targetId, userId],
+    });
+    const connection = existing.rows[0];
+    if (connection?.status === "accepted") return error("You are already friends", 409);
+    if (connection && Number(connection.requester_id) === targetId) {
+      await db.execute({
+        sql: "UPDATE friendships SET status = 'accepted', updated_at = datetime('now') WHERE id = ?",
+        args: [connection.id],
+      });
+      return NextResponse.json({
+        friendshipId: Number(connection.id), status: "accepted", direction: "friend",
+        user: { id: targetId, name: target.name, email: target.email, avatar: target.avatar },
+      });
+    }
+    if (connection) return error("Friend request already sent", 409);
+    const result = await db.execute({
+      sql: "INSERT INTO friendships (requester_id, addressee_id) VALUES (?, ?)",
+      args: [userId, targetId],
+    });
+    return NextResponse.json({
+      friendshipId: Number(result.lastInsertRowid), status: "pending", direction: "outgoing",
+      user: { id: targetId, name: target.name, email: target.email, avatar: target.avatar },
+    }, { status: 201 });
+  }
+  if (section === "requests" && id !== null && request.method === "PATCH") {
+    const data = await body(request);
+    if (data.action !== "accept" && data.action !== "decline") return error("Action must be accept or decline");
+    const found = await db.execute({
+      sql: "SELECT id FROM friendships WHERE id = ? AND addressee_id = ? AND status = 'pending'",
+      args: [id, userId],
+    });
+    if (!found.rows[0]) return error("Friend request not found", 404);
+    if (data.action === "accept") {
+      await db.execute({
+        sql: "UPDATE friendships SET status = 'accepted', updated_at = datetime('now') WHERE id = ?",
+        args: [id],
+      });
+    } else await db.execute({ sql: "DELETE FROM friendships WHERE id = ?", args: [id] });
+    return noContent();
+  }
+  if (section === "connections" && id !== null && request.method === "DELETE") {
+    const result = await db.execute({
+      sql: "DELETE FROM friendships WHERE id = ? AND (requester_id = ? OR addressee_id = ?)",
+      args: [id, userId, userId],
+    });
+    return result.rowsAffected ? noContent() : error("Connection not found", 404);
+  }
+  if (section === "activity" && request.method === "GET") {
+    const result = await db.execute({
+      sql: `SELECT s.id, s.user_id, s.started_at, s.ended_at, s.duration_seconds,
+                   CASE WHEN u.share_session_descriptions = 1 THEN s.description ELSE NULL END AS description,
+                   p.name AS project_name, p.icon AS project_icon,
+                   u.name AS user_name, u.email AS user_email, u.avatar AS user_avatar
+            FROM friendships f
+            JOIN users u ON u.id = CASE WHEN f.requester_id = ? THEN f.addressee_id ELSE f.requester_id END
+            JOIN sessions s ON s.user_id = u.id LEFT JOIN projects p ON p.id = s.project_id
+            WHERE f.status = 'accepted' AND (f.requester_id = ? OR f.addressee_id = ?)
+            ORDER BY (s.ended_at IS NULL) DESC, s.started_at DESC LIMIT 100`,
+      args: [userId, userId, userId],
+    });
+    return NextResponse.json(result.rows);
+  }
+  return error("Not found", 404);
+}
+
+async function handle(request: NextRequest, context: Context) {
+  await ensureDb();
+  const { path } = await context.params;
+  if (path[0] === "health") return NextResponse.json({ ok: true });
+  if (path[0] === "auth") return authRoutes(request, path);
+  const userId = getUserId(request);
+  if (!userId) return unauthorized();
+  if (path[0] === "sessions") return sessionRoutes(request, path, userId);
+  if (path[0] === "projects") return projectRoutes(request, path, userId);
+  if (path[0] === "notes") return noteRoutes(request, path, userId);
+  if (path[0] === "social") return socialRoutes(request, path, userId);
+  return error("Not found", 404);
+}
+
+async function safely(request: NextRequest, context: Context) {
+  try {
+    const response = await handle(request, context);
+    response.headers.set("Cache-Control", "no-store");
+    return response;
+  } catch (caught) {
+    console.error(caught);
+    return error("Internal server error", 500);
+  }
+}
+
+export const GET = safely;
+export const POST = safely;
+export const PUT = safely;
+export const PATCH = safely;
+export const DELETE = safely;

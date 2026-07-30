@@ -1,0 +1,97 @@
+import "server-only";
+import { createClient } from "@libsql/client";
+
+export const db = createClient({
+  url: process.env.TURSO_DATABASE_URL ?? "file:local.db",
+  authToken: process.env.TURSO_AUTH_TOKEN,
+});
+
+let initialization: Promise<void> | null = null;
+
+async function initialize() {
+  await db.execute(`
+    CREATE TABLE IF NOT EXISTS users (
+      id INTEGER PRIMARY KEY AUTOINCREMENT,
+      email TEXT UNIQUE NOT NULL,
+      password_hash TEXT NOT NULL,
+      created_at TEXT NOT NULL DEFAULT (datetime('now'))
+    )
+  `);
+  await db.execute(`
+    CREATE TABLE IF NOT EXISTS projects (
+      id INTEGER PRIMARY KEY AUTOINCREMENT,
+      user_id INTEGER NOT NULL REFERENCES users(id),
+      name TEXT NOT NULL,
+      created_at TEXT NOT NULL DEFAULT (datetime('now'))
+    )
+  `);
+  await db.execute(`
+    CREATE TABLE IF NOT EXISTS sessions (
+      id INTEGER PRIMARY KEY AUTOINCREMENT,
+      user_id INTEGER NOT NULL REFERENCES users(id),
+      started_at TEXT NOT NULL,
+      ended_at TEXT,
+      duration_seconds INTEGER,
+      description TEXT,
+      project_id INTEGER REFERENCES projects(id)
+    )
+  `);
+
+  for (const column of [
+    "name TEXT",
+    "avatar TEXT",
+    "share_session_descriptions INTEGER NOT NULL DEFAULT 0",
+    "auto_start_noise INTEGER NOT NULL DEFAULT 0",
+  ]) {
+    try { await db.execute(`ALTER TABLE users ADD COLUMN ${column}`); } catch {}
+  }
+  for (const column of ["icon TEXT", "description TEXT"]) {
+    try { await db.execute(`ALTER TABLE projects ADD COLUMN ${column}`); } catch {}
+  }
+  for (const column of ["description TEXT", "project_id INTEGER REFERENCES projects(id)"]) {
+    try { await db.execute(`ALTER TABLE sessions ADD COLUMN ${column}`); } catch {}
+  }
+
+  await db.execute(`
+    CREATE TABLE IF NOT EXISTS notes (
+      id INTEGER PRIMARY KEY AUTOINCREMENT,
+      user_id INTEGER NOT NULL REFERENCES users(id),
+      scope TEXT NOT NULL CHECK (scope IN ('day', 'week')),
+      date_key TEXT NOT NULL,
+      content TEXT NOT NULL,
+      created_at TEXT NOT NULL DEFAULT (datetime('now')),
+      updated_at TEXT NOT NULL DEFAULT (datetime('now')),
+      UNIQUE (user_id, scope, date_key)
+    )
+  `);
+  await db.execute(`
+    CREATE TABLE IF NOT EXISTS friendships (
+      id INTEGER PRIMARY KEY AUTOINCREMENT,
+      requester_id INTEGER NOT NULL REFERENCES users(id),
+      addressee_id INTEGER NOT NULL REFERENCES users(id),
+      status TEXT NOT NULL DEFAULT 'pending' CHECK (status IN ('pending', 'accepted')),
+      created_at TEXT NOT NULL DEFAULT (datetime('now')),
+      updated_at TEXT NOT NULL DEFAULT (datetime('now')),
+      CHECK (requester_id <> addressee_id),
+      UNIQUE (requester_id, addressee_id)
+    )
+  `);
+  await db.execute("CREATE INDEX IF NOT EXISTS idx_friendships_addressee ON friendships (addressee_id, status)");
+  await db.execute(`
+    DELETE FROM sessions
+    WHERE ended_at IS NULL AND EXISTS (
+      SELECT 1 FROM sessions s2
+      WHERE s2.user_id = sessions.user_id
+        AND s2.ended_at IS NULL
+        AND s2.started_at > sessions.started_at
+    )
+  `);
+  try {
+    await db.execute("CREATE UNIQUE INDEX IF NOT EXISTS idx_one_active_session_per_user ON sessions (user_id) WHERE ended_at IS NULL");
+  } catch {}
+}
+
+export function ensureDb() {
+  initialization ??= initialize();
+  return initialization;
+}
