@@ -12,6 +12,7 @@ import { ProjectBreakdownCard } from "@/components/project-breakdown-card";
 import { HistorySection } from "@/components/history-section";
 import { LearningProducingChart } from "@/components/learning-producing-chart";
 import { WeeklyTrendChart } from "@/components/weekly-trend-chart";
+import { WeeklyReportHistory } from "@/components/weekly-report-history";
 
 const WEEKS = 14;
 const DAYS = WEEKS * 7;
@@ -246,6 +247,7 @@ export default function StatsPage() {
 
       <LearningProducingChart points={allocationPoints} />
       <WeeklyTrendChart sessions={sessionList} now={now} />
+      <WeeklyReportHistory />
 
       <HistorySection
         sessions={sessionList}

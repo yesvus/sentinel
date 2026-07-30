@@ -16,6 +16,7 @@ function cacheLifetime(path: string) {
   if (path === "/api/projects") return 60_000;
   if (path.startsWith("/api/sessions?")) return 30_000;
   if (path === "/api/notes") return 30_000;
+  if (path.startsWith("/api/reports/weekly?")) return 10 * 60_000;
   return 0;
 }
 
@@ -220,6 +221,25 @@ export const projects = {
   updateState: (id: number, details: { pinned?: boolean; archived?: boolean }) =>
     api<Project>(`/api/projects/${id}`, { method: "PATCH", body: JSON.stringify(details) }),
   remove: (id: number) => api<void>(`/api/projects/${id}`, { method: "DELETE" }),
+};
+
+export type WeeklyReport = {
+  weekStart: string;
+  weekEnd: string;
+  timezone: string;
+  totalSeconds: number;
+  activeDays: number;
+  medianSeconds: number | null;
+  learningSeconds: number;
+  producingSeconds: number;
+  topProject: string | null;
+  sessionCount: number;
+  finalizedAt: string;
+};
+
+export const reports = {
+  weekly: (timezone: string) =>
+    api<WeeklyReport[]>(`/api/reports/weekly?timezone=${encodeURIComponent(timezone)}`),
 };
 
 export type SocialUser = {

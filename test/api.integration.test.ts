@@ -34,7 +34,7 @@ async function register(email: string) {
 
 beforeEach(async () => {
   await ensureDb();
-  for (const table of ["friendships", "notes", "sessions", "projects", "users"]) {
+  for (const table of ["weekly_reports", "friendships", "notes", "sessions", "projects", "users"]) {
     await db.execute(`DELETE FROM ${table}`);
   }
 });
@@ -153,6 +153,29 @@ describe("Next API", () => {
       body: { productionPercentage: 20 },
     });
     expect(updated.body.productionPercentage).toBe(20);
+  });
+
+  it("finalizes and reuses timezone-scoped weekly reports", async () => {
+    const cookie = await register("reports@example.test");
+    await request("POST", "sessions", {
+      cookie,
+      body: {
+        startedAt: "2026-07-22T08:00:00.000Z",
+        endedAt: "2026-07-22T09:00:00.000Z",
+        productionPercentage: 50,
+      },
+    });
+    const first = await request("GET", "reports/weekly?timezone=UTC", { cookie });
+    const report = first.body.find((item: { weekStart: string }) => item.weekStart === "2026-07-20");
+    expect(report).toMatchObject({
+      totalSeconds: 3600,
+      learningSeconds: 1800,
+      producingSeconds: 1800,
+      activeDays: 1,
+    });
+    const second = await request("GET", "reports/weekly?timezone=UTC", { cookie });
+    expect(second.body.find((item: { weekStart: string }) => item.weekStart === "2026-07-20").finalizedAt)
+      .toBe(report.finalizedAt);
   });
 
   it("edits an active session without finishing it", async () => {

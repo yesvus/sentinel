@@ -89,6 +89,19 @@ async function initialize() {
       UNIQUE (requester_id, addressee_id)
     )
   `);
+  await db.execute(`
+    CREATE TABLE IF NOT EXISTS weekly_reports (
+      id INTEGER PRIMARY KEY AUTOINCREMENT,
+      user_id INTEGER NOT NULL REFERENCES users(id),
+      week_start TEXT NOT NULL,
+      timezone TEXT NOT NULL,
+      calculation_version INTEGER NOT NULL DEFAULT 1,
+      data_json TEXT NOT NULL,
+      finalized_at TEXT NOT NULL DEFAULT (datetime('now')),
+      UNIQUE (user_id, week_start, timezone, calculation_version)
+    )
+  `);
+  await db.execute("CREATE INDEX IF NOT EXISTS idx_weekly_reports_user_week ON weekly_reports (user_id, week_start)");
   await db.execute("CREATE INDEX IF NOT EXISTS idx_friendships_addressee ON friendships (addressee_id, status)");
   await db.execute(`
     DELETE FROM sessions
