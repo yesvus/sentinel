@@ -18,6 +18,7 @@ import { sessions, projects as projectsApi, ApiError, Project, StudySession } fr
 import { useAuth } from "@/lib/auth-context";
 import { ProjectIcon } from "@/lib/icons";
 import { NOISE_SESSION_EVENT } from "@/lib/noise-player";
+import { ProjectIconPicker } from "@/components/project-icon-picker";
 
 const NEW_PROJECT_VALUE = "__new__";
 const NO_PROJECT_VALUE = "__none__";
@@ -57,6 +58,7 @@ export default function AppHomePage() {
   const [description, setDescription] = useState("");
   const [creatingProject, setCreatingProject] = useState(false);
   const [newProjectName, setNewProjectName] = useState("");
+  const [newProjectIcon, setNewProjectIcon] = useState<string | null>(null);
 
   const [sessionId, setSessionId] = useState<number | null>(null);
   const [startedAt, setStartedAt] = useState<number | null>(null);
@@ -233,9 +235,10 @@ export default function AppHomePage() {
     if (!newProjectName.trim()) return;
 
     try {
-      const project = await projectsApi.create(newProjectName.trim());
+      const project = await projectsApi.create(newProjectName.trim(), newProjectIcon);
       setProjectList((list) => [...list, project].sort((a, b) => a.name.localeCompare(b.name)));
       setNewProjectName("");
+      setNewProjectIcon(null);
       setCreatingProject(false);
       await handleDetailsChange({ projectId: project.id });
     } catch (err) {
@@ -354,29 +357,33 @@ export default function AppHomePage() {
           </Select>
 
           {creatingProject && (
-            <div className="flex gap-2">
-              <Input
-                autoFocus
-                placeholder="Project name"
-                value={newProjectName}
-                onChange={(e) => setNewProjectName(e.target.value)}
-                onKeyDown={(e) => {
-                  if (e.key === "Enter") {
-                    e.preventDefault();
-                    handleCreateProject();
-                  }
-                }}
-              />
-              <Button onClick={handleCreateProject}>Add</Button>
-              <Button
-                variant="ghost"
-                onClick={() => {
-                  setCreatingProject(false);
-                  setNewProjectName("");
-                }}
-              >
-                Cancel
-              </Button>
+            <div className="space-y-3 rounded-md border p-3">
+              <div className="flex gap-2">
+                <Input
+                  autoFocus
+                  placeholder="Project name"
+                  value={newProjectName}
+                  onChange={(e) => setNewProjectName(e.target.value)}
+                  onKeyDown={(e) => {
+                    if (e.key === "Enter") {
+                      e.preventDefault();
+                      handleCreateProject();
+                    }
+                  }}
+                />
+                <Button onClick={handleCreateProject}>Add</Button>
+                <Button
+                  variant="ghost"
+                  onClick={() => {
+                    setCreatingProject(false);
+                    setNewProjectName("");
+                    setNewProjectIcon(null);
+                  }}
+                >
+                  Cancel
+                </Button>
+              </div>
+              <ProjectIconPicker value={newProjectIcon} onChange={setNewProjectIcon} />
             </div>
           )}
 

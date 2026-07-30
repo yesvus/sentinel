@@ -7,22 +7,8 @@ import { Input } from "@/components/ui/input";
 import { Textarea } from "@/components/ui/textarea";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { ApiError, Project, projects as projectsApi } from "@/lib/api";
-import { PROJECT_ICONS, ProjectIcon, ProjectIconKey } from "@/lib/icons";
-
-function IconPicker({ value, onChange }: { value: string | null; onChange: (icon: string | null) => void }) {
-  return (
-    <div className="flex flex-wrap gap-1.5" aria-label="Project icon">
-      <button type="button" aria-label="Default folder icon" onClick={() => onChange(null)} className={`text-muted-foreground flex size-8 items-center justify-center rounded-md ring-1 ${value === null ? "ring-primary bg-primary/10" : "ring-border"}`}>
-        <ProjectIcon icon={null} className="size-4" />
-      </button>
-      {(Object.keys(PROJECT_ICONS) as ProjectIconKey[]).map((key) => (
-        <button key={key} type="button" aria-label={`${key} icon`} onClick={() => onChange(key)} className={`flex size-8 items-center justify-center rounded-md ring-1 ${value === key ? "ring-primary bg-primary/10" : "ring-border"}`}>
-          <ProjectIcon icon={key} className="size-4" />
-        </button>
-      ))}
-    </div>
-  );
-}
+import { ProjectIcon } from "@/lib/icons";
+import { ProjectIconPicker } from "@/components/project-icon-picker";
 
 export default function ProjectsPage() {
   const [projectList, setProjectList] = useState<Project[]>([]);
@@ -84,7 +70,7 @@ export default function ProjectsPage() {
           <form className="space-y-3" onSubmit={create}>
             <Input aria-label="Project name" placeholder="Project name" value={newName} onChange={(event) => setNewName(event.target.value)} required />
             <Textarea aria-label="Project description" placeholder="What is this project for? (optional)" value={newDescription} onChange={(event) => setNewDescription(event.target.value)} />
-            <IconPicker value={newIcon} onChange={setNewIcon} />
+            <ProjectIconPicker value={newIcon} onChange={setNewIcon} />
             <Button type="submit" className="w-full">Add project</Button>
           </form>
           {error && <p className="text-destructive mt-3 text-sm">{error}</p>}
@@ -101,7 +87,7 @@ export default function ProjectsPage() {
                 <div className="space-y-3">
                   <Input value={editingName} onChange={(event) => setEditingName(event.target.value)} aria-label="Project name" />
                   <Textarea value={editingDescription} onChange={(event) => setEditingDescription(event.target.value)} placeholder="Project description (optional)" aria-label="Project description" />
-                  <IconPicker value={editingIcon} onChange={setEditingIcon} />
+                  <ProjectIconPicker value={editingIcon} onChange={setEditingIcon} />
                   <div className="flex gap-2">
                     <Button size="sm" onClick={() => save(project)}>Save</Button>
                     <Button size="sm" variant="ghost" onClick={() => setEditingId(null)}>Cancel</Button>
