@@ -1,6 +1,7 @@
-import { StudySession } from "./api";
+import { StudySession, Note } from "./api";
 
 const CSV_HEADER = [
+  "Type",
   "Date",
   "Start Time",
   "End Time",
@@ -23,32 +24,59 @@ function toCsvRow(fields: (string | number)[]) {
   return fields.map((field) => escapeCsvField(String(field))).join(",");
 }
 
+type CsvRow = { sortKey: string; fields: (string | number)[] };
+
+/** `now` is used to compute the live duration of a still-running session. */
+function sessionCsvRow(session: StudySession, now: number): CsvRow {
+  const start = new Date(session.started_at);
+  const isActive = session.ended_at === null;
+  const end = isActive ? null : new Date(session.ended_at!);
+  const seconds = isActive
+    ? Math.max(0, Math.floor((now - start.getTime()) / 1000))
+    : (session.duration_seconds ?? 0);
+
+  return {
+    sortKey: session.started_at,
+    fields: [
+      "Session",
+      start.toLocaleDateString(undefined, { year: "numeric", month: "2-digit", day: "2-digit" }),
+      start.toLocaleTimeString(undefined, { hour: "2-digit", minute: "2-digit", hour12: false }),
+      end ? end.toLocaleTimeString(undefined, { hour: "2-digit", minute: "2-digit", hour12: false }) : "",
+      Math.round(seconds / 60),
+      isActive ? "In progress" : "Completed",
+      session.project_name ?? "",
+      session.description ?? "",
+      session.started_at,
+      session.ended_at ?? "",
+    ],
+  };
+}
+
+function noteCsvRow(note: Note): CsvRow {
+  return {
+    sortKey: `${note.date_key}T00:00:00.000Z`,
+    fields: [
+      note.scope === "day" ? "Day note" : "Week note",
+      note.date_key,
+      "",
+      "",
+      "",
+      "",
+      "",
+      note.content,
+      "",
+      "",
+    ],
+  };
+}
+
 /** `now` is used to compute the live duration of any still-running session. */
-export function sessionsToCsv(sessionList: StudySession[], now: number) {
-  const rows = [...sessionList]
-    .sort((a, b) => new Date(a.started_at).getTime() - new Date(b.started_at).getTime())
-    .map((session) => {
-      const start = new Date(session.started_at);
-      const isActive = session.ended_at === null;
-      const end = isActive ? null : new Date(session.ended_at!);
-      const seconds = isActive
-        ? Math.max(0, Math.floor((now - start.getTime()) / 1000))
-        : (session.duration_seconds ?? 0);
+export function sessionsToCsv(sessionList: StudySession[], noteList: Note[], now: number) {
+  const rows = [...sessionList.map((s) => sessionCsvRow(s, now)), ...noteList.map(noteCsvRow)].sort((a, b) =>
+    a.sortKey.localeCompare(b.sortKey)
+  );
 
-      return toCsvRow([
-        start.toLocaleDateString(undefined, { year: "numeric", month: "2-digit", day: "2-digit" }),
-        start.toLocaleTimeString(undefined, { hour: "2-digit", minute: "2-digit", hour12: false }),
-        end ? end.toLocaleTimeString(undefined, { hour: "2-digit", minute: "2-digit", hour12: false }) : "",
-        Math.round(seconds / 60),
-        isActive ? "In progress" : "Completed",
-        session.project_name ?? "",
-        session.description ?? "",
-        session.started_at,
-        session.ended_at ?? "",
-      ]);
-    });
-
-  return [toCsvRow(CSV_HEADER), ...rows].join("\n");
+  return [toCsvRow(CSV_HEADER), ...rows.map((r) => toCsvRow(r.fields))].join("\n");
 }
 
 export function downloadCsv(filename: string, csv: string) {
@@ -63,6 +91,6 @@ export function downloadCsv(filename: string, csv: string) {
   URL.revokeObjectURL(url);
 }
 
-export function exportSessions(filename: string, sessionList: StudySession[], now: number) {
-  downloadCsv(filename, sessionsToCsv(sessionList, now));
+export function exportSessions(filename: string, sessionList: StudySession[], noteList: Note[], now: number) {
+  downloadCsv(filename, sessionsToCsv(sessionList, noteList, now));
 }

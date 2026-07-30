@@ -6,6 +6,12 @@ export function dayKey(date: Date) {
   return `${date.getFullYear()}-${pad(date.getMonth() + 1)}-${pad(date.getDate())}`;
 }
 
+/** Inverse of dayKey/weekKey: builds a local-midnight Date from a "YYYY-MM-DD" key. */
+export function parseDateKey(key: string): Date {
+  const [year, month, day] = key.split("-").map(Number);
+  return new Date(year, month - 1, day);
+}
+
 export function startOfDay(date: Date) {
   const d = new Date(date);
   d.setHours(0, 0, 0, 0);

@@ -49,6 +49,7 @@ import {
   formatTime,
   formatDayLabel,
   formatWeekRangeLabel,
+  parseDateKey,
 } from "@/lib/date";
 
 const NO_PROJECT_LABEL = "No project";
@@ -264,6 +265,16 @@ export function HistorySection({
     return notes.find((n) => n.scope === scope && n.date_key === key);
   }
 
+  function notesForWeek(key: string) {
+    return notes.filter(
+      (n) => (n.scope === "week" && n.date_key === key) || (n.scope === "day" && weekKey(parseDateKey(n.date_key)) === key)
+    );
+  }
+
+  function notesForDay(key: string) {
+    return notes.filter((n) => n.scope === "day" && n.date_key === key);
+  }
+
   function exportFilename(scope: "all" | "week" | "day", key: string) {
     const today = toDateInput(new Date());
     if (scope === "all") return `sentinel-sessions-all-${today}.csv`;
@@ -284,7 +295,7 @@ export function HistorySection({
             size="sm"
             className="gap-1"
             disabled={sessionList.length === 0}
-            onClick={() => exportSessions(exportFilename("all", ""), sessionList, now)}
+            onClick={() => exportSessions(exportFilename("all", ""), sessionList, notes, now)}
           >
             <Download className="size-4" />
             Export all
@@ -425,7 +436,7 @@ export function HistorySection({
                           variant="ghost"
                           size="icon-sm"
                           className="text-muted-foreground"
-                          onClick={() => exportSessions(exportFilename("week", week.key), week.sessions, now)}
+                          onClick={() => exportSessions(exportFilename("week", week.key), week.sessions, notesForWeek(week.key), now)}
                         >
                           <Download />
                         </Button>
@@ -468,7 +479,7 @@ export function HistorySection({
                                       variant="ghost"
                                       size="icon-sm"
                                       className="text-muted-foreground"
-                                      onClick={() => exportSessions(exportFilename("day", day.key), day.sessions, now)}
+                                      onClick={() => exportSessions(exportFilename("day", day.key), day.sessions, notesForDay(day.key), now)}
                                     >
                                       <Download />
                                     </Button>
