@@ -249,6 +249,7 @@ async function sessionRoutes(request: NextRequest, parts: string[], userId: numb
     const wasActive = session.ended_at === null;
     const end = data.endedAt !== undefined ? new Date(data.endedAt) : wasActive ? null : new Date(session.ended_at as string);
     if (Number.isNaN(start.getTime()) || (end && Number.isNaN(end.getTime()))) return error("startedAt and endedAt must be valid dates");
+    if (wasActive && start.getTime() > Date.now()) return error("startedAt cannot be in the future");
     if (end && end <= start) return error("endedAt must be after startedAt");
     const durationSeconds = end ? Math.round((end.getTime() - start.getTime()) / 1000) : null;
     const description = data.description !== undefined ? data.description : session.description;

@@ -92,6 +92,46 @@ describe("Next API", () => {
     });
   });
 
+  it("edits an active session without finishing it", async () => {
+    const cookie = await register("active-edit@example.test");
+    const started = await request("POST", "sessions/start", {
+      cookie,
+      body: { description: "Original" },
+    });
+    const correctedStart = new Date(Date.now() - 15 * 60 * 1000).toISOString();
+    const updated = await request("PATCH", `sessions/${started.body.id}`, {
+      cookie,
+      body: { startedAt: correctedStart, description: "Still running" },
+    });
+    const active = await request("GET", "sessions/active", { cookie });
+
+    expect(updated.body).toMatchObject({
+      startedAt: correctedStart,
+      endedAt: null,
+      durationSeconds: null,
+      description: "Still running",
+    });
+    expect(active.body).toMatchObject({
+      started_at: correctedStart,
+      ended_at: null,
+      duration_seconds: null,
+      description: "Still running",
+    });
+  });
+
+  it("rejects a future start time for an active session", async () => {
+    const cookie = await register("future-edit@example.test");
+    const started = await request("POST", "sessions/start", { cookie });
+    const updated = await request("PATCH", `sessions/${started.body.id}`, {
+      cookie,
+      body: { startedAt: new Date(Date.now() + 60_000).toISOString() },
+    });
+
+    expect(updated.response.status).toBe(400);
+    expect(updated.body.error).toBe("startedAt cannot be in the future");
+    expect((await request("GET", "sessions/active", { cookie })).body.id).toBe(started.body.id);
+  });
+
   it("only shares descriptions with confirmed friends after opt-in", async () => {
     const alice = await register("alice@example.test");
     const bob = await register("bob@example.test");

@@ -128,6 +128,7 @@ export function HistorySection({
 
   const [addOpen, setAddOpen] = useState(false);
   const [editingId, setEditingId] = useState<number | null>(null);
+  const [editingActive, setEditingActive] = useState(false);
   const [addDate, setAddDate] = useState(() => toDateInput(new Date()));
   const [addStartTime, setAddStartTime] = useState(() => toTimeInput(new Date(Date.now() - 60 * 60 * 1000)));
   const [addEndTime, setAddEndTime] = useState(() => toTimeInput(new Date()));
@@ -138,6 +139,7 @@ export function HistorySection({
 
   function openAddDialog() {
     setEditingId(null);
+    setEditingActive(false);
     setAddDate(toDateInput(new Date()));
     setAddStartTime(toTimeInput(new Date(Date.now() - 60 * 60 * 1000)));
     setAddEndTime(toTimeInput(new Date()));
@@ -151,6 +153,7 @@ export function HistorySection({
     const start = new Date(session.started_at);
     const end = session.ended_at ? new Date(session.ended_at) : new Date();
     setEditingId(session.id);
+    setEditingActive(session.ended_at === null);
     setAddDate(toDateInput(start));
     setAddStartTime(toTimeInput(start));
     setAddEndTime(toTimeInput(end));
@@ -192,9 +195,13 @@ export function HistorySection({
     setAddError(null);
 
     const startedAt = new Date(`${addDate}T${addStartTime}`);
-    const endedAt = new Date(`${addDate}T${addEndTime}`);
+    const endedAt = editingActive ? null : new Date(`${addDate}T${addEndTime}`);
 
-    if (endedAt <= startedAt) {
+    if (startedAt > new Date()) {
+      setAddError("Start time cannot be in the future");
+      return;
+    }
+    if (endedAt && endedAt <= startedAt) {
       setAddError("End time must be after start time");
       return;
     }
@@ -206,7 +213,7 @@ export function HistorySection({
       if (editingId !== null) {
         await sessionsApi.update(editingId, {
           startedAt: startedAt.toISOString(),
-          endedAt: endedAt.toISOString(),
+          ...(endedAt ? { endedAt: endedAt.toISOString() } : {}),
           projectId: addProjectId,
           description: addDescription || null,
         });
@@ -217,8 +224,10 @@ export function HistorySection({
                 ? {
                     ...s,
                     started_at: startedAt.toISOString(),
-                    ended_at: endedAt.toISOString(),
-                    duration_seconds: Math.round((endedAt.getTime() - startedAt.getTime()) / 1000),
+                    ended_at: endedAt?.toISOString() ?? null,
+                    duration_seconds: endedAt
+                      ? Math.round((endedAt.getTime() - startedAt.getTime()) / 1000)
+                      : null,
                     description: addDescription || null,
                     project_id: addProjectId,
                     project_name: project?.name ?? null,
@@ -228,10 +237,20 @@ export function HistorySection({
             )
             .sort((a, b) => new Date(b.started_at).getTime() - new Date(a.started_at).getTime())
         );
+        if (editingActive) {
+          const channel = new BroadcastChannel("sentinel-session-sync");
+          channel.postMessage({
+            type: "updated",
+            projectId: addProjectId,
+            description: addDescription || null,
+            startedAt: startedAt.toISOString(),
+          });
+          channel.close();
+        }
       } else {
         const created = await sessionsApi.createManual({
           startedAt: startedAt.toISOString(),
-          endedAt: endedAt.toISOString(),
+          endedAt: endedAt!.toISOString(),
           projectId: addProjectId,
           description: addDescription || null,
         });
@@ -311,7 +330,9 @@ export function HistorySection({
               <DialogTitle>{editingId !== null ? "Edit session" : "Add a session"}</DialogTitle>
               <DialogDescription>
                 {editingId !== null
-                  ? "Fix a session that ran long, or update its details."
+                  ? editingActive
+                    ? "Update the running session without stopping it."
+                    : "Fix a session that ran long, or update its details."
                   : "For time you forgot to track live. It's added as an already-finished session."}
               </DialogDescription>
             </DialogHeader>
@@ -326,7 +347,7 @@ export function HistorySection({
                   required
                 />
               </div>
-              <div className="grid grid-cols-2 gap-3">
+              <div className={`grid gap-3 ${editingActive ? "grid-cols-1" : "grid-cols-2"}`}>
                 <div className="space-y-2">
                   <Label htmlFor="add-start">Start time</Label>
                   <Input
@@ -337,16 +358,18 @@ export function HistorySection({
                     required
                   />
                 </div>
-                <div className="space-y-2">
-                  <Label htmlFor="add-end">End time</Label>
-                  <Input
-                    id="add-end"
-                    type="time"
-                    value={addEndTime}
-                    onChange={(e) => setAddEndTime(e.target.value)}
-                    required
-                  />
-                </div>
+                {!editingActive && (
+                  <div className="space-y-2">
+                    <Label htmlFor="add-end">End time</Label>
+                    <Input
+                      id="add-end"
+                      type="time"
+                      value={addEndTime}
+                      onChange={(e) => setAddEndTime(e.target.value)}
+                      required
+                    />
+                  </div>
+                )}
               </div>
               <div className="space-y-2">
                 <Label>Project</Label>
@@ -395,7 +418,7 @@ export function HistorySection({
               {addError && <p className="text-destructive text-sm">{addError}</p>}
               <DialogFooter>
                 <Button type="submit" disabled={addBusy}>
-                  {addBusy ? "Adding..." : "Add session"}
+                  {addBusy ? "Saving..." : editingId !== null ? "Save changes" : "Add session"}
                 </Button>
               </DialogFooter>
             </form>
@@ -558,6 +581,7 @@ export function HistorySection({
                                         variant="ghost"
                                         size="icon-sm"
                                         className="text-muted-foreground"
+                                        aria-label="Edit session"
                                         onClick={() => openEditDialog(session)}
                                       >
                                         <Pencil />
@@ -569,6 +593,7 @@ export function HistorySection({
                                               variant="ghost"
                                               size="icon-sm"
                                               className="text-muted-foreground hover:text-destructive"
+                                              aria-label="Delete session"
                                             >
                                               <Trash2 />
                                             </Button>

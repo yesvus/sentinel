@@ -26,7 +26,7 @@ const BROADCAST_CHANNEL_NAME = "sentinel-session-sync";
 type SessionBroadcastMessage =
   | { type: "started"; id: number; startedAt: string; projectId: number | null; description: string | null }
   | { type: "stopped"; durationSeconds: number }
-  | { type: "updated"; projectId: number | null; description: string | null };
+  | { type: "updated"; projectId: number | null; description: string | null; startedAt?: string };
 
 function formatElapsed(ms: number) {
   const totalSeconds = Math.floor(ms / 1000);
@@ -121,6 +121,11 @@ export default function AppHomePage() {
       } else if (message.type === "updated") {
         setProjectId(message.projectId);
         setDescription(message.description ?? "");
+        if (message.startedAt) {
+          const nextStartedAt = new Date(message.startedAt).getTime();
+          setStartedAt(nextStartedAt);
+          setElapsedMs(Math.max(0, Date.now() - nextStartedAt));
+        }
       }
     }
 
