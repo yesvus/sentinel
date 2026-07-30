@@ -1,6 +1,7 @@
 "use client";
 
 import { useState } from "react";
+import { Bar, BarChart, CartesianGrid, XAxis, YAxis } from "recharts";
 import { Layers, ChevronLeft, ChevronRight } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Card, CardHeader, CardTitle, CardContent } from "@/components/ui/card";
@@ -8,6 +9,11 @@ import { StudySession } from "@/lib/api";
 import { ProjectIcon } from "@/lib/icons";
 import { projectTotals, NO_PROJECT_LABEL } from "@/lib/session-stats";
 import { addDays, startOfWeek, weekKey, formatDuration, formatWeekRangeLabel } from "@/lib/date";
+import { ChartConfig, ChartContainer, ChartTooltip, ChartTooltipContent } from "@/components/ui/chart";
+
+const chartConfig = {
+  seconds: { label: "Tracked time", color: "#0e7490" },
+} satisfies ChartConfig;
 
 export function ProjectBreakdownCard({
   sessions: sessionList,
@@ -25,7 +31,6 @@ export function ProjectBreakdownCard({
   const weekSessions = sessionList.filter((s) => weekKey(new Date(s.started_at)) === selectedWeekKey);
   const breakdown = projectTotals(weekSessions, now);
   const totalSeconds = breakdown.reduce((sum, p) => sum + p.seconds, 0);
-  const maxSeconds = Math.max(1, ...breakdown.map((p) => p.seconds));
   const topProject = breakdown.filter((p) => p.name !== NO_PROJECT_LABEL)[0] ?? null;
   const isCurrentWeek = selectedWeekKey === weekKey(currentWeekStart);
 
@@ -71,25 +76,53 @@ export function ProjectBreakdownCard({
                 <span className="text-muted-foreground"> · mostly {topProject.name}</span>
               )}
             </p>
-            <div className="space-y-3">
-              {breakdown.map((project) => (
-                <div key={project.key} className="space-y-1">
-                  <div className="flex justify-between text-sm">
+            <ChartContainer
+              config={chartConfig}
+              className="h-56 w-full"
+              role="img"
+              aria-label={`Root project duration distribution for ${formatWeekRangeLabel(selectedWeekStart)}`}
+            >
+              <BarChart data={breakdown} layout="vertical" accessibilityLayer margin={{ left: 8 }}>
+                <CartesianGrid horizontal={false} />
+                <XAxis type="number" hide />
+                <YAxis
+                  dataKey="name"
+                  type="category"
+                  width={100}
+                  tickLine={false}
+                  axisLine={false}
+                  tick={{ fontSize: 11 }}
+                />
+                <ChartTooltip
+                  content={
+                    <ChartTooltipContent
+                      hideLabel
+                      formatter={(value, _name, item) => (
+                        <div className="flex min-w-40 items-center justify-between gap-4">
+                          <span>{item.payload.name}</span>
+                          <span className="font-mono">{formatDuration(Number(value))}</span>
+                        </div>
+                      )}
+                    />
+                  }
+                />
+                <Bar dataKey="seconds" fill="var(--color-seconds)" radius={[0, 4, 4, 0]} />
+              </BarChart>
+            </ChartContainer>
+            <details className="text-sm">
+              <summary className="cursor-pointer font-medium">Exact project data</summary>
+              <div className="mt-2 space-y-2">
+                {breakdown.map((project) => (
+                  <div key={project.key} className="flex justify-between gap-4">
                     <span className="flex items-center gap-1.5">
                       <ProjectIcon icon={project.icon} className="text-muted-foreground size-3.5" />
                       {project.name}
                     </span>
-                    <span className="text-muted-foreground font-mono">{formatDuration(project.seconds)}</span>
+                    <span className="font-mono">{formatDuration(project.seconds)}</span>
                   </div>
-                  <div className="bg-muted h-2 overflow-hidden rounded-full">
-                    <div
-                      className="bg-primary h-full rounded-full"
-                      style={{ width: `${(project.seconds / maxSeconds) * 100}%` }}
-                    />
-                  </div>
-                </div>
-              ))}
-            </div>
+                ))}
+              </div>
+            </details>
           </div>
         )}
       </CardContent>

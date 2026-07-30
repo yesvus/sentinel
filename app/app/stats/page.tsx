@@ -10,6 +10,8 @@ import { dailyAllocationTotals, dailyTotals } from "@/lib/session-stats";
 import { ReportCards } from "@/components/report-cards";
 import { ProjectBreakdownCard } from "@/components/project-breakdown-card";
 import { HistorySection } from "@/components/history-section";
+import { LearningProducingChart } from "@/components/learning-producing-chart";
+import { WeeklyTrendChart } from "@/components/weekly-trend-chart";
 
 const WEEKS = 14;
 const DAYS = WEEKS * 7;
@@ -137,7 +139,18 @@ export default function StatsPage() {
   const heatmapDays = buildLastNDays(totalsByDay, DAYS);
   const weeks = buildHeatmapWeeks(heatmapDays);
   const recentDays = buildLastNDays(totalsByDay, 7);
-  const maxRecentSeconds = Math.max(1, ...recentDays.map((day) => day.seconds));
+  const allocationPoints = recentDays.map((day) => {
+    const allocation = allocationByDay.get(day.key) ?? {
+      learning: 0, producing: 0, unclassified: 0, total: 0,
+    };
+    return {
+      date: day.date.toLocaleDateString(undefined, { month: "long", day: "numeric", year: "numeric" }),
+      label: day.date.toLocaleDateString(undefined, { weekday: "short" }),
+      learning: allocation.learning,
+      producing: allocation.producing,
+      total: allocation.total,
+    };
+  });
 
   if (loading) {
     return (
@@ -196,6 +209,9 @@ export default function StatsPage() {
                               <div
                                 className="bg-muted size-3.5 rounded-sm"
                                 style={{ backgroundColor: intensityColor(day.seconds) }}
+                                tabIndex={0}
+                                role="gridcell"
+                                aria-label={`${day.date.toLocaleDateString()}: ${day.seconds > 0 ? formatDuration(day.seconds) : "no activity"}`}
                               />
                             }
                           />
@@ -228,75 +244,8 @@ export default function StatsPage() {
         <ProjectBreakdownCard sessions={sessionList} now={now} className="min-w-64 flex-1" />
       </div>
 
-      <Card>
-        <CardHeader>
-          <CardTitle>Learning and Producing</CardTitle>
-        </CardHeader>
-        <CardContent className="space-y-4">
-          <p className="text-muted-foreground text-sm">
-            Your session allocation over the last seven days. Sessions without a selection count as Learning.
-          </p>
-          <div className="flex flex-wrap gap-4 text-xs" aria-hidden="true">
-            <span className="flex items-center gap-1.5">
-              <span className="size-2.5 rounded-sm" style={{ backgroundColor: "#0e7490" }} />
-              Learning
-            </span>
-            <span className="flex items-center gap-1.5">
-              <span className="size-2.5 rounded-sm" style={{ backgroundColor: "#f59e0b" }} />
-              Producing
-            </span>
-          </div>
-          <div className="space-y-3">
-            {recentDays.map((day) => {
-              const allocation = allocationByDay.get(day.key) ?? {
-                learning: 0,
-                producing: 0,
-                unclassified: 0,
-                total: 0,
-              };
-              const chartWidth = allocation.total / maxRecentSeconds * 100;
-              return (
-                <div key={day.key} className="grid grid-cols-[4.5rem_1fr] items-center gap-3">
-                  <span className="text-muted-foreground text-xs">
-                    {day.date.toLocaleDateString(undefined, { weekday: "short", month: "short", day: "numeric" })}
-                  </span>
-                  <div>
-                    <Tooltip>
-                      <TooltipTrigger
-                        render={
-                          <div
-                            className="bg-muted flex h-5 min-w-px overflow-hidden rounded-sm"
-                            style={{ width: `${chartWidth}%` }}
-                            role="img"
-                            aria-label={`${formatDuration(allocation.total)} total: ${formatDuration(allocation.learning)} Learning, ${formatDuration(allocation.producing)} Producing`}
-                          >
-                            {allocation.total > 0 && (
-                              <>
-                                <span style={{ width: `${allocation.learning / allocation.total * 100}%`, backgroundColor: "#0e7490" }} />
-                                <span style={{ width: `${allocation.producing / allocation.total * 100}%`, backgroundColor: "#f59e0b" }} />
-                              </>
-                            )}
-                          </div>
-                        }
-                      />
-                      <TooltipContent>
-                        Learning {allocation.total ? Math.round(allocation.learning / allocation.total * 100) : 0}%
-                        {" · "}
-                        Producing {allocation.total ? Math.round(allocation.producing / allocation.total * 100) : 0}%
-                      </TooltipContent>
-                    </Tooltip>
-                    <span className="sr-only">
-                      {day.date.toLocaleDateString()}: {formatDuration(allocation.total)} total,
-                      {" "}{formatDuration(allocation.learning)} Learning and
-                      {" "}{formatDuration(allocation.producing)} Producing.
-                    </span>
-                  </div>
-                </div>
-              );
-            })}
-          </div>
-        </CardContent>
-      </Card>
+      <LearningProducingChart points={allocationPoints} />
+      <WeeklyTrendChart sessions={sessionList} now={now} />
 
       <HistorySection
         sessions={sessionList}
