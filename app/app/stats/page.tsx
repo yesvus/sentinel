@@ -64,15 +64,22 @@ function monthLabelForWeek(week: (Day | null)[], previousWeek: (Day | null)[] | 
 
 export default function StatsPage() {
   const [sessionList, setSessionList] = useState<StudySession[]>([]);
+  const [historySessions, setHistorySessions] = useState<StudySession[]>([]);
+  const [historyCursor, setHistoryCursor] = useState<string | null>(null);
+  const [loadingMoreHistory, setLoadingMoreHistory] = useState(false);
+  const [historyLoadError, setHistoryLoadError] = useState<string | null>(null);
   const [projectList, setProjectList] = useState<Project[]>([]);
   const [noteList, setNoteList] = useState<Note[]>([]);
   const [loading, setLoading] = useState(true);
   const [now, setNow] = useState(() => Date.now());
 
   useEffect(() => {
-    sessionsApi
-      .list()
-      .then(setSessionList)
+    Promise.all([sessionsApi.list(), sessionsApi.page()])
+      .then(([allSessions, firstPage]) => {
+        setSessionList(allSessions);
+        setHistorySessions(firstPage.items);
+        setHistoryCursor(firstPage.nextCursor);
+      })
       .finally(() => setLoading(false));
     projectsApi.list().then(setProjectList).catch(() => {});
     notesApi.list().then(setNoteList).catch(() => {});
@@ -96,6 +103,29 @@ export default function StatsPage() {
     setNoteList((list) => list.filter((n) => !(n.scope === scope && n.date_key === dateKey)));
   }
 
+  function handleHistorySessionsChange(updater: (list: StudySession[]) => StudySession[]) {
+    setHistorySessions(updater);
+    setSessionList(updater);
+  }
+
+  async function loadMoreHistory() {
+    if (!historyCursor || loadingMoreHistory) return;
+    setLoadingMoreHistory(true);
+    setHistoryLoadError(null);
+    try {
+      const page = await sessionsApi.page(historyCursor);
+      setHistorySessions((current) => {
+        const existingIds = new Set(current.map((session) => session.id));
+        return [...current, ...page.items.filter((session) => !existingIds.has(session.id))];
+      });
+      setHistoryCursor(page.nextCursor);
+    } catch {
+      setHistoryLoadError("Could not load more history.");
+    } finally {
+      setLoadingMoreHistory(false);
+    }
+  }
+
   // dailyTotals/computeProjectTotals include the in-progress session's elapsed-so-far time,
   // using its live duration (computed from `now`) instead of waiting until it's stopped.
   const totalsByDay = dailyTotals(sessionList, now);
@@ -114,7 +144,7 @@ export default function StatsPage() {
   return (
     <div className="mx-auto w-full max-w-5xl space-y-8">
       <ReportCards
-        sessions={sessionList}
+        sessions={historySessions}
         notes={noteList}
         now={now}
         onNoteSaved={handleNoteSaved}
@@ -197,7 +227,11 @@ export default function StatsPage() {
         projects={projectList}
         notes={noteList}
         now={now}
-        onSessionsChange={setSessionList}
+        hasMore={historyCursor !== null}
+        loadingMore={loadingMoreHistory}
+        loadMoreError={historyLoadError}
+        onLoadMore={loadMoreHistory}
+        onSessionsChange={handleHistorySessionsChange}
         onNoteSaved={handleNoteSaved}
         onNoteDeleted={handleNoteDeleted}
       />

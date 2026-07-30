@@ -111,6 +111,10 @@ export function HistorySection({
   projects: projectList,
   notes,
   now,
+  hasMore,
+  loadingMore,
+  loadMoreError,
+  onLoadMore,
   onSessionsChange,
   onNoteSaved,
   onNoteDeleted,
@@ -119,6 +123,10 @@ export function HistorySection({
   projects: Project[];
   notes: Note[];
   now: number;
+  hasMore: boolean;
+  loadingMore: boolean;
+  loadMoreError: string | null;
+  onLoadMore: () => void;
   onSessionsChange: (updater: (list: StudySession[]) => StudySession[]) => void;
   onNoteSaved: (note: Note) => void;
   onNoteDeleted: (scope: "day" | "week", dateKey: string) => void;
@@ -630,6 +638,16 @@ export function HistorySection({
             );
           })}
         </div>
+        {(hasMore || loadMoreError) && (
+          <div className="mt-6 flex flex-col items-center gap-2 border-t pt-4">
+            {loadMoreError && <p className="text-destructive text-sm">{loadMoreError}</p>}
+            {hasMore && (
+              <Button type="button" variant="outline" onClick={onLoadMore} disabled={loadingMore}>
+                {loadingMore ? "Loading..." : loadMoreError ? "Try again" : "Load more"}
+              </Button>
+            )}
+          </div>
+        )}
       </CardContent>
     </Card>
   );

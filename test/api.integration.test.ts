@@ -18,7 +18,7 @@ async function request(method: Method, path: string, options: { body?: unknown; 
     body: options.body === undefined ? undefined : JSON.stringify(options.body),
   });
   const response = await handlers[method](nextRequest, {
-    params: Promise.resolve({ path: path.split("/") }),
+    params: Promise.resolve({ path: path.split("?")[0].split("/") }),
   });
   const responseBody = response.status === 204 ? null : await response.json();
   return { response, body: responseBody };
@@ -130,6 +130,39 @@ describe("Next API", () => {
     expect(updated.response.status).toBe(400);
     expect(updated.body.error).toBe("startedAt cannot be in the future");
     expect((await request("GET", "sessions/active", { cookie })).body.id).toBe(started.body.id);
+  });
+
+  it("paginates history with a stable cursor and no duplicates", async () => {
+    const cookie = await register("pagination@example.test");
+    const startedAt = "2026-07-30T08:00:00.000Z";
+    for (let index = 1; index <= 5; index += 1) {
+      await request("POST", "sessions", {
+        cookie,
+        body: {
+          startedAt,
+          endedAt: `2026-07-30T08:0${index}:00.000Z`,
+          description: `Session ${index}`,
+        },
+      });
+    }
+
+    const seen: number[] = [];
+    let cursor: string | null = null;
+    do {
+      const page = await request(
+        "GET",
+        `sessions?limit=2${cursor ? `&cursor=${encodeURIComponent(cursor)}` : ""}`,
+        { cookie }
+      );
+      expect(page.response.status).toBe(200);
+      expect(page.body.items.length).toBeLessThanOrEqual(2);
+      seen.push(...page.body.items.map((session: { id: number }) => session.id));
+      cursor = page.body.nextCursor;
+    } while (cursor);
+
+    expect(seen).toHaveLength(5);
+    expect(new Set(seen).size).toBe(5);
+    expect(seen).toEqual([...seen].sort((a, b) => b - a));
   });
 
   it("only shares descriptions with confirmed friends after opt-in", async () => {

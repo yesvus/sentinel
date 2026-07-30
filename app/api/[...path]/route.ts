@@ -12,6 +12,26 @@ const error = (message: string, status = 400) => NextResponse.json({ error: mess
 const body = (request: NextRequest) => request.json().catch(() => ({}));
 const FOCUS_AUDIO_TYPES = new Set(["white", "pink", "brown", "speech-blocker", "binaural-40hz"]);
 
+function sessionCursor(startedAt: string, id: number) {
+  return Buffer.from(JSON.stringify([startedAt, id])).toString("base64url");
+}
+
+function parseSessionCursor(cursor: string | null): [string, number] | null {
+  if (!cursor) return null;
+  try {
+    const value = JSON.parse(Buffer.from(cursor, "base64url").toString()) as unknown;
+    if (
+      Array.isArray(value) &&
+      typeof value[0] === "string" &&
+      typeof value[1] === "number" &&
+      Number.isInteger(value[1])
+    ) {
+      return [value[0], value[1]];
+    }
+  } catch {}
+  return null;
+}
+
 async function activeSession(userId: number) {
   const result = await db.execute({
     sql: `
@@ -180,16 +200,44 @@ async function sessionRoutes(request: NextRequest, parts: string[], userId: numb
     }
   }
   if (!action && request.method === "GET") {
+    const requestedLimit = request.nextUrl.searchParams.get("limit");
+    const limit = requestedLimit ? Number(requestedLimit) : null;
+    if (requestedLimit && (!Number.isInteger(limit) || limit! < 1 || limit! > 100)) {
+      return error("limit must be an integer between 1 and 100");
+    }
+    const cursorParam = request.nextUrl.searchParams.get("cursor");
+    const cursor = parseSessionCursor(cursorParam);
+    if (cursorParam && !cursor) return error("Invalid session cursor");
+    const cursorClause = cursor
+      ? "AND (sessions.started_at < ? OR (sessions.started_at = ? AND sessions.id < ?))"
+      : "";
+    const args: (string | number)[] = [userId];
+    if (cursor) args.push(cursor[0], cursor[0], cursor[1]);
+    if (limit !== null) args.push(limit + 1);
     const result = await db.execute({
       sql: `
         SELECT sessions.id, sessions.started_at, sessions.ended_at,
                sessions.duration_seconds, sessions.description,
                project_id, projects.name AS project_name, projects.icon AS project_icon
         FROM sessions LEFT JOIN projects ON projects.id = sessions.project_id
-        WHERE sessions.user_id = ? ORDER BY sessions.started_at DESC
+        WHERE sessions.user_id = ? ${cursorClause}
+        ORDER BY sessions.started_at DESC, sessions.id DESC
+        ${limit !== null ? "LIMIT ?" : ""}
       `,
-      args: [userId],
+      args,
     });
+    if (limit !== null) {
+      const hasMore = result.rows.length > limit;
+      const items = result.rows.slice(0, limit);
+      const last = items.at(-1);
+      return NextResponse.json({
+        items,
+        nextCursor:
+          hasMore && last
+            ? sessionCursor(last.started_at as string, Number(last.id))
+            : null,
+      });
+    }
     return NextResponse.json(result.rows);
   }
   if (!action && request.method === "POST") {

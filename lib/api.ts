@@ -82,6 +82,8 @@ export type StudySession = {
   project_icon: string | null;
 };
 
+export type SessionPage = { items: StudySession[]; nextCursor: string | null };
+
 export const sessions = {
   start: (details?: { projectId?: number | null; description?: string | null }) =>
     api<{ id: number; startedAt: string }>("/api/sessions/start", {
@@ -111,6 +113,11 @@ export const sessions = {
       body: JSON.stringify({ description }),
     }),
   list: () => api<StudySession[]>("/api/sessions"),
+  page: (cursor?: string | null, limit = 30) => {
+    const query = new URLSearchParams({ limit: String(limit) });
+    if (cursor) query.set("cursor", cursor);
+    return api<SessionPage>(`/api/sessions?${query}`);
+  },
   getActive: () => api<StudySession | null>("/api/sessions/active"),
   remove: (id: number) => api<void>(`/api/sessions/${id}`, { method: "DELETE" }),
   createManual: (details: {
