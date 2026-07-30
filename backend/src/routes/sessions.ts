@@ -1,25 +1,59 @@
 import { Router } from "express";
 import { db } from "../db.js";
 import { requireAuth, AuthRequest } from "../middleware/auth.js";
-import { notifyUser } from "../socket.js";
 
 export const sessionsRouter = Router();
 
 sessionsRouter.use(requireAuth);
 
+function isUniqueConstraintError(err: unknown) {
+  return (
+    typeof err === "object" &&
+    err !== null &&
+    "extendedCode" in err &&
+    (err as { extendedCode?: string }).extendedCode === "SQLITE_CONSTRAINT_UNIQUE"
+  );
+}
+
+async function fetchActiveSession(userId: number) {
+  const result = await db.execute({
+    sql: `
+      SELECT sessions.id, started_at, ended_at, duration_seconds, description,
+             project_id, projects.name AS project_name, projects.icon AS project_icon
+      FROM sessions
+      LEFT JOIN projects ON projects.id = sessions.project_id
+      WHERE sessions.user_id = ? AND sessions.ended_at IS NULL
+    `,
+    args: [userId],
+  });
+  return result.rows[0] ?? null;
+}
+
 sessionsRouter.post("/start", async (req: AuthRequest, res) => {
   const { description, projectId } = req.body ?? {};
   const startedAt = new Date().toISOString();
 
-  const result = await db.execute({
-    sql: "INSERT INTO sessions (user_id, started_at, description, project_id) VALUES (?, ?, ?, ?)",
-    args: [req.userId!, startedAt, description ?? null, projectId ?? null],
-  });
+  try {
+    const result = await db.execute({
+      sql: "INSERT INTO sessions (user_id, started_at, description, project_id) VALUES (?, ?, ?, ?)",
+      args: [req.userId!, startedAt, description ?? null, projectId ?? null],
+    });
 
-  const id = Number(result.lastInsertRowid);
-  notifyUser(req.userId!, "session:started", { id, startedAt, projectId: projectId ?? null, description: description ?? null });
+    const id = Number(result.lastInsertRowid);
+    res.status(201).json({ id, startedAt });
+  } catch (err) {
+    if (!isUniqueConstraintError(err)) throw err;
 
-  res.status(201).json({ id, startedAt });
+    // Another request (possibly from a different device) already started a session
+    // for this user; the DB-level unique index is what actually prevents the race.
+    const active = await fetchActiveSession(req.userId!);
+    res.status(409).json({ error: "A session is already in progress", session: active });
+  }
+});
+
+sessionsRouter.get("/active", async (req: AuthRequest, res) => {
+  const active = await fetchActiveSession(req.userId!);
+  res.json(active);
 });
 
 sessionsRouter.post("/", async (req: AuthRequest, res) => {
@@ -94,8 +128,6 @@ sessionsRouter.patch("/:id", async (req: AuthRequest, res) => {
     ],
   });
 
-  notifyUser(req.userId!, "session:updated", { id, description: description ?? null, projectId: projectId ?? null });
-
   res.json({
     id,
     description: description ?? null,
@@ -128,8 +160,6 @@ sessionsRouter.patch("/:id/stop", async (req: AuthRequest, res) => {
     sql: "UPDATE sessions SET ended_at = ?, duration_seconds = ? WHERE id = ?",
     args: [endedAt.toISOString(), durationSeconds, id],
   });
-
-  notifyUser(req.userId!, "session:stopped", { id, endedAt: endedAt.toISOString(), durationSeconds });
 
   res.json({ id, endedAt: endedAt.toISOString(), durationSeconds });
 });

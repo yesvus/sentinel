@@ -70,4 +70,11 @@ export async function initDb() {
       UNIQUE (user_id, scope, date_key)
     )
   `);
+
+  // Enforced at the DB level (not just in application code) so two concurrent
+  // requests from different devices can't both create an active session.
+  await db.execute(`
+    CREATE UNIQUE INDEX IF NOT EXISTS idx_one_active_session_per_user
+    ON sessions (user_id) WHERE ended_at IS NULL
+  `);
 }

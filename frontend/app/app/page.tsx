@@ -14,13 +14,18 @@ import {
   SelectTrigger,
   SelectValue,
 } from "@/components/ui/select";
-import { sessions, projects as projectsApi, ApiError, Project } from "@/lib/api";
+import { sessions, projects as projectsApi, ApiError, Project, StudySession } from "@/lib/api";
 import { useAuth } from "@/lib/auth-context";
 import { ProjectIcon } from "@/lib/icons";
-import { getSocket } from "@/lib/socket";
 
 const NEW_PROJECT_VALUE = "__new__";
 const NO_PROJECT_VALUE = "__none__";
+const BROADCAST_CHANNEL_NAME = "sentinel-session-sync";
+
+type SessionBroadcastMessage =
+  | { type: "started"; id: number; startedAt: string; projectId: number | null; description: string | null }
+  | { type: "stopped"; durationSeconds: number }
+  | { type: "updated"; projectId: number | null; description: string | null };
 
 function formatElapsed(ms: number) {
   const totalSeconds = Math.floor(ms / 1000);
@@ -36,6 +41,12 @@ function greeting() {
   if (hour < 12) return "Good morning";
   if (hour < 18) return "Good afternoon";
   return "Good evening";
+}
+
+function conflictSession(err: unknown): StudySession | null | undefined {
+  if (!(err instanceof ApiError) || err.status !== 409) return undefined;
+  const body = err.body as { session?: StudySession | null } | undefined;
+  return body?.session;
 }
 
 export default function AppHomePage() {
@@ -54,10 +65,23 @@ export default function AppHomePage() {
   const [lastDuration, setLastDuration] = useState<number | null>(null);
   const [resuming, setResuming] = useState(true);
   const intervalRef = useRef<ReturnType<typeof setInterval> | null>(null);
-  const lastLocalEditAt = useRef(0);
+  const channelRef = useRef<BroadcastChannel | null>(null);
   const descriptionSaveTimeout = useRef<ReturnType<typeof setTimeout> | null>(null);
 
   const isRunning = sessionId !== null && lastDuration === null;
+
+  function applyActiveSession(active: StudySession) {
+    setSessionId(active.id);
+    setStartedAt(new Date(active.started_at).getTime());
+    setElapsedMs(Date.now() - new Date(active.started_at).getTime());
+    setProjectId(active.project_id);
+    setDescription(active.description ?? "");
+    setLastDuration(null);
+  }
+
+  function broadcast(message: SessionBroadcastMessage) {
+    channelRef.current?.postMessage(message);
+  }
 
   useEffect(() => {
     projectsApi.list().then(setProjectList).catch(() => {});
@@ -65,60 +89,74 @@ export default function AppHomePage() {
 
   useEffect(() => {
     sessions
-      .list()
-      .then((list) => {
-        const active = list.find((s) => s.ended_at === null);
-        if (active) {
-          setSessionId(active.id);
-          setStartedAt(new Date(active.started_at).getTime());
-          setElapsedMs(Date.now() - new Date(active.started_at).getTime());
-          setProjectId(active.project_id);
-          setDescription(active.description ?? "");
-        }
+      .getActive()
+      .then((active) => {
+        if (active) applyActiveSession(active);
       })
       .catch(() => {})
       .finally(() => setResuming(false));
   }, []);
 
+  // Same-tab-group sync: other tabs of this browser pick up our mutations instantly.
   useEffect(() => {
-    const socket = getSocket();
+    const channel = new BroadcastChannel(BROADCAST_CHANNEL_NAME);
+    channelRef.current = channel;
 
-    function onStarted(payload: {
-      id: number;
-      startedAt: string;
-      projectId: number | null;
-      description: string | null;
-    }) {
-      setSessionId(payload.id);
-      setStartedAt(new Date(payload.startedAt).getTime());
-      setElapsedMs(0);
-      setLastDuration(null);
-      setProjectId(payload.projectId);
-      setDescription(payload.description ?? "");
+    function handleMessage(event: MessageEvent<SessionBroadcastMessage>) {
+      const message = event.data;
+      if (message.type === "started") {
+        setSessionId(message.id);
+        setStartedAt(new Date(message.startedAt).getTime());
+        setElapsedMs(0);
+        setLastDuration(null);
+        setProjectId(message.projectId);
+        setDescription(message.description ?? "");
+      } else if (message.type === "stopped") {
+        setLastDuration(message.durationSeconds);
+        setSessionId(null);
+        setStartedAt(null);
+        setElapsedMs(0);
+      } else if (message.type === "updated") {
+        setProjectId(message.projectId);
+        setDescription(message.description ?? "");
+      }
     }
 
-    function onStopped(payload: { durationSeconds: number }) {
-      setLastDuration(payload.durationSeconds);
-      setStartedAt(null);
-      setElapsedMs(0);
-    }
-
-    function onUpdated(payload: { id: number; projectId: number | null; description: string | null }) {
-      // Ignore updates for a couple seconds after our own edits, this is likely just
-      // the real-time layer echoing back a save we just made (it polls, so it lags).
-      if (Date.now() - lastLocalEditAt.current < 2000) return;
-      setProjectId(payload.projectId);
-      setDescription(payload.description ?? "");
-    }
-
-    socket.on("session:started", onStarted);
-    socket.on("session:stopped", onStopped);
-    socket.on("session:updated", onUpdated);
-
+    channel.addEventListener("message", handleMessage);
     return () => {
-      socket.off("session:started", onStarted);
-      socket.off("session:stopped", onStopped);
-      socket.off("session:updated", onUpdated);
+      channel.removeEventListener("message", handleMessage);
+      channel.close();
+      channelRef.current = null;
+    };
+  }, []);
+
+  // Cross-device sync: catch up with whatever happened elsewhere when we come back to this tab.
+  useEffect(() => {
+    function refetchActive() {
+      sessions
+        .getActive()
+        .then((active) => {
+          if (active) {
+            applyActiveSession(active);
+            return;
+          }
+          setSessionId((current) => (current !== null ? null : current));
+          setLastDuration(null);
+          setStartedAt(null);
+          setElapsedMs(0);
+        })
+        .catch(() => {});
+    }
+
+    function handleVisibility() {
+      if (document.visibilityState === "visible") refetchActive();
+    }
+
+    window.addEventListener("focus", refetchActive);
+    document.addEventListener("visibilitychange", handleVisibility);
+    return () => {
+      window.removeEventListener("focus", refetchActive);
+      document.removeEventListener("visibilitychange", handleVisibility);
     };
   }, []);
 
@@ -142,8 +180,22 @@ export default function AppHomePage() {
       setStartedAt(new Date(session.startedAt).getTime());
       setElapsedMs(0);
       setLastDuration(null);
+      broadcast({
+        type: "started",
+        id: session.id,
+        startedAt: session.startedAt,
+        projectId,
+        description: description || null,
+      });
     } catch (err) {
-      setError(err instanceof ApiError ? err.message : "Something went wrong");
+      const active = conflictSession(err);
+      if (active !== undefined) {
+        // A session was already running (e.g. started from another device); adopt it
+        // instead of showing an error, same as resuming one on load.
+        if (active) applyActiveSession(active);
+      } else {
+        setError(err instanceof ApiError ? err.message : "Something went wrong");
+      }
     } finally {
       setBusy(false);
     }
@@ -156,8 +208,10 @@ export default function AppHomePage() {
     try {
       const result = await sessions.stop(sessionId);
       setLastDuration(result.durationSeconds);
+      setSessionId(null);
       setStartedAt(null);
       setElapsedMs(0);
+      broadcast({ type: "stopped", durationSeconds: result.durationSeconds });
     } catch (err) {
       setError(err instanceof ApiError ? err.message : "Something went wrong");
     } finally {
@@ -180,7 +234,9 @@ export default function AppHomePage() {
   }
 
   async function handleDetailsChange(next: { projectId?: number | null; description?: string }) {
-    lastLocalEditAt.current = Date.now();
+    const nextProjectId = next.projectId !== undefined ? next.projectId : projectId;
+    const nextDescription = next.description !== undefined ? next.description : description;
+
     if (next.projectId !== undefined) setProjectId(next.projectId);
     if (next.description !== undefined) setDescription(next.description);
 
@@ -188,16 +244,16 @@ export default function AppHomePage() {
 
     const save = () =>
       sessions
-        .update(sessionId, {
-          projectId: next.projectId !== undefined ? next.projectId : projectId,
-          description: next.description !== undefined ? next.description : description,
+        .update(sessionId, { projectId: nextProjectId, description: nextDescription })
+        .then(() => {
+          broadcast({ type: "updated", projectId: nextProjectId, description: nextDescription });
         })
         .catch(() => {
           // best-effort save, not worth surfacing to the user mid-session
         });
 
     if (next.description !== undefined) {
-      // Debounce so we're not firing a request (and a self-echo update) on every keystroke.
+      // Debounce so we're not firing a request on every keystroke.
       if (descriptionSaveTimeout.current) clearTimeout(descriptionSaveTimeout.current);
       descriptionSaveTimeout.current = setTimeout(save, 600);
     } else {

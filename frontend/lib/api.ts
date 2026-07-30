@@ -1,5 +1,9 @@
 export class ApiError extends Error {
-  constructor(public status: number, message: string) {
+  constructor(
+    public status: number,
+    message: string,
+    public body?: unknown
+  ) {
     super(message);
   }
 }
@@ -16,7 +20,7 @@ export async function api<T>(path: string, options: RequestInit = {}): Promise<T
 
   if (!res.ok) {
     const body = await res.json().catch(() => ({}));
-    throw new ApiError(res.status, body.error ?? "Something went wrong");
+    throw new ApiError(res.status, body.error ?? "Something went wrong", body);
   }
 
   if (res.status === 204) {
@@ -86,6 +90,7 @@ export const sessions = {
       method: "PATCH",
     }),
   list: () => api<StudySession[]>("/api/sessions"),
+  getActive: () => api<StudySession | null>("/api/sessions/active"),
   remove: (id: number) => api<void>(`/api/sessions/${id}`, { method: "DELETE" }),
   createManual: (details: {
     startedAt: string;

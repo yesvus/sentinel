@@ -41,17 +41,20 @@ The tracking model (start/stop, tag with a project, add a description, see stats
 - Next.js + React (TypeScript)
 - shadcn/ui components (Tailwind CSS under the hood)
 - Node.js backend with a REST API (HTTP requests from the frontend to the backend)
-- **Socket.IO for real-time updates** (see below)
 - Turso for the DB
-- Vercel + Render for deployment
+- Vercel for deployment
 
-## Real-time with Socket.IO
+## Staying in sync across tabs/devices
 
-Sentinel uses **Socket.IO** so an active study session stays in sync live across every open tab or device for the same account. Start the stopwatch on your laptop, and it's already ticking on your phone or a second tab, no refresh needed.
+Sentinel keeps an active study session in sync without a real-time server:
 
-- **Authenticated sockets**: the same JWT used for HTTP auth is read from the cookie during the socket handshake, verified, and each socket is joined into a private room (`user:<id>`) so events only ever reach that user's own connections.
-- **Two deployment targets, one real-time layer**: the REST API runs on Vercel serverless functions (fast, always-on, no cold starts), but serverless functions can't hold a persistent WebSocket connection. So the Socket.IO server runs separately on **Render**, which supports a real long-lived Node process.
-- **Decoupled by design**: because the API and the socket server are two separate processes, the socket server watches the database directly (a lightweight poll per connected client, a few times a second) instead of relying on the API process to push events to it directly. This means real-time sync keeps working correctly no matter which backend actually handled the write, and the core app (auth, sessions, projects) never depends on the real-time layer being up. If Render is asleep or slow, the site still works perfectly via the normal HTTP API, it just re-syncs the next time you load a page instead of pushing live.
+- **Local elapsed-time calculation**: the running stopwatch is just `now - startedAt` ticked client-side, no server push needed to keep it moving.
+- **Client-cache updates after mutations**: starting/stopping/editing a session updates local state directly from the API response, so the tab that made the change never waits on a round-trip.
+- **`BroadcastChannel` for same-browser tabs**: mutations are posted on a `BroadcastChannel`, so other tabs of the same browser pick them up instantly with no server involved at all.
+- **Refetch-on-focus for cross-device sync**: when a tab regains focus or becomes visible, it re-fetches the lightweight `GET /api/sessions/active` endpoint to catch up with whatever happened on another device or browser while it was in the background.
+- **One active session per user, enforced at the database level**: a partial unique index on `sessions` (one row with `ended_at IS NULL` per user) means concurrent start requests from different devices can't both succeed, no race condition possible. The loser gets back the session that's already running and adopts it instead of erroring.
+
+This used to run on Socket.IO with a separate always-on Render process for the WebSocket server; that's been removed in favor of the above, which needs no persistent process to keep running.
 
 ## Project Structure
 ```
@@ -73,7 +76,8 @@ backend/    Express API (auth + study sessions)
 | POST | `/api/auth/login` | no | Log in, sets the auth cookie |
 | POST | `/api/auth/logout` | yes | Clears the auth cookie |
 | GET | `/api/auth/me` | yes | Returns the current user |
-| POST | `/api/sessions/start` | yes | Start a study session (optional `projectId`, `description`) |
+| POST | `/api/sessions/start` | yes | Start a study session (optional `projectId`, `description`); `409` if one's already running |
+| GET | `/api/sessions/active` | yes | The current active session, or `null` |
 | PATCH | `/api/sessions/:id` | yes | Update a session's description/project |
 | PATCH | `/api/sessions/:id/stop` | yes | Stop a session, server computes the duration |
 | GET | `/api/sessions` | yes | List the logged-in user's sessions |
@@ -115,7 +119,7 @@ cd frontend
 pnpm install
 pnpm dev                # runs on http://localhost:3000
 ```
-By default the frontend proxies `/api/*` and `/socket.io/*` to `http://localhost:4000` (see `frontend/.env.local`). In production these point at separate `API_ORIGIN` (Vercel) and `REALTIME_ORIGIN` (Render) env vars.
+By default the frontend proxies `/api/*` to `http://localhost:4000` (see `frontend/.env.local`). In production this points at the `API_ORIGIN` env var (Vercel).
 
 ## License
 
