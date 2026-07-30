@@ -388,7 +388,9 @@ export default function AppHomePage() {
           )}
 
           <Textarea
-            placeholder="What are you working on? (optional)"
+            aria-label="Session plan"
+            placeholder={"Goal:\nOutputs:\nNext:"}
+            className="min-h-28"
             value={description}
             onChange={(e) => handleDetailsChange({ description: e.target.value })}
           />
