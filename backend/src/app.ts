@@ -4,6 +4,7 @@ import cookieParser from "cookie-parser";
 import { authRouter } from "./routes/auth.js";
 import { sessionsRouter } from "./routes/sessions.js";
 import { projectsRouter } from "./routes/projects.js";
+import { notesRouter } from "./routes/notes.js";
 
 export const app = express();
 app.set("etag", false);
@@ -21,5 +22,6 @@ app.use((_req, res, next) => {
 app.use("/api/auth", authRouter);
 app.use("/api/sessions", sessionsRouter);
 app.use("/api/projects", projectsRouter);
+app.use("/api/notes", notesRouter);
 
 app.get("/api/health", (_req, res) => res.json({ ok: true }));
