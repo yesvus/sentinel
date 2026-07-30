@@ -2,12 +2,14 @@
 
 import { createContext, useCallback, useContext, useEffect, useRef, useState } from "react";
 import { useAuth } from "@/lib/auth-context";
+import type { FocusAudioType } from "@/lib/api";
 
 const NOISE_CHANNEL = "sentinel-noise-sync";
 const SESSION_CHANNEL = "sentinel-session-sync";
 const STATE_KEY = "sentinel-noise-playing";
 const OWNER_KEY = "sentinel-noise-owner";
 const VOLUME_KEY = "sentinel-noise-volume";
+const SOUND_KEY = "sentinel-focus-audio-type";
 export const NOISE_SESSION_EVENT = "sentinel-session-audio";
 
 type NoiseContextValue = {
@@ -21,28 +23,40 @@ type NoiseContextValue = {
 
 type AudioNodes = {
   context: AudioContext;
-  source: AudioBufferSourceNode;
+  sources: AudioScheduledSourceNode[];
   gain: GainNode;
+  level: number;
 };
 
 const NoiseContext = createContext<NoiseContextValue | null>(null);
 
-function makeSpeechMask(context: AudioContext) {
-  const seconds = 8;
+function makeNoiseBuffer(context: AudioContext, type: Exclude<FocusAudioType, "binaural-40hz">) {
+  const seconds = 4;
   const buffer = context.createBuffer(1, context.sampleRate * seconds, context.sampleRate);
   const samples = buffer.getChannelData(0);
   let pink0 = 0;
   let pink1 = 0;
   let pink2 = 0;
+  let brown = 0;
   for (let i = 0; i < samples.length; i += 1) {
     const white = Math.random() * 2 - 1;
     pink0 = 0.99765 * pink0 + white * 0.099046;
     pink1 = 0.963 * pink1 + white * 0.2965164;
     pink2 = 0.57 * pink2 + white * 1.0526913;
-    const pink = pink0 + pink1 + pink2 + white * 0.1848;
-    // Gentle, irregular movement keeps the mask from sounding like static.
-    const swell = 0.82 + 0.1 * Math.sin(i / context.sampleRate * 1.7) + 0.08 * Math.sin(i / context.sampleRate * 0.31);
-    samples[i] = Math.max(-1, Math.min(1, pink * 0.055 * swell));
+    const pink = (pink0 + pink1 + pink2 + white * 0.1848) * 0.055;
+    brown = (brown + white * 0.02) / 1.02;
+    if (type === "white") samples[i] = white * 0.28;
+    else if (type === "pink") samples[i] = pink;
+    else if (type === "brown") samples[i] = brown * 2.4;
+    else samples[i] = pink;
+  }
+
+  // Match the tail to the beginning so looping never introduces a click or gap.
+  const crossfadeSamples = Math.min(128, Math.floor(samples.length / 8));
+  for (let i = 0; i < crossfadeSamples; i += 1) {
+    const mix = i / (crossfadeSamples - 1);
+    const tailIndex = samples.length - crossfadeSamples + i;
+    samples[tailIndex] = samples[tailIndex] * (1 - mix) + samples[0] * mix;
   }
   return buffer;
 }
@@ -52,6 +66,7 @@ export function NoisePlayerProvider({ children }: { children: React.ReactNode })
   const [playing, setPlaying] = useState(false);
   const [volume, setVolumeState] = useState(0.55);
   const volumeRef = useRef(0.55);
+  const soundRef = useRef<FocusAudioType>("speech-blocker");
   const idRef = useRef("");
   const nodesRef = useRef<AudioNodes | null>(null);
   const channelRef = useRef<BroadcastChannel | null>(null);
@@ -63,38 +78,81 @@ export function NoisePlayerProvider({ children }: { children: React.ReactNode })
     const now = nodes.context.currentTime;
     nodes.gain.gain.cancelScheduledValues(now);
     nodes.gain.gain.setValueAtTime(nodes.gain.gain.value, now);
-    nodes.gain.gain.linearRampToValueAtTime(0, now + 1.5);
+    nodes.gain.gain.linearRampToValueAtTime(0, now + 0.4);
     window.setTimeout(() => {
-      try { nodes.source.stop(); } catch {}
+      for (const source of nodes.sources) {
+        try { source.stop(); } catch {}
+      }
       void nodes.context.close();
-    }, 1600);
+    }, 450);
   }, []);
 
   const startLocal = useCallback(() => {
     if (nodesRef.current) return;
     const context = new AudioContext();
-    const source = context.createBufferSource();
-    const highPass = context.createBiquadFilter();
-    const lowPass = context.createBiquadFilter();
-    const presence = context.createBiquadFilter();
     const gain = context.createGain();
-
-    source.buffer = makeSpeechMask(context);
-    source.loop = true;
-    highPass.type = "highpass";
-    highPass.frequency.value = 180;
-    lowPass.type = "lowpass";
-    lowPass.frequency.value = 5200;
-    presence.type = "peaking";
-    presence.frequency.value = 1700;
-    presence.Q.value = 0.7;
-    presence.gain.value = 3;
+    const sound = soundRef.current;
+    const sources: AudioScheduledSourceNode[] = [];
+    const level = sound === "binaural-40hz" ? 0.28 : 0.75;
     gain.gain.value = 0;
-    source.connect(highPass).connect(lowPass).connect(presence).connect(gain).connect(context.destination);
-    source.start();
+
+    if (sound === "binaural-40hz") {
+      const left = context.createOscillator();
+      const right = context.createOscillator();
+      const merger = context.createChannelMerger(2);
+      left.type = "sine";
+      right.type = "sine";
+      left.frequency.value = 180;
+      right.frequency.value = 220;
+      left.connect(merger, 0, 0);
+      right.connect(merger, 0, 1);
+      merger.connect(gain);
+      left.start();
+      right.start();
+      sources.push(left, right);
+    } else {
+      const source = context.createBufferSource();
+      source.buffer = makeNoiseBuffer(context, sound);
+      source.loop = true;
+      if (sound === "speech-blocker") {
+        const highPass = context.createBiquadFilter();
+        const lowSpeech = context.createBiquadFilter();
+        const midSpeech = context.createBiquadFilter();
+        const highSpeech = context.createBiquadFilter();
+        const lowPass = context.createBiquadFilter();
+        highPass.type = "highpass";
+        highPass.frequency.value = 120;
+        lowSpeech.type = "peaking";
+        lowSpeech.frequency.value = 350;
+        lowSpeech.Q.value = 0.65;
+        lowSpeech.gain.value = 2;
+        midSpeech.type = "peaking";
+        midSpeech.frequency.value = 1100;
+        midSpeech.Q.value = 0.55;
+        midSpeech.gain.value = 7;
+        highSpeech.type = "peaking";
+        highSpeech.frequency.value = 2800;
+        highSpeech.Q.value = 0.7;
+        highSpeech.gain.value = 4;
+        lowPass.type = "lowpass";
+        lowPass.frequency.value = 6500;
+        source
+          .connect(highPass)
+          .connect(lowSpeech)
+          .connect(midSpeech)
+          .connect(highSpeech)
+          .connect(lowPass)
+          .connect(gain);
+      } else {
+        source.connect(gain);
+      }
+      source.start();
+      sources.push(source);
+    }
+    gain.connect(context.destination);
     const now = context.currentTime;
-    gain.gain.linearRampToValueAtTime(volumeRef.current * 0.75, now + 2);
-    nodesRef.current = { context, source, gain };
+    gain.gain.linearRampToValueAtTime(volumeRef.current * level, now + 0.5);
+    nodesRef.current = { context, sources, gain, level };
     void context.resume();
   }, []);
 
@@ -126,7 +184,7 @@ export function NoisePlayerProvider({ children }: { children: React.ReactNode })
     if (nodes) {
       const now = nodes.context.currentTime;
       nodes.gain.gain.cancelScheduledValues(now);
-      nodes.gain.gain.setTargetAtTime(next * 0.75, now, 0.08);
+      nodes.gain.gain.setTargetAtTime(next * nodes.level, now, 0.08);
     }
     channelRef.current?.postMessage({ type: "volume", volume: next });
   }, []);
@@ -159,7 +217,14 @@ export function NoisePlayerProvider({ children }: { children: React.ReactNode })
         volumeRef.current = next;
         setVolumeState(next);
         const nodes = nodesRef.current;
-        if (nodes) nodes.gain.gain.setTargetAtTime(next * 0.75, nodes.context.currentTime, 0.08);
+        if (nodes) nodes.gain.gain.setTargetAtTime(next * nodes.level, nodes.context.currentTime, 0.08);
+      } else if (event.data?.type === "sound" && typeof event.data.sound === "string") {
+        soundRef.current = event.data.sound as FocusAudioType;
+        localStorage.setItem(SOUND_KEY, event.data.sound);
+        if (nodesRef.current) {
+          fadeOutLocal();
+          window.setTimeout(startLocal, 50);
+        }
       }
     });
     return () => {
@@ -168,7 +233,20 @@ export function NoisePlayerProvider({ children }: { children: React.ReactNode })
       channelRef.current = null;
       fadeOutLocal();
     };
-  }, [fadeOutLocal]);
+  }, [fadeOutLocal, startLocal]);
+
+  useEffect(() => {
+    const next = user?.focusAudioType ?? "speech-blocker";
+    if (soundRef.current === next) return;
+    soundRef.current = next;
+    localStorage.setItem(SOUND_KEY, next);
+    channelRef.current?.postMessage({ type: "sound", sound: next });
+    if (nodesRef.current) {
+      fadeOutLocal();
+      const restart = window.setTimeout(startLocal, 50);
+      return () => window.clearTimeout(restart);
+    }
+  }, [fadeOutLocal, startLocal, user?.focusAudioType]);
 
   useEffect(() => {
     if (!user?.autoStartNoise) return;

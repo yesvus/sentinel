@@ -37,7 +37,10 @@ export type User = {
   avatar: string | null;
   shareSessionDescriptions: boolean;
   autoStartNoise: boolean;
+  focusAudioType: FocusAudioType;
 };
+
+export type FocusAudioType = "white" | "pink" | "brown" | "speech-blocker" | "binaural-40hz";
 
 export const auth = {
   register: (email: string, password: string) =>
@@ -61,10 +64,10 @@ export const auth = {
       method: "PATCH",
       body: JSON.stringify({ shareSessionDescriptions }),
     }),
-  updateAudioSettings: (autoStartNoise: boolean) =>
-    api<{ autoStartNoise: boolean }>("/api/auth/audio-settings", {
+  updateAudioSettings: (details: { autoStartNoise?: boolean; focusAudioType?: FocusAudioType }) =>
+    api<{ autoStartNoise: boolean; focusAudioType: FocusAudioType }>("/api/auth/audio-settings", {
       method: "PATCH",
-      body: JSON.stringify({ autoStartNoise }),
+      body: JSON.stringify(details),
     }),
 };
 
@@ -102,9 +105,10 @@ export const sessions = {
       endedAt: string | null;
       durationSeconds: number | null;
     }>(`/api/sessions/${id}`, { method: "PATCH", body: JSON.stringify(details) }),
-  stop: (id: number) =>
-    api<{ id: number; endedAt: string; durationSeconds: number }>(`/api/sessions/${id}/stop`, {
+  stop: (id: number, description?: string | null) =>
+    api<{ id: number; endedAt: string; durationSeconds: number; description: string | null }>(`/api/sessions/${id}/stop`, {
       method: "PATCH",
+      body: JSON.stringify({ description }),
     }),
   list: () => api<StudySession[]>("/api/sessions"),
   getActive: () => api<StudySession | null>("/api/sessions/active"),

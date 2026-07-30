@@ -42,6 +42,7 @@ async function initialize() {
     "avatar TEXT",
     "share_session_descriptions INTEGER NOT NULL DEFAULT 0",
     "auto_start_noise INTEGER NOT NULL DEFAULT 0",
+    "focus_audio_type TEXT NOT NULL DEFAULT 'speech-blocker'",
   ]) {
     try { await db.execute(`ALTER TABLE users ADD COLUMN ${column}`); } catch {}
   }

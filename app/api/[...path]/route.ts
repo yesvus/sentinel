@@ -10,6 +10,7 @@ type Context = { params: Promise<{ path: string[] }> };
 const noContent = () => new NextResponse(null, { status: 204 });
 const error = (message: string, status = 400) => NextResponse.json({ error: message }, { status });
 const body = (request: NextRequest) => request.json().catch(() => ({}));
+const FOCUS_AUDIO_TYPES = new Set(["white", "pink", "brown", "speech-blocker", "binaural-40hz"]);
 
 async function activeSession(userId: number) {
   const result = await db.execute({
@@ -50,6 +51,7 @@ async function authRoutes(request: NextRequest, parts: string[]) {
     const id = Number(result.lastInsertRowid);
     const response = NextResponse.json({
       id, email, name: null, avatar: null, shareSessionDescriptions: false, autoStartNoise: false,
+      focusAudioType: "speech-blocker",
     }, { status: 201 });
     response.cookies.set("token", createToken(id), COOKIE_OPTIONS);
     return response;
@@ -58,7 +60,7 @@ async function authRoutes(request: NextRequest, parts: string[]) {
     const data = await body(request);
     if (typeof data.email !== "string" || typeof data.password !== "string") return error("Email and password are required");
     const result = await db.execute({
-      sql: "SELECT id, email, password_hash, name, avatar, share_session_descriptions, auto_start_noise FROM users WHERE lower(email) = ?",
+      sql: "SELECT id, email, password_hash, name, avatar, share_session_descriptions, auto_start_noise, focus_audio_type FROM users WHERE lower(email) = ?",
       args: [data.email.trim().toLowerCase()],
     });
     const user = result.rows[0];
@@ -67,6 +69,7 @@ async function authRoutes(request: NextRequest, parts: string[]) {
       id: Number(user.id), email: user.email, name: user.name, avatar: user.avatar,
       shareSessionDescriptions: Boolean(user.share_session_descriptions),
       autoStartNoise: Boolean(user.auto_start_noise),
+      focusAudioType: user.focus_audio_type ?? "speech-blocker",
     });
     response.cookies.set("token", createToken(Number(user.id)), COOKIE_OPTIONS);
     return response;
@@ -81,7 +84,7 @@ async function authRoutes(request: NextRequest, parts: string[]) {
   if (!userId) return unauthorized();
   if (action === "me" && request.method === "GET") {
     const result = await db.execute({
-      sql: "SELECT id, email, name, avatar, share_session_descriptions, auto_start_noise FROM users WHERE id = ?",
+      sql: "SELECT id, email, name, avatar, share_session_descriptions, auto_start_noise, focus_audio_type FROM users WHERE id = ?",
       args: [userId],
     });
     const user = result.rows[0];
@@ -90,6 +93,7 @@ async function authRoutes(request: NextRequest, parts: string[]) {
       id: Number(user.id), email: user.email, name: user.name, avatar: user.avatar,
       shareSessionDescriptions: Boolean(user.share_session_descriptions),
       autoStartNoise: Boolean(user.auto_start_noise),
+      focusAudioType: user.focus_audio_type ?? "speech-blocker",
     });
   }
   if (action === "me" && request.method === "PATCH") {
@@ -111,12 +115,34 @@ async function authRoutes(request: NextRequest, parts: string[]) {
   }
   if (action === "audio-settings" && request.method === "PATCH") {
     const data = await body(request);
-    if (typeof data.autoStartNoise !== "boolean") return error("autoStartNoise must be a boolean");
+    if (data.autoStartNoise !== undefined && typeof data.autoStartNoise !== "boolean") {
+      return error("autoStartNoise must be a boolean");
+    }
+    if (data.focusAudioType !== undefined && !FOCUS_AUDIO_TYPES.has(data.focusAudioType)) {
+      return error("Invalid focus audio type");
+    }
+    if (data.autoStartNoise === undefined && data.focusAudioType === undefined) {
+      return error("At least one audio setting is required");
+    }
     await db.execute({
-      sql: "UPDATE users SET auto_start_noise = ? WHERE id = ?",
-      args: [data.autoStartNoise ? 1 : 0, userId],
+      sql: `UPDATE users
+            SET auto_start_noise = COALESCE(?, auto_start_noise),
+                focus_audio_type = COALESCE(?, focus_audio_type)
+            WHERE id = ?`,
+      args: [
+        data.autoStartNoise === undefined ? null : data.autoStartNoise ? 1 : 0,
+        data.focusAudioType ?? null,
+        userId,
+      ],
     });
-    return NextResponse.json({ autoStartNoise: data.autoStartNoise });
+    const result = await db.execute({
+      sql: "SELECT auto_start_noise, focus_audio_type FROM users WHERE id = ?",
+      args: [userId],
+    });
+    return NextResponse.json({
+      autoStartNoise: Boolean(result.rows[0].auto_start_noise),
+      focusAudioType: result.rows[0].focus_audio_type,
+    });
   }
   if (action === "change-password" && request.method === "POST") {
     const data = await body(request);
@@ -186,18 +212,26 @@ async function sessionRoutes(request: NextRequest, parts: string[], userId: numb
   const id = Number(action);
   if (!Number.isInteger(id)) return error("Not found", 404);
   if (parts[2] === "stop" && request.method === "PATCH") {
+    const data = await body(request);
     const existing = await db.execute({
-      sql: "SELECT started_at FROM sessions WHERE id = ? AND user_id = ?",
+      sql: "SELECT started_at, description FROM sessions WHERE id = ? AND user_id = ?",
       args: [id, userId],
     });
     if (!existing.rows[0]) return error("Session not found", 404);
     const endedAt = new Date();
     const durationSeconds = Math.round((endedAt.getTime() - new Date(existing.rows[0].started_at as string).getTime()) / 1000);
+    const description =
+      data.description !== undefined ? data.description : existing.rows[0].description;
     await db.execute({
-      sql: "UPDATE sessions SET ended_at = ?, duration_seconds = ? WHERE id = ? AND user_id = ?",
-      args: [endedAt.toISOString(), durationSeconds, id, userId],
+      sql: "UPDATE sessions SET ended_at = ?, duration_seconds = ?, description = ? WHERE id = ? AND user_id = ?",
+      args: [endedAt.toISOString(), durationSeconds, description ?? null, id, userId],
     });
-    return NextResponse.json({ id, endedAt: endedAt.toISOString(), durationSeconds });
+    return NextResponse.json({
+      id,
+      endedAt: endedAt.toISOString(),
+      durationSeconds,
+      description: description ?? null,
+    });
   }
   if (request.method === "DELETE") {
     const result = await db.execute({ sql: "DELETE FROM sessions WHERE id = ? AND user_id = ?", args: [id, userId] });

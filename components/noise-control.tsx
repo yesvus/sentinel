@@ -15,7 +15,7 @@ export function NoiseControl() {
           max="100"
           value={Math.round(volume * 100)}
           onChange={(event) => setVolume(Number(event.target.value) / 100)}
-          aria-label="Speech masking volume"
+          aria-label="Focus Audio volume"
           className="accent-primary hidden h-1.5 w-20 cursor-pointer sm:block"
         />
       )}
@@ -25,10 +25,11 @@ export function NoiseControl() {
         variant={playing ? "default" : "ghost"}
         onClick={toggle}
         aria-pressed={playing}
-        title={playing ? "Stop speech masking noise" : "Start speech masking noise"}
+        aria-label={playing ? "Stop Focus Audio" : "Start Focus Audio"}
+        title={playing ? "Stop Focus Audio" : "Start Focus Audio"}
       >
         {playing ? <Volume2 /> : <AudioLines />}
-        <span className="hidden sm:inline">{playing ? `${Math.round(volume * 100)}%` : "Speech mask"}</span>
+        <span className="hidden sm:inline">{playing ? `${Math.round(volume * 100)}%` : "Focus Audio"}</span>
       </Button>
     </div>
   );

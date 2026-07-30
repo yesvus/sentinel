@@ -1,0 +1,79 @@
+import { fireEvent, render, screen, waitFor } from "@testing-library/react";
+import { beforeEach, describe, expect, it, vi } from "vitest";
+import AppHomePage from "@/app/app/page";
+
+const { start, stop } = vi.hoisted(() => ({
+  start: vi.fn(),
+  stop: vi.fn(),
+}));
+
+vi.mock("@/lib/auth-context", () => ({
+  useAuth: () => ({
+    user: { id: 1, email: "user@example.test", name: null, avatar: null },
+  }),
+}));
+
+vi.mock("@/lib/api", () => {
+  class ApiError extends Error {
+    constructor(public status: number, message: string, public body?: unknown) {
+      super(message);
+    }
+  }
+  return {
+    ApiError,
+    projects: {
+      list: vi.fn().mockResolvedValue([]),
+      create: vi.fn(),
+    },
+    sessions: {
+      getActive: vi.fn().mockResolvedValue(null),
+      start,
+      stop,
+      update: vi.fn().mockResolvedValue({}),
+    },
+  };
+});
+
+describe("stopping a session with a description", () => {
+  beforeEach(() => {
+    start.mockReset().mockResolvedValue({
+      id: 9,
+      startedAt: "2026-07-30T08:00:00.000Z",
+    });
+    stop.mockReset();
+  });
+
+  async function startWithDescription(description: string) {
+    render(<AppHomePage />);
+    const textarea = screen.getByPlaceholderText("What are you working on? (optional)");
+    fireEvent.change(textarea, { target: { value: description } });
+    const startButton = await screen.findByRole("button", { name: "Start session" });
+    await waitFor(() => expect(startButton).toBeEnabled());
+    fireEvent.click(startButton);
+    await screen.findByRole("button", { name: "Stop session" });
+    return textarea;
+  }
+
+  it("sends the final text and clears it after a successful stop", async () => {
+    stop.mockResolvedValue({
+      id: 9,
+      endedAt: "2026-07-30T09:00:00.000Z",
+      durationSeconds: 3600,
+      description: "Final output",
+    });
+    const textarea = await startWithDescription("Final output");
+    fireEvent.click(screen.getByRole("button", { name: "Stop session" }));
+
+    await waitFor(() => expect(stop).toHaveBeenCalledWith(9, "Final output"));
+    await waitFor(() => expect(textarea).toHaveValue(""));
+  });
+
+  it("keeps the text when stopping fails", async () => {
+    stop.mockRejectedValue(new Error("network failed"));
+    const textarea = await startWithDescription("Do not lose this");
+    fireEvent.click(screen.getByRole("button", { name: "Stop session" }));
+
+    await screen.findByText("Something went wrong");
+    expect(textarea).toHaveValue("Do not lose this");
+  });
+});

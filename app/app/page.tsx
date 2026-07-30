@@ -117,6 +117,7 @@ export default function AppHomePage() {
         setSessionId(null);
         setStartedAt(null);
         setElapsedMs(0);
+        setDescription("");
       } else if (message.type === "updated") {
         setProjectId(message.projectId);
         setDescription(message.description ?? "");
@@ -208,11 +209,12 @@ export default function AppHomePage() {
     setError(null);
     setBusy(true);
     try {
-      const result = await sessions.stop(sessionId);
+      const result = await sessions.stop(sessionId, description || null);
       setLastDuration(result.durationSeconds);
       setSessionId(null);
       setStartedAt(null);
       setElapsedMs(0);
+      setDescription("");
       broadcast({ type: "stopped", durationSeconds: result.durationSeconds });
       window.dispatchEvent(new CustomEvent(NOISE_SESSION_EVENT, { detail: "stopped" }));
     } catch (err) {
@@ -282,6 +284,7 @@ export default function AppHomePage() {
           size="icon"
           disabled={busy || resuming}
           onClick={isRunning ? handleStop : handleStart}
+          aria-label={isRunning ? "Stop session" : "Start session"}
           className="size-16 rounded-full shadow-sm"
         >
           {isRunning ? (

@@ -2,7 +2,7 @@
 
 import Link from "next/link";
 import { usePathname, useRouter } from "next/navigation";
-import { Home, BarChart2, User, Settings, LogOut, Users, ChevronsUpDown, Moon, Sun, FolderKanban } from "lucide-react";
+import { Home, BarChart2, User, Settings, LogOut, ChevronsUpDown, Moon, Sun, FolderKanban, Monitor, Clock3, Check, Users } from "lucide-react";
 import {
   Sidebar,
   SidebarContent,
@@ -41,7 +41,7 @@ export function AppSidebar() {
   const router = useRouter();
   const { user, refresh } = useAuth();
   const { state, isMobile, setOpenMobile } = useSidebar();
-  const { theme, toggle: toggleTheme } = useTheme();
+  const { mode, setMode } = useTheme();
 
   async function handleLogout() {
     await auth.logout();
@@ -118,10 +118,22 @@ export function AppSidebar() {
                 <DropdownMenuItem render={<Link href="/app/settings" />} onClick={handleNavigate}>
                   <Settings /> Settings
                 </DropdownMenuItem>
-                <DropdownMenuItem onClick={toggleTheme}>
-                  {theme === "dark" ? <Sun /> : <Moon />}
-                  {theme === "dark" ? "Light mode" : "Dark mode"}
-                </DropdownMenuItem>
+                <DropdownMenuSeparator />
+                <DropdownMenuGroup>
+                  <DropdownMenuLabel>Appearance</DropdownMenuLabel>
+                  {([
+                    ["system", "System", Monitor],
+                    ["light", "Light", Sun],
+                    ["dark", "Dark", Moon],
+                    ["scheduled", "Scheduled", Clock3],
+                  ] as const).map(([value, label, Icon]) => (
+                    <DropdownMenuItem key={value} onClick={() => setMode(value)}>
+                      <Icon />
+                      <span className="flex-1">{label}</span>
+                      {mode === value && <Check />}
+                    </DropdownMenuItem>
+                  ))}
+                </DropdownMenuGroup>
                 <DropdownMenuSeparator />
                 <DropdownMenuItem variant="destructive" onClick={handleLogout}>
                   <LogOut /> Log out

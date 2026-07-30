@@ -7,6 +7,7 @@ import { AppSidebar, NAV_ITEMS } from "@/components/app-sidebar";
 import { useAuth } from "@/lib/auth-context";
 import { NoisePlayerProvider } from "@/lib/noise-player";
 import { NoiseControl } from "@/components/noise-control";
+import { FriendsControl } from "@/components/friends-control";
 
 export default function AppLayout({ children }: { children: React.ReactNode }) {
   const router = useRouter();
@@ -26,7 +27,11 @@ export default function AppLayout({ children }: { children: React.ReactNode }) {
   const currentPage = NAV_ITEMS.find((item) => item.url === pathname);
   const pageTitle =
     currentPage?.title ??
-    ({ "/app/profile": "Profile", "/app/settings": "Settings" } as Record<string, string>)[pathname];
+    ({
+      "/app/friends": "Friends",
+      "/app/profile": "Profile",
+      "/app/settings": "Settings",
+    } as Record<string, string>)[pathname];
 
   return (
     <NoisePlayerProvider>
@@ -36,6 +41,7 @@ export default function AppLayout({ children }: { children: React.ReactNode }) {
           <header className="bg-sidebar sticky top-0 z-10 flex h-14 shrink-0 items-center gap-3 border-b px-4">
             <SidebarTrigger />
             <h1 className="flex-1 text-sm font-medium">{pageTitle}</h1>
+            <FriendsControl />
             <NoiseControl />
           </header>
           <div className="flex min-w-0 flex-1 flex-col px-4 py-6 sm:px-6">{children}</div>
