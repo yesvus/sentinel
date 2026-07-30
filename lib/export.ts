@@ -37,9 +37,8 @@ function sessionCsvRow(session: StudySession, now: number): CsvRow {
   const seconds = isActive
     ? Math.max(0, Math.floor((now - start.getTime()) / 1000))
     : (session.duration_seconds ?? 0);
-  const producingSeconds = session.production_percentage == null
-    ? null
-    : Math.round(seconds * session.production_percentage / 100);
+  const productionPercentage = session.production_percentage ?? 0;
+  const producingSeconds = Math.round(seconds * productionPercentage / 100);
 
   return {
     sortKey: session.started_at,
@@ -54,9 +53,9 @@ function sessionCsvRow(session: StudySession, now: number): CsvRow {
       session.description ?? "",
       session.started_at,
       session.ended_at ?? "",
-      session.production_percentage ?? "",
-      producingSeconds === null ? "" : Math.round((seconds - producingSeconds) / 60),
-      producingSeconds === null ? "" : Math.round(producingSeconds / 60),
+      productionPercentage,
+      Math.round((seconds - producingSeconds) / 60),
+      Math.round(producingSeconds / 60),
     ],
   };
 }

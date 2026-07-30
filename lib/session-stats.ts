@@ -29,7 +29,7 @@ export type DailyAllocation = {
 export function splitSessionDuration(session: StudySession, now: number) {
   const total = sessionDurationSeconds(session, now);
   if (session.production_percentage == null) {
-    return { learning: 0, producing: 0, unclassified: total, total };
+    return { learning: total, producing: 0, unclassified: 0, total };
   }
   const producing = Math.round(total * session.production_percentage / 100);
   return { learning: total - producing, producing, unclassified: 0, total };

@@ -48,6 +48,15 @@ describe("statistics and exports", () => {
       total: 61,
     });
   });
+
+  it("counts sessions without a selection as Learning", () => {
+    expect(splitSessionDuration(session, Date.now())).toEqual({
+      learning: 3600,
+      producing: 0,
+      unclassified: 0,
+      total: 3600,
+    });
+  });
 });
 
 describe("scheduled theme", () => {

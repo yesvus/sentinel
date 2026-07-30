@@ -154,62 +154,6 @@ export default function StatsPage() {
         onNoteDeleted={handleNoteDeleted}
       />
 
-      <Card>
-        <CardHeader>
-          <CardTitle>Learning and Producing</CardTitle>
-        </CardHeader>
-        <CardContent className="space-y-4">
-          <p className="text-muted-foreground text-sm">
-            Your self-reported session allocation over the last seven days.
-          </p>
-          <div className="flex flex-wrap gap-4 text-xs" aria-hidden="true">
-            <span className="flex items-center gap-1.5"><span className="bg-chart-2 size-2.5 rounded-sm" />Learning</span>
-            <span className="flex items-center gap-1.5"><span className="bg-chart-4 size-2.5 rounded-sm" />Producing</span>
-            <span className="flex items-center gap-1.5"><span className="bg-muted-foreground/30 size-2.5 rounded-sm" />Unclassified</span>
-          </div>
-          <div className="space-y-3">
-            {recentDays.map((day) => {
-              const allocation = allocationByDay.get(day.key) ?? {
-                learning: 0,
-                producing: 0,
-                unclassified: 0,
-                total: 0,
-              };
-              const chartWidth = allocation.total / maxRecentSeconds * 100;
-              return (
-                <div key={day.key} className="grid grid-cols-[4.5rem_1fr] items-center gap-3">
-                  <span className="text-muted-foreground text-xs">
-                    {day.date.toLocaleDateString(undefined, { weekday: "short", month: "short", day: "numeric" })}
-                  </span>
-                  <div>
-                    <div
-                      className="bg-muted flex h-5 min-w-px overflow-hidden rounded-sm"
-                      style={{ width: `${chartWidth}%` }}
-                      role="img"
-                      aria-label={`${formatDuration(allocation.total)} total: ${formatDuration(allocation.learning)} Learning, ${formatDuration(allocation.producing)} Producing, ${formatDuration(allocation.unclassified)} Unclassified`}
-                    >
-                      {allocation.total > 0 && (
-                        <>
-                          <span className="bg-chart-2" style={{ width: `${allocation.learning / allocation.total * 100}%` }} />
-                          <span className="bg-chart-4" style={{ width: `${allocation.producing / allocation.total * 100}%` }} />
-                          <span className="bg-muted-foreground/30" style={{ width: `${allocation.unclassified / allocation.total * 100}%` }} />
-                        </>
-                      )}
-                    </div>
-                    <span className="sr-only">
-                      {day.date.toLocaleDateString()}: {formatDuration(allocation.total)} total,
-                      {" "}{formatDuration(allocation.learning)} Learning,
-                      {" "}{formatDuration(allocation.producing)} Producing,
-                      {" "}{formatDuration(allocation.unclassified)} Unclassified.
-                    </span>
-                  </div>
-                </div>
-              );
-            })}
-          </div>
-        </CardContent>
-      </Card>
-
       <div className="flex flex-wrap items-stretch gap-4 sm:gap-8">
         <Card className="w-full shrink-0 sm:w-auto">
           <CardHeader>
@@ -280,6 +224,65 @@ export default function StatsPage() {
 
         <ProjectBreakdownCard sessions={sessionList} now={now} className="min-w-64 flex-1" />
       </div>
+
+      <Card>
+        <CardHeader>
+          <CardTitle>Learning and Producing</CardTitle>
+        </CardHeader>
+        <CardContent className="space-y-4">
+          <p className="text-muted-foreground text-sm">
+            Your session allocation over the last seven days. Sessions without a selection count as Learning.
+          </p>
+          <div className="flex flex-wrap gap-4 text-xs" aria-hidden="true">
+            <span className="flex items-center gap-1.5">
+              <span className="size-2.5 rounded-sm" style={{ backgroundColor: "#0e7490" }} />
+              Learning
+            </span>
+            <span className="flex items-center gap-1.5">
+              <span className="size-2.5 rounded-sm" style={{ backgroundColor: "#f59e0b" }} />
+              Producing
+            </span>
+          </div>
+          <div className="space-y-3">
+            {recentDays.map((day) => {
+              const allocation = allocationByDay.get(day.key) ?? {
+                learning: 0,
+                producing: 0,
+                unclassified: 0,
+                total: 0,
+              };
+              const chartWidth = allocation.total / maxRecentSeconds * 100;
+              return (
+                <div key={day.key} className="grid grid-cols-[4.5rem_1fr] items-center gap-3">
+                  <span className="text-muted-foreground text-xs">
+                    {day.date.toLocaleDateString(undefined, { weekday: "short", month: "short", day: "numeric" })}
+                  </span>
+                  <div>
+                    <div
+                      className="bg-muted flex h-5 min-w-px overflow-hidden rounded-sm"
+                      style={{ width: `${chartWidth}%` }}
+                      role="img"
+                      aria-label={`${formatDuration(allocation.total)} total: ${formatDuration(allocation.learning)} Learning, ${formatDuration(allocation.producing)} Producing`}
+                    >
+                      {allocation.total > 0 && (
+                        <>
+                          <span style={{ width: `${allocation.learning / allocation.total * 100}%`, backgroundColor: "#0e7490" }} />
+                          <span style={{ width: `${allocation.producing / allocation.total * 100}%`, backgroundColor: "#f59e0b" }} />
+                        </>
+                      )}
+                    </div>
+                    <span className="sr-only">
+                      {day.date.toLocaleDateString()}: {formatDuration(allocation.total)} total,
+                      {" "}{formatDuration(allocation.learning)} Learning and
+                      {" "}{formatDuration(allocation.producing)} Producing.
+                    </span>
+                  </div>
+                </div>
+              );
+            })}
+          </div>
+        </CardContent>
+      </Card>
 
       <HistorySection
         sessions={sessionList}

@@ -142,7 +142,7 @@ export function HistorySection({
   const [addEndTime, setAddEndTime] = useState(() => toTimeInput(new Date()));
   const [addProjectId, setAddProjectId] = useState<number | null>(null);
   const [addDescription, setAddDescription] = useState("");
-  const [addProductionPercentage, setAddProductionPercentage] = useState<number | null>(null);
+  const [addProductionPercentage, setAddProductionPercentage] = useState(0);
   const [addError, setAddError] = useState<string | null>(null);
   const [addBusy, setAddBusy] = useState(false);
 
@@ -154,7 +154,7 @@ export function HistorySection({
     setAddEndTime(toTimeInput(new Date()));
     setAddProjectId(null);
     setAddDescription("");
-    setAddProductionPercentage(null);
+    setAddProductionPercentage(0);
     setAddError(null);
     setAddOpen(true);
   }
@@ -169,7 +169,7 @@ export function HistorySection({
     setAddEndTime(toTimeInput(end));
     setAddProjectId(session.project_id);
     setAddDescription(session.description ?? "");
-    setAddProductionPercentage(session.production_percentage ?? null);
+    setAddProductionPercentage(session.production_percentage ?? 0);
     setAddError(null);
     setAddOpen(true);
   }
@@ -245,7 +245,7 @@ export function HistorySection({
                     project_name: project?.name ?? null,
                     project_icon: project?.icon ?? null,
                     production_percentage: editingActive
-                      ? (s.production_percentage ?? null)
+                      ? (s.production_percentage ?? 0)
                       : addProductionPercentage,
                   }
                 : s
@@ -435,15 +435,8 @@ export function HistorySection({
               {!editingActive && (
                 <div className="space-y-2">
                   <div className="flex items-center justify-between">
-                    <Label htmlFor="add-production">Session allocation (optional)</Label>
-                    <Button
-                      type="button"
-                      variant="ghost"
-                      size="sm"
-                      onClick={() => setAddProductionPercentage(null)}
-                    >
-                      Unclassified
-                    </Button>
+                    <Label htmlFor="add-production">Session allocation</Label>
+                    <span className="text-muted-foreground text-xs">Producing {addProductionPercentage}%</span>
                   </div>
                   <input
                     id="add-production"
@@ -451,19 +444,13 @@ export function HistorySection({
                     min="0"
                     max="100"
                     step="10"
-                    value={addProductionPercentage ?? 50}
+                    value={addProductionPercentage}
                     onChange={(event) => setAddProductionPercentage(Number(event.target.value))}
-                    aria-valuetext={
-                      addProductionPercentage === null
-                        ? "Unclassified"
-                        : `Learning ${100 - addProductionPercentage} percent, Producing ${addProductionPercentage} percent`
-                    }
+                    aria-valuetext={`Learning ${100 - addProductionPercentage} percent, Producing ${addProductionPercentage} percent`}
                     className="accent-primary w-full"
                   />
                   <p className="text-muted-foreground text-center text-xs">
-                    {addProductionPercentage === null
-                      ? "Unclassified"
-                      : `Learning ${100 - addProductionPercentage}% · Producing ${addProductionPercentage}%`}
+                    Learning {100 - addProductionPercentage}% · Producing {addProductionPercentage}%
                   </p>
                 </div>
               )}
@@ -607,9 +594,7 @@ export function HistorySection({
                                         )}
                                         {!isActive && (
                                           <Badge variant="outline">
-                                            {session.production_percentage == null
-                                              ? "Unclassified"
-                                              : `L ${100 - session.production_percentage}% · P ${session.production_percentage}%`}
+                                            L {100 - (session.production_percentage ?? 0)}% · P {session.production_percentage ?? 0}%
                                           </Badge>
                                         )}
                                       </div>

@@ -76,7 +76,7 @@ export default function AppHomePage() {
   const [lastDuration, setLastDuration] = useState<number | null>(null);
   const [resuming, setResuming] = useState(true);
   const [stopOpen, setStopOpen] = useState(false);
-  const [productionPercentage, setProductionPercentage] = useState<number | null>(null);
+  const [productionPercentage, setProductionPercentage] = useState(0);
   const intervalRef = useRef<ReturnType<typeof setInterval> | null>(null);
   const channelRef = useRef<BroadcastChannel | null>(null);
   const descriptionSaveTimeout = useRef<ReturnType<typeof setTimeout> | null>(null);
@@ -130,7 +130,7 @@ export default function AppHomePage() {
         setStartedAt(null);
         setElapsedMs(0);
         setDescription("");
-        setProductionPercentage(null);
+        setProductionPercentage(0);
         setStopOpen(false);
       } else if (message.type === "updated") {
         setProjectId(message.projectId);
@@ -234,7 +234,7 @@ export default function AppHomePage() {
       setStartedAt(null);
       setElapsedMs(0);
       setDescription("");
-      setProductionPercentage(null);
+      setProductionPercentage(0);
       setStopOpen(false);
       broadcast({ type: "stopped", durationSeconds: result.durationSeconds });
       window.dispatchEvent(new CustomEvent(NOISE_SESSION_EVENT, { detail: "stopped" }));
@@ -344,20 +344,14 @@ export default function AppHomePage() {
               min="0"
               max="100"
               step="10"
-              value={productionPercentage ?? 50}
+              value={productionPercentage}
               onChange={(event) => setProductionPercentage(Number(event.target.value))}
               aria-label="Learning and Producing allocation"
-              aria-valuetext={
-                productionPercentage === null
-                  ? "Not classified"
-                  : `Learning ${100 - productionPercentage} percent, Producing ${productionPercentage} percent`
-              }
+              aria-valuetext={`Learning ${100 - productionPercentage} percent, Producing ${productionPercentage} percent`}
               className="accent-primary w-full cursor-pointer"
             />
             <p className="text-center text-sm font-medium" aria-live="polite">
-              {productionPercentage === null
-                ? "Move the slider to classify this session"
-                : `Learning ${100 - productionPercentage}% · Producing ${productionPercentage}%`}
+              Learning {100 - productionPercentage}% · Producing {productionPercentage}%
             </p>
             <p className="text-muted-foreground text-xs">
               Learning means building capability for later. Producing means creating or delivering
@@ -369,7 +363,7 @@ export default function AppHomePage() {
             <Button type="button" variant="ghost" onClick={() => setStopOpen(false)} disabled={busy}>
               Keep running
             </Button>
-            <Button type="button" onClick={handleStop} disabled={busy || productionPercentage === null}>
+            <Button type="button" onClick={handleStop} disabled={busy}>
               {busy ? "Saving..." : "Finish session"}
             </Button>
           </DialogFooter>
