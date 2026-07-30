@@ -1,7 +1,7 @@
 "use client";
 
 import { useState } from "react";
-import { Clock3, Monitor, Moon, ShieldCheck, Sun } from "lucide-react";
+import { Clock3, Gauge, Monitor, Moon, ShieldCheck, Sun } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { ApiError, auth } from "@/lib/api";
@@ -12,6 +12,7 @@ export default function SettingsPage() {
   const { user, refresh } = useAuth();
   const { mode, schedule, setMode, setSchedule } = useTheme();
   const [savingPrivacy, setSavingPrivacy] = useState(false);
+  const [savingSessionDefault, setSavingSessionDefault] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
   async function update() {
@@ -28,6 +29,19 @@ export default function SettingsPage() {
     }
   }
 
+  async function updateSessionDefault(defaultSessionType: "learning" | "producing") {
+    setSavingSessionDefault(true);
+    setError(null);
+    try {
+      await auth.updateSessionSettings(defaultSessionType);
+      await refresh();
+    } catch (err) {
+      setError(err instanceof ApiError ? err.message : "Could not save session default");
+    } finally {
+      setSavingSessionDefault(false);
+    }
+  }
+
   return (
     <div className="mx-auto w-full max-w-4xl space-y-6">
       {error && <p className="text-destructive text-sm">{error}</p>}
@@ -41,6 +55,36 @@ export default function SettingsPage() {
           <Button variant={user?.shareSessionDescriptions ? "default" : "outline"} role="switch" aria-checked={user?.shareSessionDescriptions ?? false} onClick={update} disabled={savingPrivacy}>
             {savingPrivacy ? "Saving..." : user?.shareSessionDescriptions ? "Sharing on" : "Sharing off"}
           </Button>
+        </CardContent>
+      </Card>
+      <Card>
+        <CardHeader>
+          <CardTitle className="flex items-center gap-2">
+            <Gauge className="text-muted-foreground size-4" />
+            Session default
+          </CardTitle>
+        </CardHeader>
+        <CardContent className="space-y-3">
+          <div>
+            <p className="text-sm font-medium">New sessions begin as</p>
+            <p className="text-muted-foreground text-sm">
+              This sets the initial position in the finish screen. You can still adjust every session.
+            </p>
+          </div>
+          <div className="grid max-w-sm grid-cols-2 gap-2">
+            {(["learning", "producing"] as const).map((value) => (
+              <Button
+                key={value}
+                type="button"
+                variant={user?.defaultSessionType === value ? "default" : "outline"}
+                disabled={savingSessionDefault}
+                aria-pressed={user?.defaultSessionType === value}
+                onClick={() => updateSessionDefault(value)}
+              >
+                {value === "learning" ? "Learning" : "Producing"}
+              </Button>
+            ))}
+          </div>
         </CardContent>
       </Card>
       <Card>

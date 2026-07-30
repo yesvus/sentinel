@@ -38,6 +38,7 @@ export type User = {
   shareSessionDescriptions: boolean;
   autoStartNoise: boolean;
   focusAudioType: FocusAudioType;
+  defaultSessionType: "learning" | "producing";
 };
 
 export type FocusAudioType = "white" | "pink" | "brown" | "speech-blocker" | "binaural-40hz";
@@ -68,6 +69,11 @@ export const auth = {
     api<{ autoStartNoise: boolean; focusAudioType: FocusAudioType }>("/api/auth/audio-settings", {
       method: "PATCH",
       body: JSON.stringify(details),
+    }),
+  updateSessionSettings: (defaultSessionType: "learning" | "producing") =>
+    api<{ defaultSessionType: "learning" | "producing" }>("/api/auth/session-settings", {
+      method: "PATCH",
+      body: JSON.stringify({ defaultSessionType }),
     }),
 };
 

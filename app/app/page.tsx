@@ -1,7 +1,7 @@
 "use client";
 
 import { useEffect, useRef, useState } from "react";
-import { Play, Square } from "lucide-react";
+import { Info, Play, Square } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Textarea } from "@/components/ui/textarea";
@@ -19,6 +19,7 @@ import { useAuth } from "@/lib/auth-context";
 import { ProjectIcon } from "@/lib/icons";
 import { NOISE_SESSION_EVENT } from "@/lib/noise-player";
 import { ProjectIconPicker } from "@/components/project-icon-picker";
+import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip";
 import {
   Dialog,
   DialogContent,
@@ -76,7 +77,8 @@ export default function AppHomePage() {
   const [lastDuration, setLastDuration] = useState<number | null>(null);
   const [resuming, setResuming] = useState(true);
   const [stopOpen, setStopOpen] = useState(false);
-  const [productionPercentage, setProductionPercentage] = useState(0);
+  const defaultProductionPercentage = user?.defaultSessionType === "producing" ? 100 : 0;
+  const [productionPercentage, setProductionPercentage] = useState(defaultProductionPercentage);
   const intervalRef = useRef<ReturnType<typeof setInterval> | null>(null);
   const channelRef = useRef<BroadcastChannel | null>(null);
   const descriptionSaveTimeout = useRef<ReturnType<typeof setTimeout> | null>(null);
@@ -130,7 +132,7 @@ export default function AppHomePage() {
         setStartedAt(null);
         setElapsedMs(0);
         setDescription("");
-        setProductionPercentage(0);
+        setProductionPercentage(defaultProductionPercentage);
         setStopOpen(false);
       } else if (message.type === "updated") {
         setProjectId(message.projectId);
@@ -149,7 +151,7 @@ export default function AppHomePage() {
       channel.close();
       channelRef.current = null;
     };
-  }, []);
+  }, [defaultProductionPercentage]);
 
   // Cross-device sync: catch up with whatever happened elsewhere when we come back to this tab.
   useEffect(() => {
@@ -234,7 +236,7 @@ export default function AppHomePage() {
       setStartedAt(null);
       setElapsedMs(0);
       setDescription("");
-      setProductionPercentage(0);
+      setProductionPercentage(defaultProductionPercentage);
       setStopOpen(false);
       broadcast({ type: "stopped", durationSeconds: result.durationSeconds });
       window.dispatchEvent(new CustomEvent(NOISE_SESSION_EVENT, { detail: "stopped" }));
@@ -305,7 +307,14 @@ export default function AppHomePage() {
         <Button
           size="icon"
           disabled={busy || resuming}
-          onClick={isRunning ? () => setStopOpen(true) : handleStart}
+          onClick={
+            isRunning
+              ? () => {
+                  setProductionPercentage(defaultProductionPercentage);
+                  setStopOpen(true);
+                }
+              : handleStart
+          }
           aria-label={isRunning ? "Stop session" : "Start session"}
           className="size-16 rounded-full shadow-sm"
         >
@@ -326,13 +335,30 @@ export default function AppHomePage() {
       </div>
 
       <Dialog open={stopOpen} onOpenChange={(open) => !busy && setStopOpen(open)}>
-        <DialogContent>
+        <DialogContent className="max-w-sm">
           <DialogHeader>
-            <DialogTitle>Finish this session</DialogTitle>
-            <DialogDescription>
-              Was this session mainly improving your capability or producing a usable result?
-              This is your own estimate, not a productivity score.
-            </DialogDescription>
+            <div className="flex items-center gap-2">
+              <DialogTitle>Finish session</DialogTitle>
+              <Tooltip>
+                <TooltipTrigger
+                  render={
+                    <Button
+                      type="button"
+                      size="icon-sm"
+                      variant="ghost"
+                      aria-label="About Learning and Producing"
+                    />
+                  }
+                >
+                  <Info />
+                </TooltipTrigger>
+                <TooltipContent className="max-w-72">
+                  Learning builds capability for later. Producing creates or delivers something
+                  usable now. This is your estimate, not a productivity score.
+                </TooltipContent>
+              </Tooltip>
+            </div>
+            <DialogDescription>Adjust the split, then finish.</DialogDescription>
           </DialogHeader>
           <div className="space-y-4">
             <div className="flex justify-between text-sm font-medium">
@@ -352,10 +378,6 @@ export default function AppHomePage() {
             />
             <p className="text-center text-sm font-medium" aria-live="polite">
               Learning {100 - productionPercentage}% · Producing {productionPercentage}%
-            </p>
-            <p className="text-muted-foreground text-xs">
-              Learning means building capability for later. Producing means creating or delivering
-              something usable now. Mixed sessions can sit anywhere between them.
             </p>
             {error && <p className="text-destructive text-sm">{error}</p>}
           </div>

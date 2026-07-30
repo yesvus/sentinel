@@ -83,6 +83,7 @@ async function authRoutes(request: NextRequest, parts: string[]) {
     const response = NextResponse.json({
       id, email, name: null, avatar: null, shareSessionDescriptions: false, autoStartNoise: false,
       focusAudioType: "speech-blocker",
+      defaultSessionType: "learning",
     }, { status: 201 });
     response.cookies.set("token", createToken(id), COOKIE_OPTIONS);
     return response;
@@ -91,7 +92,7 @@ async function authRoutes(request: NextRequest, parts: string[]) {
     const data = await body(request);
     if (typeof data.email !== "string" || typeof data.password !== "string") return error("Email and password are required");
     const result = await db.execute({
-      sql: "SELECT id, email, password_hash, name, avatar, share_session_descriptions, auto_start_noise, focus_audio_type FROM users WHERE lower(email) = ?",
+      sql: "SELECT id, email, password_hash, name, avatar, share_session_descriptions, auto_start_noise, focus_audio_type, default_session_type FROM users WHERE lower(email) = ?",
       args: [data.email.trim().toLowerCase()],
     });
     const user = result.rows[0];
@@ -101,6 +102,7 @@ async function authRoutes(request: NextRequest, parts: string[]) {
       shareSessionDescriptions: Boolean(user.share_session_descriptions),
       autoStartNoise: Boolean(user.auto_start_noise),
       focusAudioType: user.focus_audio_type ?? "speech-blocker",
+      defaultSessionType: user.default_session_type ?? "learning",
     });
     response.cookies.set("token", createToken(Number(user.id)), COOKIE_OPTIONS);
     return response;
@@ -115,7 +117,7 @@ async function authRoutes(request: NextRequest, parts: string[]) {
   if (!userId) return unauthorized();
   if (action === "me" && request.method === "GET") {
     const result = await db.execute({
-      sql: "SELECT id, email, name, avatar, share_session_descriptions, auto_start_noise, focus_audio_type FROM users WHERE id = ?",
+      sql: "SELECT id, email, name, avatar, share_session_descriptions, auto_start_noise, focus_audio_type, default_session_type FROM users WHERE id = ?",
       args: [userId],
     });
     const user = result.rows[0];
@@ -125,6 +127,7 @@ async function authRoutes(request: NextRequest, parts: string[]) {
       shareSessionDescriptions: Boolean(user.share_session_descriptions),
       autoStartNoise: Boolean(user.auto_start_noise),
       focusAudioType: user.focus_audio_type ?? "speech-blocker",
+      defaultSessionType: user.default_session_type ?? "learning",
     });
   }
   if (action === "me" && request.method === "PATCH") {
@@ -174,6 +177,17 @@ async function authRoutes(request: NextRequest, parts: string[]) {
       autoStartNoise: Boolean(result.rows[0].auto_start_noise),
       focusAudioType: result.rows[0].focus_audio_type,
     });
+  }
+  if (action === "session-settings" && request.method === "PATCH") {
+    const data = await body(request);
+    if (data.defaultSessionType !== "learning" && data.defaultSessionType !== "producing") {
+      return error("defaultSessionType must be learning or producing");
+    }
+    await db.execute({
+      sql: "UPDATE users SET default_session_type = ? WHERE id = ?",
+      args: [data.defaultSessionType, userId],
+    });
+    return NextResponse.json({ defaultSessionType: data.defaultSessionType });
   }
   if (action === "change-password" && request.method === "POST") {
     const data = await body(request);

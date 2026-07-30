@@ -50,7 +50,18 @@ describe("Next API", () => {
       shareSessionDescriptions: false,
       autoStartNoise: false,
       focusAudioType: "speech-blocker",
+      defaultSessionType: "learning",
     });
+  });
+
+  it("saves the default session type", async () => {
+    const cookie = await register("session-default@example.test");
+    const updated = await request("PATCH", "auth/session-settings", {
+      cookie,
+      body: { defaultSessionType: "producing" },
+    });
+    expect(updated.body.defaultSessionType).toBe("producing");
+    expect((await request("GET", "auth/me", { cookie })).body.defaultSessionType).toBe("producing");
   });
 
   it("persists project metadata and day notes", async () => {

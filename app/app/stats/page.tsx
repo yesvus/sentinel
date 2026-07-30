@@ -258,19 +258,30 @@ export default function StatsPage() {
                     {day.date.toLocaleDateString(undefined, { weekday: "short", month: "short", day: "numeric" })}
                   </span>
                   <div>
-                    <div
-                      className="bg-muted flex h-5 min-w-px overflow-hidden rounded-sm"
-                      style={{ width: `${chartWidth}%` }}
-                      role="img"
-                      aria-label={`${formatDuration(allocation.total)} total: ${formatDuration(allocation.learning)} Learning, ${formatDuration(allocation.producing)} Producing`}
-                    >
-                      {allocation.total > 0 && (
-                        <>
-                          <span style={{ width: `${allocation.learning / allocation.total * 100}%`, backgroundColor: "#0e7490" }} />
-                          <span style={{ width: `${allocation.producing / allocation.total * 100}%`, backgroundColor: "#f59e0b" }} />
-                        </>
-                      )}
-                    </div>
+                    <Tooltip>
+                      <TooltipTrigger
+                        render={
+                          <div
+                            className="bg-muted flex h-5 min-w-px overflow-hidden rounded-sm"
+                            style={{ width: `${chartWidth}%` }}
+                            role="img"
+                            aria-label={`${formatDuration(allocation.total)} total: ${formatDuration(allocation.learning)} Learning, ${formatDuration(allocation.producing)} Producing`}
+                          >
+                            {allocation.total > 0 && (
+                              <>
+                                <span style={{ width: `${allocation.learning / allocation.total * 100}%`, backgroundColor: "#0e7490" }} />
+                                <span style={{ width: `${allocation.producing / allocation.total * 100}%`, backgroundColor: "#f59e0b" }} />
+                              </>
+                            )}
+                          </div>
+                        }
+                      />
+                      <TooltipContent>
+                        Learning {allocation.total ? Math.round(allocation.learning / allocation.total * 100) : 0}%
+                        {" · "}
+                        Producing {allocation.total ? Math.round(allocation.producing / allocation.total * 100) : 0}%
+                      </TooltipContent>
+                    </Tooltip>
                     <span className="sr-only">
                       {day.date.toLocaleDateString()}: {formatDuration(allocation.total)} total,
                       {" "}{formatDuration(allocation.learning)} Learning and
