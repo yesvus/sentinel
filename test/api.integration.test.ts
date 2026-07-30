@@ -92,6 +92,29 @@ describe("Next API", () => {
     });
   });
 
+  it("validates and persists a Learning–Producing allocation", async () => {
+    const cookie = await register("allocation@example.test");
+    const started = await request("POST", "sessions/start", { cookie });
+    const invalid = await request("PATCH", `sessions/${started.body.id}/stop`, {
+      cookie,
+      body: { productionPercentage: 35 },
+    });
+    expect(invalid.response.status).toBe(400);
+
+    const stopped = await request("PATCH", `sessions/${started.body.id}/stop`, {
+      cookie,
+      body: { productionPercentage: 70 },
+    });
+    expect(stopped.body.productionPercentage).toBe(70);
+    expect((await request("GET", "sessions", { cookie })).body[0].production_percentage).toBe(70);
+
+    const updated = await request("PATCH", `sessions/${started.body.id}`, {
+      cookie,
+      body: { productionPercentage: 20 },
+    });
+    expect(updated.body.productionPercentage).toBe(20);
+  });
+
   it("edits an active session without finishing it", async () => {
     const cookie = await register("active-edit@example.test");
     const started = await request("POST", "sessions/start", {

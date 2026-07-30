@@ -12,6 +12,17 @@ const error = (message: string, status = 400) => NextResponse.json({ error: mess
 const body = (request: NextRequest) => request.json().catch(() => ({}));
 const FOCUS_AUDIO_TYPES = new Set(["white", "pink", "brown", "speech-blocker", "binaural-40hz"]);
 
+function validProductionPercentage(value: unknown): value is number | null {
+  return value === null ||
+    (typeof value === "number" && Number.isInteger(value) && value >= 0 && value <= 100 && value % 10 === 0);
+}
+
+function productionPercentageError(value: unknown) {
+  return value !== undefined && !validProductionPercentage(value)
+    ? error("productionPercentage must be null or an integer from 0 to 100 in increments of 10")
+    : null;
+}
+
 function sessionCursor(startedAt: string, id: number) {
   return Buffer.from(JSON.stringify([startedAt, id])).toString("base64url");
 }
@@ -36,7 +47,7 @@ async function activeSession(userId: number) {
   const result = await db.execute({
     sql: `
       SELECT sessions.id, sessions.started_at, sessions.ended_at,
-             sessions.duration_seconds, sessions.description,
+             sessions.duration_seconds, sessions.description, sessions.production_percentage,
              project_id, projects.name AS project_name, projects.icon AS project_icon
       FROM sessions LEFT JOIN projects ON projects.id = sessions.project_id
       WHERE sessions.user_id = ? AND sessions.ended_at IS NULL
@@ -217,7 +228,7 @@ async function sessionRoutes(request: NextRequest, parts: string[], userId: numb
     const result = await db.execute({
       sql: `
         SELECT sessions.id, sessions.started_at, sessions.ended_at,
-               sessions.duration_seconds, sessions.description,
+               sessions.duration_seconds, sessions.description, sessions.production_percentage,
                project_id, projects.name AS project_name, projects.icon AS project_icon
         FROM sessions LEFT JOIN projects ON projects.id = sessions.project_id
         WHERE sessions.user_id = ? ${cursorClause}
@@ -242,6 +253,8 @@ async function sessionRoutes(request: NextRequest, parts: string[], userId: numb
   }
   if (!action && request.method === "POST") {
     const data = await body(request);
+    const allocationError = productionPercentageError(data.productionPercentage);
+    if (allocationError) return allocationError;
     if (typeof data.startedAt !== "string" || typeof data.endedAt !== "string") return error("startedAt and endedAt are required");
     const start = new Date(data.startedAt);
     const end = new Date(data.endedAt);
@@ -249,11 +262,12 @@ async function sessionRoutes(request: NextRequest, parts: string[], userId: numb
     if (end <= start) return error("endedAt must be after startedAt");
     const durationSeconds = Math.round((end.getTime() - start.getTime()) / 1000);
     const result = await db.execute({
-      sql: "INSERT INTO sessions (user_id, started_at, ended_at, duration_seconds, description, project_id) VALUES (?, ?, ?, ?, ?, ?)",
-      args: [userId, start.toISOString(), end.toISOString(), durationSeconds, data.description ?? null, data.projectId ?? null],
+      sql: "INSERT INTO sessions (user_id, started_at, ended_at, duration_seconds, description, project_id, production_percentage) VALUES (?, ?, ?, ?, ?, ?, ?)",
+      args: [userId, start.toISOString(), end.toISOString(), durationSeconds, data.description ?? null, data.projectId ?? null, data.productionPercentage ?? null],
     });
     return NextResponse.json({
       id: Number(result.lastInsertRowid), startedAt: start.toISOString(), endedAt: end.toISOString(), durationSeconds,
+      productionPercentage: data.productionPercentage ?? null,
     }, { status: 201 });
   }
 
@@ -261,6 +275,8 @@ async function sessionRoutes(request: NextRequest, parts: string[], userId: numb
   if (!Number.isInteger(id)) return error("Not found", 404);
   if (parts[2] === "stop" && request.method === "PATCH") {
     const data = await body(request);
+    const allocationError = productionPercentageError(data.productionPercentage);
+    if (allocationError) return allocationError;
     const existing = await db.execute({
       sql: "SELECT started_at, description FROM sessions WHERE id = ? AND user_id = ?",
       args: [id, userId],
@@ -271,14 +287,15 @@ async function sessionRoutes(request: NextRequest, parts: string[], userId: numb
     const description =
       data.description !== undefined ? data.description : existing.rows[0].description;
     await db.execute({
-      sql: "UPDATE sessions SET ended_at = ?, duration_seconds = ?, description = ? WHERE id = ? AND user_id = ?",
-      args: [endedAt.toISOString(), durationSeconds, description ?? null, id, userId],
+      sql: "UPDATE sessions SET ended_at = ?, duration_seconds = ?, description = ?, production_percentage = ? WHERE id = ? AND user_id = ?",
+      args: [endedAt.toISOString(), durationSeconds, description ?? null, data.productionPercentage ?? null, id, userId],
     });
     return NextResponse.json({
       id,
       endedAt: endedAt.toISOString(),
       durationSeconds,
       description: description ?? null,
+      productionPercentage: data.productionPercentage ?? null,
     });
   }
   if (request.method === "DELETE") {
@@ -287,8 +304,10 @@ async function sessionRoutes(request: NextRequest, parts: string[], userId: numb
   }
   if (request.method === "PATCH") {
     const data = await body(request);
+    const allocationError = productionPercentageError(data.productionPercentage);
+    if (allocationError) return allocationError;
     const existing = await db.execute({
-      sql: "SELECT started_at, ended_at, description, project_id FROM sessions WHERE id = ? AND user_id = ?",
+      sql: "SELECT started_at, ended_at, description, project_id, production_percentage FROM sessions WHERE id = ? AND user_id = ?",
       args: [id, userId],
     });
     const session = existing.rows[0];
@@ -302,13 +321,17 @@ async function sessionRoutes(request: NextRequest, parts: string[], userId: numb
     const durationSeconds = end ? Math.round((end.getTime() - start.getTime()) / 1000) : null;
     const description = data.description !== undefined ? data.description : session.description;
     const projectId = data.projectId !== undefined ? data.projectId : session.project_id;
+    const productionPercentage = data.productionPercentage !== undefined
+      ? data.productionPercentage
+      : session.production_percentage;
     await db.execute({
-      sql: "UPDATE sessions SET description = ?, project_id = ?, started_at = ?, ended_at = ?, duration_seconds = ? WHERE id = ? AND user_id = ?",
-      args: [description ?? null, projectId ?? null, start.toISOString(), end?.toISOString() ?? null, durationSeconds, id, userId],
+      sql: "UPDATE sessions SET description = ?, project_id = ?, started_at = ?, ended_at = ?, duration_seconds = ?, production_percentage = ? WHERE id = ? AND user_id = ?",
+      args: [description ?? null, projectId ?? null, start.toISOString(), end?.toISOString() ?? null, durationSeconds, productionPercentage ?? null, id, userId],
     });
     return NextResponse.json({
       id, description: description ?? null, projectId: projectId ?? null,
       startedAt: start.toISOString(), endedAt: end?.toISOString() ?? null, durationSeconds,
+      productionPercentage: productionPercentage ?? null,
     });
   }
   return error("Not found", 404);

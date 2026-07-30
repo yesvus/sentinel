@@ -63,8 +63,12 @@ describe("stopping a session with a description", () => {
     });
     const textarea = await startWithDescription("Final output");
     fireEvent.click(screen.getByRole("button", { name: "Stop session" }));
+    fireEvent.change(screen.getByRole("slider", { name: "Learning and Producing allocation" }), {
+      target: { value: "70" },
+    });
+    fireEvent.click(screen.getByRole("button", { name: "Finish session" }));
 
-    await waitFor(() => expect(stop).toHaveBeenCalledWith(9, "Final output"));
+    await waitFor(() => expect(stop).toHaveBeenCalledWith(9, "Final output", 70));
     await waitFor(() => expect(textarea).toHaveValue(""));
   });
 
@@ -72,8 +76,13 @@ describe("stopping a session with a description", () => {
     stop.mockRejectedValue(new Error("network failed"));
     const textarea = await startWithDescription("Do not lose this");
     fireEvent.click(screen.getByRole("button", { name: "Stop session" }));
+    fireEvent.change(screen.getByRole("slider", { name: "Learning and Producing allocation" }), {
+      target: { value: "40" },
+    });
+    fireEvent.click(screen.getByRole("button", { name: "Finish session" }));
 
     await screen.findByText("Something went wrong");
     expect(textarea).toHaveValue("Do not lose this");
+    expect(screen.getByText("Learning 60% · Producing 40%")).toBeInTheDocument();
   });
 });

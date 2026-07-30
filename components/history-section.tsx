@@ -142,6 +142,7 @@ export function HistorySection({
   const [addEndTime, setAddEndTime] = useState(() => toTimeInput(new Date()));
   const [addProjectId, setAddProjectId] = useState<number | null>(null);
   const [addDescription, setAddDescription] = useState("");
+  const [addProductionPercentage, setAddProductionPercentage] = useState<number | null>(null);
   const [addError, setAddError] = useState<string | null>(null);
   const [addBusy, setAddBusy] = useState(false);
 
@@ -153,6 +154,7 @@ export function HistorySection({
     setAddEndTime(toTimeInput(new Date()));
     setAddProjectId(null);
     setAddDescription("");
+    setAddProductionPercentage(null);
     setAddError(null);
     setAddOpen(true);
   }
@@ -167,6 +169,7 @@ export function HistorySection({
     setAddEndTime(toTimeInput(end));
     setAddProjectId(session.project_id);
     setAddDescription(session.description ?? "");
+    setAddProductionPercentage(session.production_percentage ?? null);
     setAddError(null);
     setAddOpen(true);
   }
@@ -224,6 +227,7 @@ export function HistorySection({
           ...(endedAt ? { endedAt: endedAt.toISOString() } : {}),
           projectId: addProjectId,
           description: addDescription || null,
+          ...(!editingActive ? { productionPercentage: addProductionPercentage } : {}),
         });
         onSessionsChange((list) =>
           list
@@ -240,6 +244,9 @@ export function HistorySection({
                     project_id: addProjectId,
                     project_name: project?.name ?? null,
                     project_icon: project?.icon ?? null,
+                    production_percentage: editingActive
+                      ? (s.production_percentage ?? null)
+                      : addProductionPercentage,
                   }
                 : s
             )
@@ -261,6 +268,7 @@ export function HistorySection({
           endedAt: endedAt!.toISOString(),
           projectId: addProjectId,
           description: addDescription || null,
+          productionPercentage: addProductionPercentage,
         });
         onSessionsChange((list) =>
           [
@@ -273,6 +281,7 @@ export function HistorySection({
               project_id: addProjectId,
               project_name: project?.name ?? null,
               project_icon: project?.icon ?? null,
+              production_percentage: addProductionPercentage,
             },
             ...list,
           ].sort((a, b) => new Date(b.started_at).getTime() - new Date(a.started_at).getTime())
@@ -423,6 +432,41 @@ export function HistorySection({
                   placeholder="What were you working on?"
                 />
               </div>
+              {!editingActive && (
+                <div className="space-y-2">
+                  <div className="flex items-center justify-between">
+                    <Label htmlFor="add-production">Session allocation (optional)</Label>
+                    <Button
+                      type="button"
+                      variant="ghost"
+                      size="sm"
+                      onClick={() => setAddProductionPercentage(null)}
+                    >
+                      Unclassified
+                    </Button>
+                  </div>
+                  <input
+                    id="add-production"
+                    type="range"
+                    min="0"
+                    max="100"
+                    step="10"
+                    value={addProductionPercentage ?? 50}
+                    onChange={(event) => setAddProductionPercentage(Number(event.target.value))}
+                    aria-valuetext={
+                      addProductionPercentage === null
+                        ? "Unclassified"
+                        : `Learning ${100 - addProductionPercentage} percent, Producing ${addProductionPercentage} percent`
+                    }
+                    className="accent-primary w-full"
+                  />
+                  <p className="text-muted-foreground text-center text-xs">
+                    {addProductionPercentage === null
+                      ? "Unclassified"
+                      : `Learning ${100 - addProductionPercentage}% · Producing ${addProductionPercentage}%`}
+                  </p>
+                </div>
+              )}
               {addError && <p className="text-destructive text-sm">{addError}</p>}
               <DialogFooter>
                 <Button type="submit" disabled={addBusy}>
@@ -559,6 +603,13 @@ export function HistorySection({
                                           <Badge className="bg-primary/15 text-primary gap-1">
                                             <span className="bg-primary size-1.5 animate-pulse rounded-full" />
                                             In progress
+                                          </Badge>
+                                        )}
+                                        {!isActive && (
+                                          <Badge variant="outline">
+                                            {session.production_percentage == null
+                                              ? "Unclassified"
+                                              : `L ${100 - session.production_percentage}% · P ${session.production_percentage}%`}
                                           </Badge>
                                         )}
                                       </div>

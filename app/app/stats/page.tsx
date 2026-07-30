@@ -6,7 +6,7 @@ import { Card, CardHeader, CardTitle, CardContent } from "@/components/ui/card";
 import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip";
 import { sessions as sessionsApi, projects as projectsApi, notes as notesApi, StudySession, Project, Note } from "@/lib/api";
 import { dayKey, formatDuration } from "@/lib/date";
-import { dailyTotals } from "@/lib/session-stats";
+import { dailyAllocationTotals, dailyTotals } from "@/lib/session-stats";
 import { ReportCards } from "@/components/report-cards";
 import { ProjectBreakdownCard } from "@/components/project-breakdown-card";
 import { HistorySection } from "@/components/history-section";
@@ -129,9 +129,12 @@ export default function StatsPage() {
   // dailyTotals/computeProjectTotals include the in-progress session's elapsed-so-far time,
   // using its live duration (computed from `now`) instead of waiting until it's stopped.
   const totalsByDay = dailyTotals(sessionList, now);
+  const allocationByDay = dailyAllocationTotals(sessionList, now);
 
   const heatmapDays = buildLastNDays(totalsByDay, DAYS);
   const weeks = buildHeatmapWeeks(heatmapDays);
+  const recentDays = buildLastNDays(totalsByDay, 7);
+  const maxRecentSeconds = Math.max(1, ...recentDays.map((day) => day.seconds));
 
   if (loading) {
     return (
@@ -150,6 +153,62 @@ export default function StatsPage() {
         onNoteSaved={handleNoteSaved}
         onNoteDeleted={handleNoteDeleted}
       />
+
+      <Card>
+        <CardHeader>
+          <CardTitle>Learning and Producing</CardTitle>
+        </CardHeader>
+        <CardContent className="space-y-4">
+          <p className="text-muted-foreground text-sm">
+            Your self-reported session allocation over the last seven days.
+          </p>
+          <div className="flex flex-wrap gap-4 text-xs" aria-hidden="true">
+            <span className="flex items-center gap-1.5"><span className="bg-chart-2 size-2.5 rounded-sm" />Learning</span>
+            <span className="flex items-center gap-1.5"><span className="bg-chart-4 size-2.5 rounded-sm" />Producing</span>
+            <span className="flex items-center gap-1.5"><span className="bg-muted-foreground/30 size-2.5 rounded-sm" />Unclassified</span>
+          </div>
+          <div className="space-y-3">
+            {recentDays.map((day) => {
+              const allocation = allocationByDay.get(day.key) ?? {
+                learning: 0,
+                producing: 0,
+                unclassified: 0,
+                total: 0,
+              };
+              const chartWidth = allocation.total / maxRecentSeconds * 100;
+              return (
+                <div key={day.key} className="grid grid-cols-[4.5rem_1fr] items-center gap-3">
+                  <span className="text-muted-foreground text-xs">
+                    {day.date.toLocaleDateString(undefined, { weekday: "short", month: "short", day: "numeric" })}
+                  </span>
+                  <div>
+                    <div
+                      className="bg-muted flex h-5 min-w-px overflow-hidden rounded-sm"
+                      style={{ width: `${chartWidth}%` }}
+                      role="img"
+                      aria-label={`${formatDuration(allocation.total)} total: ${formatDuration(allocation.learning)} Learning, ${formatDuration(allocation.producing)} Producing, ${formatDuration(allocation.unclassified)} Unclassified`}
+                    >
+                      {allocation.total > 0 && (
+                        <>
+                          <span className="bg-chart-2" style={{ width: `${allocation.learning / allocation.total * 100}%` }} />
+                          <span className="bg-chart-4" style={{ width: `${allocation.producing / allocation.total * 100}%` }} />
+                          <span className="bg-muted-foreground/30" style={{ width: `${allocation.unclassified / allocation.total * 100}%` }} />
+                        </>
+                      )}
+                    </div>
+                    <span className="sr-only">
+                      {day.date.toLocaleDateString()}: {formatDuration(allocation.total)} total,
+                      {" "}{formatDuration(allocation.learning)} Learning,
+                      {" "}{formatDuration(allocation.producing)} Producing,
+                      {" "}{formatDuration(allocation.unclassified)} Unclassified.
+                    </span>
+                  </div>
+                </div>
+              );
+            })}
+          </div>
+        </CardContent>
+      </Card>
 
       <div className="flex flex-wrap items-stretch gap-4 sm:gap-8">
         <Card className="w-full shrink-0 sm:w-auto">

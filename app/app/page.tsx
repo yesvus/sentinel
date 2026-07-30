@@ -19,6 +19,14 @@ import { useAuth } from "@/lib/auth-context";
 import { ProjectIcon } from "@/lib/icons";
 import { NOISE_SESSION_EVENT } from "@/lib/noise-player";
 import { ProjectIconPicker } from "@/components/project-icon-picker";
+import {
+  Dialog,
+  DialogContent,
+  DialogDescription,
+  DialogFooter,
+  DialogHeader,
+  DialogTitle,
+} from "@/components/ui/dialog";
 
 const NEW_PROJECT_VALUE = "__new__";
 const NO_PROJECT_VALUE = "__none__";
@@ -67,6 +75,8 @@ export default function AppHomePage() {
   const [error, setError] = useState<string | null>(null);
   const [lastDuration, setLastDuration] = useState<number | null>(null);
   const [resuming, setResuming] = useState(true);
+  const [stopOpen, setStopOpen] = useState(false);
+  const [productionPercentage, setProductionPercentage] = useState<number | null>(null);
   const intervalRef = useRef<ReturnType<typeof setInterval> | null>(null);
   const channelRef = useRef<BroadcastChannel | null>(null);
   const descriptionSaveTimeout = useRef<ReturnType<typeof setTimeout> | null>(null);
@@ -120,6 +130,8 @@ export default function AppHomePage() {
         setStartedAt(null);
         setElapsedMs(0);
         setDescription("");
+        setProductionPercentage(null);
+        setStopOpen(false);
       } else if (message.type === "updated") {
         setProjectId(message.projectId);
         setDescription(message.description ?? "");
@@ -216,12 +228,14 @@ export default function AppHomePage() {
     setError(null);
     setBusy(true);
     try {
-      const result = await sessions.stop(sessionId, description || null);
+      const result = await sessions.stop(sessionId, description || null, productionPercentage);
       setLastDuration(result.durationSeconds);
       setSessionId(null);
       setStartedAt(null);
       setElapsedMs(0);
       setDescription("");
+      setProductionPercentage(null);
+      setStopOpen(false);
       broadcast({ type: "stopped", durationSeconds: result.durationSeconds });
       window.dispatchEvent(new CustomEvent(NOISE_SESSION_EVENT, { detail: "stopped" }));
     } catch (err) {
@@ -291,7 +305,7 @@ export default function AppHomePage() {
         <Button
           size="icon"
           disabled={busy || resuming}
-          onClick={isRunning ? handleStop : handleStart}
+          onClick={isRunning ? () => setStopOpen(true) : handleStart}
           aria-label={isRunning ? "Stop session" : "Start session"}
           className="size-16 rounded-full shadow-sm"
         >
@@ -302,7 +316,7 @@ export default function AppHomePage() {
           )}
         </Button>
 
-        {error && <p className="text-destructive text-sm">{error}</p>}
+        {error && !stopOpen && <p className="text-destructive text-sm">{error}</p>}
 
         {!isRunning && lastDuration !== null && (
           <p className="text-muted-foreground text-sm">
@@ -310,6 +324,57 @@ export default function AppHomePage() {
           </p>
         )}
       </div>
+
+      <Dialog open={stopOpen} onOpenChange={(open) => !busy && setStopOpen(open)}>
+        <DialogContent>
+          <DialogHeader>
+            <DialogTitle>Finish this session</DialogTitle>
+            <DialogDescription>
+              Was this session mainly improving your capability or producing a usable result?
+              This is your own estimate, not a productivity score.
+            </DialogDescription>
+          </DialogHeader>
+          <div className="space-y-4">
+            <div className="flex justify-between text-sm font-medium">
+              <span>Learning</span>
+              <span>Producing</span>
+            </div>
+            <input
+              type="range"
+              min="0"
+              max="100"
+              step="10"
+              value={productionPercentage ?? 50}
+              onChange={(event) => setProductionPercentage(Number(event.target.value))}
+              aria-label="Learning and Producing allocation"
+              aria-valuetext={
+                productionPercentage === null
+                  ? "Not classified"
+                  : `Learning ${100 - productionPercentage} percent, Producing ${productionPercentage} percent`
+              }
+              className="accent-primary w-full cursor-pointer"
+            />
+            <p className="text-center text-sm font-medium" aria-live="polite">
+              {productionPercentage === null
+                ? "Move the slider to classify this session"
+                : `Learning ${100 - productionPercentage}% · Producing ${productionPercentage}%`}
+            </p>
+            <p className="text-muted-foreground text-xs">
+              Learning means building capability for later. Producing means creating or delivering
+              something usable now. Mixed sessions can sit anywhere between them.
+            </p>
+            {error && <p className="text-destructive text-sm">{error}</p>}
+          </div>
+          <DialogFooter>
+            <Button type="button" variant="ghost" onClick={() => setStopOpen(false)} disabled={busy}>
+              Keep running
+            </Button>
+            <Button type="button" onClick={handleStop} disabled={busy || productionPercentage === null}>
+              {busy ? "Saving..." : "Finish session"}
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
 
       <Card className="w-full max-w-sm">
         <CardContent className="space-y-3">

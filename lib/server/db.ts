@@ -49,7 +49,11 @@ async function initialize() {
   for (const column of ["icon TEXT", "description TEXT"]) {
     try { await db.execute(`ALTER TABLE projects ADD COLUMN ${column}`); } catch {}
   }
-  for (const column of ["description TEXT", "project_id INTEGER REFERENCES projects(id)"]) {
+  for (const column of [
+    "description TEXT",
+    "project_id INTEGER REFERENCES projects(id)",
+    "production_percentage INTEGER CHECK (production_percentage IS NULL OR (production_percentage BETWEEN 0 AND 100 AND production_percentage % 10 = 0))",
+  ]) {
     try { await db.execute(`ALTER TABLE sessions ADD COLUMN ${column}`); } catch {}
   }
 

@@ -19,6 +19,38 @@ export function dailyTotals(sessionList: StudySession[], now: number) {
   return totals;
 }
 
+export type DailyAllocation = {
+  learning: number;
+  producing: number;
+  unclassified: number;
+  total: number;
+};
+
+export function splitSessionDuration(session: StudySession, now: number) {
+  const total = sessionDurationSeconds(session, now);
+  if (session.production_percentage == null) {
+    return { learning: 0, producing: 0, unclassified: total, total };
+  }
+  const producing = Math.round(total * session.production_percentage / 100);
+  return { learning: total - producing, producing, unclassified: 0, total };
+}
+
+export function dailyAllocationTotals(sessionList: StudySession[], now: number) {
+  const totals = new Map<string, DailyAllocation>();
+  for (const session of sessionList) {
+    const key = dayKey(new Date(session.started_at));
+    const split = splitSessionDuration(session, now);
+    const current = totals.get(key) ?? { learning: 0, producing: 0, unclassified: 0, total: 0 };
+    totals.set(key, {
+      learning: current.learning + split.learning,
+      producing: current.producing + split.producing,
+      unclassified: current.unclassified + split.unclassified,
+      total: current.total + split.total,
+    });
+  }
+  return totals;
+}
+
 export type ProjectTotal = { key: string; name: string; icon: string | null; seconds: number };
 
 export function projectTotals(sessionList: StudySession[], now: number): ProjectTotal[] {

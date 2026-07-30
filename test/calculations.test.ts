@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 import { sessionsToCsv } from "@/lib/export";
-import { dailyTotals, projectTotals } from "@/lib/session-stats";
+import { dailyAllocationTotals, dailyTotals, projectTotals, splitSessionDuration } from "@/lib/session-stats";
 import { scheduledTheme } from "@/lib/theme-context";
 import type { Project, StudySession } from "@/lib/api";
 
@@ -32,6 +32,21 @@ describe("statistics and exports", () => {
     const csv = sessionsToCsv([session], [], [project], Date.now());
     expect(csv).toContain("Session");
     expect(csv).toContain("Project,,,,,,Thesis,Research project");
+  });
+
+  it("splits classified time without losing rounding seconds", () => {
+    const classified = { ...session, duration_seconds: 61, production_percentage: 30 };
+    expect(splitSessionDuration(classified, Date.now())).toEqual({
+      learning: 43,
+      producing: 18,
+      unclassified: 0,
+      total: 61,
+    });
+    expect(dailyAllocationTotals([classified], Date.now()).values().next().value).toMatchObject({
+      learning: 43,
+      producing: 18,
+      total: 61,
+    });
   });
 });
 

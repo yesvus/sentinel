@@ -80,6 +80,7 @@ export type StudySession = {
   project_id: number | null;
   project_name: string | null;
   project_icon: string | null;
+  production_percentage?: number | null;
 };
 
 export type SessionPage = { items: StudySession[]; nextCursor: string | null };
@@ -97,6 +98,7 @@ export const sessions = {
       description?: string | null;
       startedAt?: string;
       endedAt?: string;
+      productionPercentage?: number | null;
     }
   ) =>
     api<{
@@ -106,11 +108,12 @@ export const sessions = {
       startedAt: string;
       endedAt: string | null;
       durationSeconds: number | null;
+      productionPercentage: number | null;
     }>(`/api/sessions/${id}`, { method: "PATCH", body: JSON.stringify(details) }),
-  stop: (id: number, description?: string | null) =>
-    api<{ id: number; endedAt: string; durationSeconds: number; description: string | null }>(`/api/sessions/${id}/stop`, {
+  stop: (id: number, description?: string | null, productionPercentage?: number | null) =>
+    api<{ id: number; endedAt: string; durationSeconds: number; description: string | null; productionPercentage: number | null }>(`/api/sessions/${id}/stop`, {
       method: "PATCH",
-      body: JSON.stringify({ description }),
+      body: JSON.stringify({ description, productionPercentage }),
     }),
   list: () => api<StudySession[]>("/api/sessions"),
   page: (cursor?: string | null, limit = 30) => {
@@ -125,8 +128,9 @@ export const sessions = {
     endedAt: string;
     projectId?: number | null;
     description?: string | null;
+    productionPercentage?: number | null;
   }) =>
-    api<{ id: number; startedAt: string; endedAt: string; durationSeconds: number }>("/api/sessions", {
+    api<{ id: number; startedAt: string; endedAt: string; durationSeconds: number; productionPercentage: number | null }>("/api/sessions", {
       method: "POST",
       body: JSON.stringify(details),
     }),
