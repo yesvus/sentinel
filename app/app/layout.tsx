@@ -37,14 +37,16 @@ export default function AppLayout({ children }: { children: React.ReactNode }) {
     <NoisePlayerProvider>
       <SidebarProvider>
         <AppSidebar />
-        <main className="flex min-w-0 flex-1 flex-col overflow-x-hidden">
-          <header className="bg-sidebar sticky top-0 z-10 flex h-14 shrink-0 items-center gap-3 border-b px-4">
+        <main className="flex h-svh min-w-0 flex-1 flex-col overflow-hidden">
+          <header className="bg-sidebar z-20 flex h-14 shrink-0 items-center gap-3 border-b px-4">
             <SidebarTrigger />
             <h1 className="flex-1 text-sm font-medium">{pageTitle}</h1>
             <FriendsControl />
             <NoiseControl />
           </header>
-          <div className="flex min-w-0 flex-1 flex-col px-4 py-6 sm:px-6">{children}</div>
+          <div className="flex min-h-0 min-w-0 flex-1 flex-col overflow-y-auto px-4 py-6 sm:px-6">
+            {children}
+          </div>
         </main>
       </SidebarProvider>
     </NoisePlayerProvider>
