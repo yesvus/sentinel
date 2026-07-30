@@ -201,10 +201,36 @@ export function NoisePlayerProvider({ children }: { children: React.ReactNode })
     const initialization = window.setTimeout(() => {
       setPlaying(initialPlaying);
       setVolumeState(initialVolume);
+      if (initialPlaying) {
+        let ownerIsActive = false;
+        try {
+          const owner = JSON.parse(localStorage.getItem(OWNER_KEY) || "null") as {
+            heartbeat?: number;
+          } | null;
+          ownerIsActive = Boolean(owner?.heartbeat && Date.now() - owner.heartbeat < 5000);
+        } catch {}
+        if (!ownerIsActive) claimAndStart();
+      }
     }, 0);
     const channel = new BroadcastChannel(NOISE_CHANNEL);
     channelRef.current = channel;
 
+    const resumeAudio = () => {
+      const context = nodesRef.current?.context;
+      if (context?.state === "suspended") void context.resume();
+    };
+    const releaseOwnership = () => {
+      try {
+        const owner = JSON.parse(localStorage.getItem(OWNER_KEY) || "null") as {
+          id?: string;
+        } | null;
+        if (owner?.id === idRef.current) localStorage.removeItem(OWNER_KEY);
+      } catch {}
+    };
+
+    window.addEventListener("pointerdown", resumeAudio);
+    window.addEventListener("keydown", resumeAudio);
+    window.addEventListener("pagehide", releaseOwnership);
     channel.addEventListener("message", (event) => {
       if (event.data?.type === "started") {
         setPlaying(true);
@@ -229,11 +255,14 @@ export function NoisePlayerProvider({ children }: { children: React.ReactNode })
     });
     return () => {
       window.clearTimeout(initialization);
+      window.removeEventListener("pointerdown", resumeAudio);
+      window.removeEventListener("keydown", resumeAudio);
+      window.removeEventListener("pagehide", releaseOwnership);
       channel.close();
       channelRef.current = null;
       fadeOutLocal();
     };
-  }, [fadeOutLocal, startLocal]);
+  }, [claimAndStart, fadeOutLocal, startLocal]);
 
   useEffect(() => {
     const next = user?.focusAudioType ?? "speech-blocker";
