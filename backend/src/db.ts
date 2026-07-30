@@ -71,10 +71,28 @@ export async function initDb() {
     )
   `);
 
+  // Resolve any duplicate "active" sessions from before this constraint existed (the
+  // index creation below fails otherwise), keeping only the most recently started one.
+  await db.execute(`
+    DELETE FROM sessions
+    WHERE ended_at IS NULL
+    AND EXISTS (
+      SELECT 1 FROM sessions s2
+      WHERE s2.user_id = sessions.user_id
+        AND s2.ended_at IS NULL
+        AND s2.started_at > sessions.started_at
+    )
+  `);
+
   // Enforced at the DB level (not just in application code) so two concurrent
   // requests from different devices can't both create an active session.
-  await db.execute(`
-    CREATE UNIQUE INDEX IF NOT EXISTS idx_one_active_session_per_user
-    ON sessions (user_id) WHERE ended_at IS NULL
-  `);
+  try {
+    await db.execute(`
+      CREATE UNIQUE INDEX IF NOT EXISTS idx_one_active_session_per_user
+      ON sessions (user_id) WHERE ended_at IS NULL
+    `);
+  } catch {
+    // best-effort; the cleanup above should prevent this, but a schema hiccup here
+    // must never take down every request the way an unguarded failure would
+  }
 }

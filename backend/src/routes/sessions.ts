@@ -6,12 +6,15 @@ export const sessionsRouter = Router();
 
 sessionsRouter.use(requireAuth);
 
+// The embedded local-file driver and Turso's remote HTTP driver report constraint
+// violations differently (only the former reliably sets `extendedCode`), so this
+// checks the top-level code plus the specific column the message names instead.
 function isUniqueConstraintError(err: unknown) {
   return (
-    typeof err === "object" &&
-    err !== null &&
-    "extendedCode" in err &&
-    (err as { extendedCode?: string }).extendedCode === "SQLITE_CONSTRAINT_UNIQUE"
+    err instanceof Error &&
+    "code" in err &&
+    (err as { code?: string }).code === "SQLITE_CONSTRAINT" &&
+    err.message.includes("sessions.user_id")
   );
 }
 
