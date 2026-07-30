@@ -1,7 +1,14 @@
 import bcrypt from "bcrypt";
 import { NextRequest, NextResponse } from "next/server";
 import { db, ensureDb } from "@/lib/server/db";
-import { COOKIE_OPTIONS, createToken, getUserId, unauthorized } from "@/lib/server/auth";
+import {
+  COOKIE_OPTIONS,
+  createSession,
+  getUserId,
+  revokeSession,
+  revokeUserSessions,
+  unauthorized,
+} from "@/lib/server/auth";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -11,6 +18,29 @@ const noContent = () => new NextResponse(null, { status: 204 });
 const error = (message: string, status = 400) => NextResponse.json({ error: message }, { status });
 const body = (request: NextRequest) => request.json().catch(() => ({}));
 const FOCUS_AUDIO_TYPES = new Set(["white", "pink", "brown", "speech-blocker", "binaural-40hz"]);
+const authAttempts = new Map<string, { count: number; resetAt: number }>();
+
+function authAttemptKey(request: NextRequest, email: string) {
+  const forwarded = request.headers.get("x-forwarded-for")?.split(",")[0]?.trim();
+  return `${forwarded || "local"}:${email}`;
+}
+
+function authRateLimited(key: string) {
+  const attempt = authAttempts.get(key);
+  if (!attempt || attempt.resetAt <= Date.now()) {
+    authAttempts.delete(key);
+    return false;
+  }
+  return attempt.count >= 5;
+}
+
+function recordAuthFailure(key: string) {
+  const current = authAttempts.get(key);
+  authAttempts.set(key, {
+    count: current && current.resetAt > Date.now() ? current.count + 1 : 1,
+    resetAt: Date.now() + 15 * 60_000,
+  });
+}
 
 function validProductionPercentage(value: unknown): value is number | null {
   return value === null ||
@@ -93,18 +123,25 @@ async function authRoutes(request: NextRequest, parts: string[]) {
       focusAudioType: "speech-blocker",
       defaultSessionType: "learning",
     }, { status: 201 });
-    response.cookies.set("token", createToken(id), COOKIE_OPTIONS);
+    response.cookies.set("token", await createSession(id), COOKIE_OPTIONS);
     return response;
   }
   if (action === "login" && request.method === "POST") {
     const data = await body(request);
     if (typeof data.email !== "string" || typeof data.password !== "string") return error("Email and password are required");
+    const email = data.email.trim().toLowerCase();
+    const attemptKey = authAttemptKey(request, email);
+    if (authRateLimited(attemptKey)) return error("Too many sign-in attempts. Try again later.", 429);
     const result = await db.execute({
       sql: "SELECT id, email, password_hash, name, avatar, share_session_descriptions, auto_start_noise, focus_audio_type, default_session_type FROM users WHERE lower(email) = ?",
-      args: [data.email.trim().toLowerCase()],
+      args: [email],
     });
     const user = result.rows[0];
-    if (!user || !(await bcrypt.compare(data.password, user.password_hash as string))) return error("Invalid email or password", 401);
+    if (!user || !(await bcrypt.compare(data.password, user.password_hash as string))) {
+      recordAuthFailure(attemptKey);
+      return error("Invalid email or password", 401);
+    }
+    authAttempts.delete(attemptKey);
     const response = NextResponse.json({
       id: Number(user.id), email: user.email, name: user.name, avatar: user.avatar,
       shareSessionDescriptions: Boolean(user.share_session_descriptions),
@@ -112,16 +149,17 @@ async function authRoutes(request: NextRequest, parts: string[]) {
       focusAudioType: user.focus_audio_type ?? "speech-blocker",
       defaultSessionType: user.default_session_type ?? "learning",
     });
-    response.cookies.set("token", createToken(Number(user.id)), COOKIE_OPTIONS);
+    response.cookies.set("token", await createSession(Number(user.id)), COOKIE_OPTIONS);
     return response;
   }
   if (action === "logout" && request.method === "POST") {
+    await revokeSession(request);
     const response = noContent();
     response.cookies.set("token", "", { ...COOKIE_OPTIONS, maxAge: 0 });
     return response;
   }
 
-  const userId = getUserId(request);
+  const userId = await getUserId(request);
   if (!userId) return unauthorized();
   if (action === "me" && request.method === "GET") {
     const result = await db.execute({
@@ -210,7 +248,10 @@ async function authRoutes(request: NextRequest, parts: string[]) {
       sql: "UPDATE users SET password_hash = ? WHERE id = ?",
       args: [await bcrypt.hash(data.newPassword, 10), userId],
     });
-    return noContent();
+    await revokeUserSessions(userId);
+    const response = noContent();
+    response.cookies.set("token", await createSession(userId), COOKIE_OPTIONS);
+    return response;
   }
   return error("Not found", 404);
 }
@@ -774,10 +815,14 @@ async function reportRoutes(request: NextRequest, parts: string[], userId: numbe
 
 async function handle(request: NextRequest, context: Context) {
   await ensureDb();
+  if (request.method !== "GET" && request.method !== "HEAD") {
+    const origin = request.headers.get("origin");
+    if (origin && origin !== request.nextUrl.origin) return error("Invalid request origin", 403);
+  }
   const { path } = await context.params;
   if (path[0] === "health") return NextResponse.json({ ok: true });
   if (path[0] === "auth") return authRoutes(request, path);
-  const userId = getUserId(request);
+  const userId = await getUserId(request);
   if (!userId) return unauthorized();
   if (path[0] === "sessions") return sessionRoutes(request, path, userId);
   if (path[0] === "projects") return projectRoutes(request, path, userId);

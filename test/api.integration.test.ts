@@ -34,7 +34,7 @@ async function register(email: string) {
 
 beforeEach(async () => {
   await ensureDb();
-  for (const table of ["weekly_reports", "friendships", "notes", "sessions", "projects", "users"]) {
+  for (const table of ["auth_sessions", "weekly_reports", "friendships", "notes", "sessions", "projects", "users"]) {
     await db.execute(`DELETE FROM ${table}`);
   }
 });
@@ -52,6 +52,13 @@ describe("Next API", () => {
       focusAudioType: "speech-blocker",
       defaultSessionType: "learning",
     });
+  });
+
+  it("revokes the server-side session on logout", async () => {
+    const cookie = await register("logout@example.test");
+    expect((await request("GET", "auth/me", { cookie })).response.status).toBe(200);
+    await request("POST", "auth/logout", { cookie });
+    expect((await request("GET", "auth/me", { cookie })).response.status).toBe(401);
   });
 
   it("saves the default session type", async () => {

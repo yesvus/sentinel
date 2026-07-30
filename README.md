@@ -68,7 +68,8 @@ local.db     Local-development database
 
 1. `POST /api/auth/register` or `/login`. Password is hashed with `bcrypt` (register) or compared against the hash (login).
 2. On success, the server signs a JWT (`jsonwebtoken`) containing the user's id and sends it back via a `Set-Cookie` header, marked `httpOnly` (so client-side JS can never read it, only the browser can send it automatically).
-3. Every subsequent request automatically includes that cookie. The server-only auth helper verifies it against `JWT_SECRET`, or responds `401 Unauthorized` if it is missing or invalid.
+3. Every subsequent request automatically includes that cookie. Sentinel stores only a SHA-256
+   hash of the opaque session token and enforces expiry and revocation server-side.
 
 ### API Endpoints
 
@@ -115,7 +116,7 @@ turso db create sentinel
 turso db show sentinel --url        # -> TURSO_DATABASE_URL
 turso db tokens create sentinel     # -> TURSO_AUTH_TOKEN
 ```
-Put those values plus a random `JWT_SECRET` into `.env.local`. Without Turso configuration, local development uses `local.db`.
+Put those values into `.env.local`. Without Turso configuration, local development uses `local.db`.
 
 ## License
 
