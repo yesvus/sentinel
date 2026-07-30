@@ -19,10 +19,12 @@ export function ProjectBreakdownCard({
   sessions: sessionList,
   now,
   className,
+  onSelectRoot,
 }: {
   sessions: StudySession[];
   now: number;
   className?: string;
+  onSelectRoot?: (rootId: string) => void;
 }) {
   const currentWeekStart = startOfWeek(new Date(now));
   const [selectedWeekStart, setSelectedWeekStart] = useState(currentWeekStart);
@@ -106,7 +108,14 @@ export function ProjectBreakdownCard({
                     />
                   }
                 />
-                <Bar dataKey="seconds" fill="var(--color-seconds)" radius={[0, 4, 4, 0]} />
+                <Bar
+                  dataKey="seconds"
+                  fill="var(--color-seconds)"
+                  radius={[0, 4, 4, 0]}
+                  isAnimationActive={false}
+                  className={onSelectRoot ? "cursor-pointer" : undefined}
+                  onClick={(entry) => onSelectRoot?.(String(entry.key))}
+                />
               </BarChart>
             </ChartContainer>
             <details className="text-sm">

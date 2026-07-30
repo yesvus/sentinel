@@ -29,7 +29,13 @@ const config = {
   producingPercent: { label: "Producing", color: "#f59e0b" },
 } satisfies ChartConfig;
 
-export function LearningProducingChart({ points }: { points: AllocationPoint[] }) {
+export function LearningProducingChart({
+  points,
+  rangeLabel = "the selected range",
+}: {
+  points: AllocationPoint[];
+  rangeLabel?: string;
+}) {
   const [mode, setMode] = useState<"duration" | "percentage">("duration");
   const data = points.map((point) => ({
     ...point,
@@ -44,7 +50,7 @@ export function LearningProducingChart({ points }: { points: AllocationPoint[] }
       <CardContent className="space-y-4">
         <div className="flex flex-wrap items-center justify-between gap-3">
           <p className="text-muted-foreground text-sm">
-            Your session allocation over the last seven days. Sessions without a selection count as Learning.
+            Your session allocation over {rangeLabel}. Sessions without a selection count as Learning.
           </p>
           <div className="flex gap-1" aria-label="Chart mode">
             <Button size="sm" variant={mode === "duration" ? "default" : "outline"} onClick={() => setMode("duration")}>Duration</Button>
@@ -59,7 +65,7 @@ export function LearningProducingChart({ points }: { points: AllocationPoint[] }
         >
           <BarChart data={data} accessibilityLayer margin={{ left: 8, right: 8 }}>
             <CartesianGrid vertical={false} />
-            <XAxis dataKey="label" tickLine={false} axisLine={false} />
+            <XAxis dataKey="label" tickLine={false} axisLine={false} minTickGap={24} />
             <YAxis
               width={46}
               tickLine={false}
@@ -84,8 +90,8 @@ export function LearningProducingChart({ points }: { points: AllocationPoint[] }
               }
             />
             <ChartLegend content={<ChartLegendContent />} />
-            <Bar dataKey={mode === "duration" ? "learning" : "learningPercent"} name="learning" stackId="duration" fill="var(--color-learning)" radius={[0, 0, 3, 3]} />
-            <Bar dataKey={mode === "duration" ? "producing" : "producingPercent"} name="producing" stackId="duration" fill="var(--color-producing)" radius={[3, 3, 0, 0]} />
+            <Bar dataKey={mode === "duration" ? "learning" : "learningPercent"} name="learning" stackId="duration" fill="var(--color-learning)" radius={[0, 0, 3, 3]} isAnimationActive={false} />
+            <Bar dataKey={mode === "duration" ? "producing" : "producingPercent"} name="producing" stackId="duration" fill="var(--color-producing)" radius={[3, 3, 0, 0]} isAnimationActive={false} />
           </BarChart>
         </ChartContainer>
         <details className="text-sm">
