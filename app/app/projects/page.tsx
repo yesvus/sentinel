@@ -9,6 +9,14 @@ import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { ApiError, Project, projects as projectsApi } from "@/lib/api";
 import { ProjectIcon } from "@/lib/icons";
 import { ProjectIconPicker } from "@/components/project-icon-picker";
+import {
+  Dialog,
+  DialogContent,
+  DialogDescription,
+  DialogFooter,
+  DialogHeader,
+  DialogTitle,
+} from "@/components/ui/dialog";
 
 export default function ProjectsPage() {
   const [projectList, setProjectList] = useState<Project[]>([]);
@@ -17,6 +25,7 @@ export default function ProjectsPage() {
   const [newIcon, setNewIcon] = useState<string | null>(null);
   const [newParentId, setNewParentId] = useState<number | null>(null);
   const [newPinned, setNewPinned] = useState(false);
+  const [createOpen, setCreateOpen] = useState(false);
   const [editingId, setEditingId] = useState<number | null>(null);
   const [editingName, setEditingName] = useState("");
   const [editingDescription, setEditingDescription] = useState("");
@@ -42,6 +51,7 @@ export default function ProjectsPage() {
       setNewIcon(null);
       setNewParentId(null);
       setNewPinned(false);
+      setCreateOpen(false);
     } catch (err) {
       setError(err instanceof ApiError ? err.message : "Could not create project");
     }
@@ -70,13 +80,50 @@ export default function ProjectsPage() {
 
   const visibleProjects = projectList.filter((project) => showArchived || !project.archived);
   const parentOptions = projectList.filter((project) => !project.archived && project.depth < 3);
+  const visibleIds = new Set(visibleProjects.map((project) => project.id));
+  const childrenByParent = new Map<number | null, Project[]>();
+  for (const project of visibleProjects) {
+    const parentId = project.parentId !== null && visibleIds.has(project.parentId)
+      ? project.parentId
+      : null;
+    const siblings = childrenByParent.get(parentId) ?? [];
+    siblings.push(project);
+    childrenByParent.set(parentId, siblings);
+  }
+  for (const siblings of childrenByParent.values()) {
+    siblings.sort((a, b) => a.name.localeCompare(b.name));
+  }
+  const orderedProjects: Project[] = [];
+  const appendBranch = (parentId: number | null) => {
+    for (const project of childrenByParent.get(parentId) ?? []) {
+      orderedProjects.push(project);
+      appendBranch(project.id);
+    }
+  };
+  appendBranch(null);
 
   return (
-    <div className="mx-auto grid w-full max-w-6xl gap-6 lg:grid-cols-[340px_1fr]">
-      <Card className="h-fit">
-        <CardHeader><CardTitle className="flex items-center gap-2"><Plus className="text-muted-foreground size-4" />New project</CardTitle></CardHeader>
-        <CardContent>
-          <form className="space-y-3" onSubmit={create}>
+    <div className="mx-auto w-full max-w-5xl space-y-6">
+      <div className="flex flex-wrap items-center justify-between gap-4">
+        <div>
+          <h2 className="text-xl font-semibold">Projects</h2>
+          <p className="text-muted-foreground text-sm">
+            Organize work into up to three levels.
+          </p>
+        </div>
+        <Button onClick={() => setCreateOpen(true)}>
+          <Plus />
+          New project
+        </Button>
+      </div>
+
+      <Dialog open={createOpen} onOpenChange={setCreateOpen}>
+        <DialogContent className="max-w-lg">
+          <DialogHeader>
+            <DialogTitle>New project</DialogTitle>
+            <DialogDescription>Create a root project or place it under an existing project.</DialogDescription>
+          </DialogHeader>
+          <form className="space-y-4" onSubmit={create}>
             <Input aria-label="Project name" placeholder="Project name" value={newName} onChange={(event) => setNewName(event.target.value)} required />
             <Textarea aria-label="Project description" placeholder="What is this project for? (optional)" value={newDescription} onChange={(event) => setNewDescription(event.target.value)} />
             <label className="block space-y-1 text-sm">
@@ -90,11 +137,14 @@ export default function ProjectsPage() {
             <Button type="button" variant={newPinned ? "default" : "outline"} className="w-full" onClick={() => setNewPinned((value) => !value)} aria-pressed={newPinned}>
               <Pin />{newPinned ? "Pinned" : "Pin project"}
             </Button>
-            <Button type="submit" className="w-full">Add project</Button>
+            {error && <p className="text-destructive text-sm">{error}</p>}
+            <DialogFooter>
+              <Button type="button" variant="ghost" onClick={() => setCreateOpen(false)}>Cancel</Button>
+              <Button type="submit">Create project</Button>
+            </DialogFooter>
           </form>
-          {error && <p className="text-destructive mt-3 text-sm">{error}</p>}
-        </CardContent>
-      </Card>
+        </DialogContent>
+      </Dialog>
 
       <Card>
         <CardHeader className="flex-row items-center justify-between">
@@ -102,9 +152,30 @@ export default function ProjectsPage() {
           <Button size="sm" variant="outline" onClick={() => setShowArchived((value) => !value)}>{showArchived ? "Hide archived" : "Show archived"}</Button>
         </CardHeader>
         <CardContent className="space-y-3">
+          {error && !createOpen && <p className="text-destructive text-sm">{error}</p>}
           {visibleProjects.length === 0 && <p className="text-muted-foreground text-sm">No projects yet.</p>}
-          {visibleProjects.map((project) => (
-            <div key={project.id} className="rounded-lg p-4 ring-1 ring-foreground/10">
+          {orderedProjects.map((project) => {
+            const parent = project.parentId === null
+              ? null
+              : projectList.find((item) => item.id === project.parentId) ?? null;
+            const siblingCount = Math.max(
+              0,
+              (childrenByParent.get(project.parentId) ?? []).length - 1,
+            );
+            const childCount = (childrenByParent.get(project.id) ?? []).length;
+            return (
+            <div
+              key={project.id}
+              className="relative"
+              style={{ marginLeft: `${(project.depth - 1) * 24}px` }}
+            >
+              {project.depth > 1 && (
+                <span
+                  aria-hidden="true"
+                  className="border-muted-foreground/30 absolute -left-4 top-0 h-7 w-3 rounded-bl-md border-b border-l"
+                />
+              )}
+              <div className="rounded-lg p-4 ring-1 ring-foreground/10">
               {editingId === project.id ? (
                 <div className="space-y-3">
                   <Input value={editingName} onChange={(event) => setEditingName(event.target.value)} aria-label="Project name" />
@@ -123,8 +194,15 @@ export default function ProjectsPage() {
                 <div className="flex items-start gap-3">
                   <div className="bg-muted flex size-10 shrink-0 items-center justify-center rounded-lg"><ProjectIcon icon={project.icon} className="size-5" /></div>
                   <div className="min-w-0 flex-1">
-                    <p className="font-medium">{project.path}</p>
-                    <p className="text-muted-foreground text-xs">Level {project.depth}{project.pinned ? " · Pinned" : ""}{project.archived ? " · Archived" : ""}</p>
+                    <p className="font-medium">{project.name}</p>
+                    <p className="text-muted-foreground truncate text-xs" title={project.path}>
+                      {parent ? `Under ${parent.path}` : "Root project"}
+                      {siblingCount > 0 ? ` · ${siblingCount} sibling${siblingCount === 1 ? "" : "s"}` : ""}
+                      {childCount > 0 ? ` · ${childCount} child project${childCount === 1 ? "" : "s"}` : ""}
+                    </p>
+                    <p className="text-muted-foreground text-xs">
+                      Level {project.depth}{project.pinned ? " · Pinned" : ""}{project.archived ? " · Archived" : ""}
+                    </p>
                     <p className="text-muted-foreground mt-1 text-sm whitespace-pre-wrap">{project.description || "No description yet."}</p>
                   </div>
                   <div className="flex gap-1">
@@ -142,8 +220,9 @@ export default function ProjectsPage() {
                   </div>
                 </div>
               )}
+              </div>
             </div>
-          ))}
+          )})}
         </CardContent>
       </Card>
     </div>
