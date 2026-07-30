@@ -74,7 +74,10 @@ export default function StatsPage() {
   const [now, setNow] = useState(() => Date.now());
 
   useEffect(() => {
-    Promise.all([sessionsApi.list(), sessionsApi.page()])
+    const rangeStart = new Date();
+    rangeStart.setHours(0, 0, 0, 0);
+    rangeStart.setDate(rangeStart.getDate() - DAYS + 1);
+    Promise.all([sessionsApi.list({ from: rangeStart.toISOString() }), sessionsApi.page()])
       .then(([allSessions, firstPage]) => {
         setSessionList(allSessions);
         setHistorySessions(firstPage.items);

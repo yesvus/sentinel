@@ -241,10 +241,18 @@ async function sessionRoutes(request: NextRequest, parts: string[], userId: numb
     const cursorParam = request.nextUrl.searchParams.get("cursor");
     const cursor = parseSessionCursor(cursorParam);
     if (cursorParam && !cursor) return error("Invalid session cursor");
+    const from = request.nextUrl.searchParams.get("from");
+    const to = request.nextUrl.searchParams.get("to");
+    if ((from && Number.isNaN(new Date(from).getTime())) || (to && Number.isNaN(new Date(to).getTime()))) {
+      return error("from and to must be valid dates");
+    }
     const cursorClause = cursor
       ? "AND (sessions.started_at < ? OR (sessions.started_at = ? AND sessions.id < ?))"
       : "";
+    const rangeClause = `${from ? "AND sessions.started_at >= ?" : ""} ${to ? "AND sessions.started_at < ?" : ""}`;
     const args: (string | number)[] = [userId];
+    if (from) args.push(new Date(from).toISOString());
+    if (to) args.push(new Date(to).toISOString());
     if (cursor) args.push(cursor[0], cursor[0], cursor[1]);
     if (limit !== null) args.push(limit + 1);
     const result = await db.execute({
@@ -261,7 +269,7 @@ async function sessionRoutes(request: NextRequest, parts: string[], userId: numb
         FROM sessions LEFT JOIN projects ON projects.id = sessions.project_id
         LEFT JOIN projects parent ON parent.id = projects.parent_id
         LEFT JOIN projects grandparent ON grandparent.id = parent.parent_id
-        WHERE sessions.user_id = ? ${cursorClause}
+        WHERE sessions.user_id = ? ${rangeClause} ${cursorClause}
         ORDER BY sessions.started_at DESC, sessions.id DESC
         ${limit !== null ? "LIMIT ?" : ""}
       `,

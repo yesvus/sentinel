@@ -8,26 +8,58 @@ export class ApiError extends Error {
   }
 }
 
+type CacheEntry = { expiresAt: number; value: unknown };
+const responseCache = new Map<string, CacheEntry>();
+const inFlightRequests = new Map<string, Promise<unknown>>();
+
+function cacheLifetime(path: string) {
+  if (path === "/api/projects") return 60_000;
+  if (path.startsWith("/api/sessions?")) return 30_000;
+  if (path === "/api/notes") return 30_000;
+  return 0;
+}
+
+export function clearApiCache() {
+  responseCache.clear();
+  inFlightRequests.clear();
+}
+
 export async function api<T>(path: string, options: RequestInit = {}): Promise<T> {
-  const res = await fetch(path, {
-    ...options,
-    credentials: "include",
-    headers: {
-      "Content-Type": "application/json",
-      ...options.headers,
-    },
-  });
+  const method = options.method?.toUpperCase() ?? "GET";
+  const lifetime = method === "GET" ? cacheLifetime(path) : 0;
+  if (method !== "GET") clearApiCache();
+  const cached = responseCache.get(path);
+  if (lifetime && cached && cached.expiresAt > Date.now()) return cached.value as T;
+  const pending = lifetime ? inFlightRequests.get(path) : null;
+  if (pending) return pending as Promise<T>;
 
-  if (!res.ok) {
-    const body = await res.json().catch(() => ({}));
-    throw new ApiError(res.status, body.error ?? "Something went wrong", body);
+  const request = (async () => {
+    const res = await fetch(path, {
+      ...options,
+      credentials: "include",
+      headers: {
+        "Content-Type": "application/json",
+        ...options.headers,
+      },
+    });
+
+    if (!res.ok) {
+      if (res.status === 401) clearApiCache();
+      const responseBody = await res.json().catch(() => ({}));
+      throw new ApiError(res.status, responseBody.error ?? "Something went wrong", responseBody);
+    }
+
+    if (res.status === 204) return undefined as T;
+    const value = await res.json() as T;
+    if (lifetime) responseCache.set(path, { expiresAt: Date.now() + lifetime, value });
+    return value;
+  })();
+  if (lifetime) inFlightRequests.set(path, request);
+  try {
+    return await request;
+  } finally {
+    if (lifetime) inFlightRequests.delete(path);
   }
-
-  if (res.status === 204) {
-    return undefined as T;
-  }
-
-  return res.json();
 }
 
 export type User = {
@@ -126,7 +158,12 @@ export const sessions = {
       method: "PATCH",
       body: JSON.stringify({ description, productionPercentage }),
     }),
-  list: () => api<StudySession[]>("/api/sessions"),
+  list: (range?: { from?: string; to?: string }) => {
+    const query = new URLSearchParams();
+    if (range?.from) query.set("from", range.from);
+    if (range?.to) query.set("to", range.to);
+    return api<StudySession[]>(`/api/sessions${query.size ? `?${query}` : ""}`);
+  },
   page: (cursor?: string | null, limit = 30) => {
     const query = new URLSearchParams({ limit: String(limit) });
     if (cursor) query.set("cursor", cursor);

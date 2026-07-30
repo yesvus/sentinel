@@ -70,4 +70,33 @@ export function projectTotals(sessionList: StudySession[], now: number): Project
   return Array.from(totals.values()).sort((a, b) => b.seconds - a.seconds);
 }
 
+export function medianCompletedSessionSeconds(sessionList: StudySession[]) {
+  const durations = sessionList
+    .filter((session) => session.ended_at !== null)
+    .map((session) => session.duration_seconds ?? 0)
+    .sort((a, b) => a - b);
+  if (!durations.length) return null;
+  const middle = Math.floor(durations.length / 2);
+  return durations.length % 2
+    ? durations[middle]
+    : Math.round((durations[middle - 1] + durations[middle]) / 2);
+}
+
+export function activityStreak(sessionList: StudySession[], now = new Date()) {
+  const active = new Set(
+    sessionList
+      .filter((session) => session.ended_at !== null)
+      .map((session) => dayKey(new Date(session.started_at))),
+  );
+  const cursor = new Date(now);
+  cursor.setHours(0, 0, 0, 0);
+  if (!active.has(dayKey(cursor))) cursor.setDate(cursor.getDate() - 1);
+  let current = 0;
+  while (active.has(dayKey(cursor))) {
+    current += 1;
+    cursor.setDate(cursor.getDate() - 1);
+  }
+  return current;
+}
+
 export { NO_PROJECT_LABEL };

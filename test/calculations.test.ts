@@ -1,6 +1,13 @@
 import { describe, expect, it } from "vitest";
 import { sessionsToCsv } from "@/lib/export";
-import { dailyAllocationTotals, dailyTotals, projectTotals, splitSessionDuration } from "@/lib/session-stats";
+import {
+  activityStreak,
+  dailyAllocationTotals,
+  dailyTotals,
+  medianCompletedSessionSeconds,
+  projectTotals,
+  splitSessionDuration,
+} from "@/lib/session-stats";
 import { scheduledTheme } from "@/lib/theme-context";
 import type { Project, StudySession } from "@/lib/api";
 
@@ -62,6 +69,18 @@ describe("statistics and exports", () => {
       unclassified: 0,
       total: 3600,
     });
+  });
+
+  it("calculates even medians and completed-day streaks", () => {
+    const second = {
+      ...session,
+      id: 2,
+      started_at: "2026-07-29T08:00:00.000Z",
+      ended_at: "2026-07-29T08:30:00.000Z",
+      duration_seconds: 1800,
+    };
+    expect(medianCompletedSessionSeconds([session, second])).toBe(2700);
+    expect(activityStreak([session, second], new Date("2026-07-30T12:00:00.000Z"))).toBe(2);
   });
 });
 
