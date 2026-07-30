@@ -121,74 +121,76 @@ export default function StatsPage() {
         onNoteDeleted={handleNoteDeleted}
       />
 
-      <Card>
-        <CardHeader>
-          <CardTitle className="flex items-center gap-2">
-            <Hourglass className="text-muted-foreground size-4" />
-            Activity
-          </CardTitle>
-        </CardHeader>
-        <CardContent>
-          <p className="text-muted-foreground text-sm">Study time over the last {WEEKS} weeks.</p>
+      <div className="flex flex-wrap items-stretch gap-4 sm:gap-8">
+        <Card className="w-full shrink-0 sm:w-auto">
+          <CardHeader>
+            <CardTitle className="flex items-center gap-2">
+              <Hourglass className="text-muted-foreground size-4" />
+              Activity
+            </CardTitle>
+          </CardHeader>
+          <CardContent>
+            <p className="text-muted-foreground text-sm">Study time over the last {WEEKS} weeks.</p>
 
-          <div className="mt-4 overflow-x-auto pb-2">
-            <div className="flex gap-1 pl-8">
-              {weeks.map((week, weekIndex) => (
-                <div key={weekIndex} className="text-muted-foreground w-3.5 shrink-0 text-[10px] whitespace-nowrap">
-                  {monthLabelForWeek(week, weeks[weekIndex - 1])}
-                </div>
-              ))}
-            </div>
-
-            <div className="mt-1 flex gap-1">
-              <div className="flex w-7 shrink-0 flex-col gap-1">
-                {WEEKDAY_LABELS.map((label, i) => (
-                  <div key={i} className="text-muted-foreground h-3.5 text-[10px] leading-3.5">
-                    {label}
+            <div className="mt-4 overflow-x-auto pb-2">
+              <div className="flex gap-1 pl-8">
+                {weeks.map((week, weekIndex) => (
+                  <div key={weekIndex} className="text-muted-foreground w-3.5 shrink-0 text-[10px] whitespace-nowrap">
+                    {monthLabelForWeek(week, weeks[weekIndex - 1])}
                   </div>
                 ))}
               </div>
 
-              {weeks.map((week, weekIndex) => (
-                <div key={weekIndex} className="flex flex-col gap-1">
-                  {week.map((day, dayIndex) =>
-                    day ? (
-                      <Tooltip key={day.key}>
-                        <TooltipTrigger
-                          render={
-                            <div
-                              className="bg-muted size-3.5 rounded-sm"
-                              style={{ backgroundColor: intensityColor(day.seconds) }}
-                            />
-                          }
-                        />
-                        <TooltipContent>
-                          {day.date.toLocaleDateString(undefined, { month: "short", day: "numeric" })}:{" "}
-                          {day.seconds > 0 ? formatDuration(day.seconds) : "no study"}
-                        </TooltipContent>
-                      </Tooltip>
-                    ) : (
-                      <div key={dayIndex} className="size-3.5" />
-                    )
-                  )}
+              <div className="mt-1 flex gap-1">
+                <div className="flex w-7 shrink-0 flex-col gap-1">
+                  {WEEKDAY_LABELS.map((label, i) => (
+                    <div key={i} className="text-muted-foreground h-3.5 text-[10px] leading-3.5">
+                      {label}
+                    </div>
+                  ))}
                 </div>
-              ))}
+
+                {weeks.map((week, weekIndex) => (
+                  <div key={weekIndex} className="flex flex-col gap-1">
+                    {week.map((day, dayIndex) =>
+                      day ? (
+                        <Tooltip key={day.key}>
+                          <TooltipTrigger
+                            render={
+                              <div
+                                className="bg-muted size-3.5 rounded-sm"
+                                style={{ backgroundColor: intensityColor(day.seconds) }}
+                              />
+                            }
+                          />
+                          <TooltipContent>
+                            {day.date.toLocaleDateString(undefined, { month: "short", day: "numeric" })}:{" "}
+                            {day.seconds > 0 ? formatDuration(day.seconds) : "no study"}
+                          </TooltipContent>
+                        </Tooltip>
+                      ) : (
+                        <div key={dayIndex} className="size-3.5" />
+                      )
+                    )}
+                  </div>
+                ))}
+              </div>
             </div>
-          </div>
 
-          <div className="text-muted-foreground mt-2 flex items-center gap-1.5 pl-8 text-[10px]">
-            <span>Less</span>
-            <div className="bg-muted size-3 rounded-sm" />
-            <div className="size-3 rounded-sm" style={{ backgroundColor: "#a5f3fc" }} />
-            <div className="size-3 rounded-sm" style={{ backgroundColor: "#22d3ee" }} />
-            <div className="size-3 rounded-sm" style={{ backgroundColor: "#0e7490" }} />
-            <div className="size-3 rounded-sm" style={{ backgroundColor: "#f59e0b" }} />
-            <span>More</span>
-          </div>
-        </CardContent>
-      </Card>
+            <div className="text-muted-foreground mt-2 flex items-center gap-1.5 pl-8 text-[10px]">
+              <span>Less</span>
+              <div className="bg-muted size-3 rounded-sm" />
+              <div className="size-3 rounded-sm" style={{ backgroundColor: "#a5f3fc" }} />
+              <div className="size-3 rounded-sm" style={{ backgroundColor: "#22d3ee" }} />
+              <div className="size-3 rounded-sm" style={{ backgroundColor: "#0e7490" }} />
+              <div className="size-3 rounded-sm" style={{ backgroundColor: "#f59e0b" }} />
+              <span>More</span>
+            </div>
+          </CardContent>
+        </Card>
 
-      <ProjectBreakdownCard sessions={sessionList} now={now} />
+        <ProjectBreakdownCard sessions={sessionList} now={now} className="min-w-64 flex-1" />
+      </div>
 
       <HistorySection
         sessions={sessionList}

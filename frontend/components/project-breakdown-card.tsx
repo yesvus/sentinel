@@ -9,7 +9,15 @@ import { ProjectIcon } from "@/lib/icons";
 import { projectTotals, NO_PROJECT_LABEL } from "@/lib/session-stats";
 import { addDays, startOfWeek, weekKey, formatDuration, formatWeekRangeLabel } from "@/lib/date";
 
-export function ProjectBreakdownCard({ sessions: sessionList, now }: { sessions: StudySession[]; now: number }) {
+export function ProjectBreakdownCard({
+  sessions: sessionList,
+  now,
+  className,
+}: {
+  sessions: StudySession[];
+  now: number;
+  className?: string;
+}) {
   const currentWeekStart = startOfWeek(new Date(now));
   const [selectedWeekStart, setSelectedWeekStart] = useState(currentWeekStart);
 
@@ -22,7 +30,7 @@ export function ProjectBreakdownCard({ sessions: sessionList, now }: { sessions:
   const isCurrentWeek = selectedWeekKey === weekKey(currentWeekStart);
 
   return (
-    <Card>
+    <Card className={className}>
       <CardHeader className="flex flex-wrap items-center justify-between gap-2">
         <CardTitle className="flex items-center gap-2">
           <Layers className="text-muted-foreground size-4" />
