@@ -168,9 +168,11 @@ export default function AppHomePage() {
     }
 
     window.addEventListener("focus", refetchActive);
+    window.addEventListener("online", refetchActive);
     document.addEventListener("visibilitychange", handleVisibility);
     return () => {
       window.removeEventListener("focus", refetchActive);
+      window.removeEventListener("online", refetchActive);
       document.removeEventListener("visibilitychange", handleVisibility);
     };
   }, []);

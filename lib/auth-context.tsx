@@ -1,7 +1,7 @@
 "use client";
 
 import { createContext, useContext, useEffect, useState, useCallback } from "react";
-import { auth, User } from "./api";
+import { auth, clearApiCache, User } from "./api";
 
 type AuthContextValue = {
   user: User | null;
@@ -18,8 +18,12 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
   const refresh = useCallback(async () => {
     try {
       const me = await auth.me();
-      setUser(me);
+      setUser((current) => {
+        if (current?.id !== me.id) clearApiCache();
+        return me;
+      });
     } catch {
+      clearApiCache();
       setUser(null);
     } finally {
       setLoading(false);
