@@ -17,6 +17,17 @@ import {
   DialogHeader,
   DialogTitle,
 } from "@/components/ui/dialog";
+import {
+  AlertDialog,
+  AlertDialogAction,
+  AlertDialogCancel,
+  AlertDialogContent,
+  AlertDialogDescription,
+  AlertDialogFooter,
+  AlertDialogHeader,
+  AlertDialogTitle,
+  AlertDialogTrigger,
+} from "@/components/ui/alert-dialog";
 
 export default function ProjectsPage() {
   const [projectList, setProjectList] = useState<Project[]>([]);
@@ -214,9 +225,34 @@ export default function ProjectsPage() {
                       setEditingParentId(project.parentId);
                     }}>Edit</Button>
                     {!project.archived && <Button size="icon-sm" variant="outline" aria-label={project.pinned ? "Unpin project" : "Pin project"} onClick={() => updateState(project, { pinned: !project.pinned })}><Pin /></Button>}
-                    <Button size="icon-sm" variant="outline" aria-label={project.archived ? "Restore project" : "Archive project"} onClick={() => updateState(project, { archived: !project.archived })}>
-                      {project.archived ? <RotateCcw /> : <Archive />}
-                    </Button>
+                    {project.archived ? (
+                      <Button size="icon-sm" variant="outline" aria-label="Restore project" onClick={() => updateState(project, { archived: false })}>
+                        <RotateCcw />
+                      </Button>
+                    ) : (
+                      <AlertDialog>
+                        <AlertDialogTrigger
+                          render={<Button size="icon-sm" variant="outline" aria-label="Archive project" />}
+                        >
+                          <Archive />
+                        </AlertDialogTrigger>
+                        <AlertDialogContent>
+                          <AlertDialogHeader>
+                            <AlertDialogTitle>Archive {project.name}?</AlertDialogTitle>
+                            <AlertDialogDescription>
+                              This project and all projects beneath it will leave normal selectors.
+                              Existing and active sessions keep their exact assignments and statistics.
+                            </AlertDialogDescription>
+                          </AlertDialogHeader>
+                          <AlertDialogFooter>
+                            <AlertDialogCancel>Cancel</AlertDialogCancel>
+                            <AlertDialogAction onClick={() => updateState(project, { archived: true })}>
+                              Archive subtree
+                            </AlertDialogAction>
+                          </AlertDialogFooter>
+                        </AlertDialogContent>
+                      </AlertDialog>
+                    )}
                   </div>
                 </div>
               )}

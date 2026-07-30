@@ -458,6 +458,9 @@ async function projectRoutes(request: NextRequest, parts: string[], userId: numb
     const rows = await userProjects(userId);
     const parentError = validateProjectParent(rows, null, parentId);
     if (parentError) return error(parentError);
+    if (rows.some((row) => row.parent_id === parentId && row.name.toLowerCase() === data.name.trim().toLowerCase())) {
+      return error("A project with this name already exists under that parent", 409);
+    }
     const description = typeof data.description === "string" ? data.description.trim() || null : null;
     const result = await db.execute({
       sql: "INSERT INTO projects (user_id, name, icon, description, parent_id, pinned) VALUES (?, ?, ?, ?, ?, ?)",
@@ -479,6 +482,9 @@ async function projectRoutes(request: NextRequest, parts: string[], userId: numb
     if (parentError) return error(parentError);
     const name = data.name !== undefined ? (typeof data.name === "string" ? data.name.trim() : "") : existing.name;
     if (!name) return error("Name is required");
+    if (rows.some((row) => row.id !== id && row.parent_id === parentId && row.name.toLowerCase() === name.toLowerCase())) {
+      return error("A project with this name already exists under that parent", 409);
+    }
     const description = data.description !== undefined
       ? (typeof data.description === "string" ? data.description.trim() || null : null)
       : existing.description;
@@ -506,10 +512,15 @@ async function projectRoutes(request: NextRequest, parts: string[], userId: numb
     return NextResponse.json(decorateProjects(await userProjects(userId)).find((project) => project.id === id));
   }
   if (request.method === "DELETE") {
-    await db.execute({
-      sql: "UPDATE sessions SET project_id = NULL WHERE project_id = ? AND user_id = ?",
-      args: [id!, userId],
+    const usage = await db.execute({
+      sql: `SELECT
+              EXISTS(SELECT 1 FROM projects WHERE parent_id = ? AND user_id = ?) AS has_children,
+              EXISTS(SELECT 1 FROM sessions WHERE project_id = ? AND user_id = ?) AS has_sessions`,
+      args: [id!, userId, id!, userId],
     });
+    if (Number(usage.rows[0]?.has_children) || Number(usage.rows[0]?.has_sessions)) {
+      return error("Archive projects with children or session history instead of deleting them", 409);
+    }
     const result = await db.execute({
       sql: "DELETE FROM projects WHERE id = ? AND user_id = ?",
       args: [id!, userId],

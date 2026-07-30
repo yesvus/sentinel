@@ -6,19 +6,11 @@ import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Textarea } from "@/components/ui/textarea";
 import { Card, CardContent } from "@/components/ui/card";
-import {
-  Select,
-  SelectContent,
-  SelectItem,
-  SelectSeparator,
-  SelectTrigger,
-  SelectValue,
-} from "@/components/ui/select";
 import { sessions, projects as projectsApi, ApiError, Project, StudySession } from "@/lib/api";
 import { useAuth } from "@/lib/auth-context";
-import { ProjectIcon } from "@/lib/icons";
 import { NOISE_SESSION_EVENT } from "@/lib/noise-player";
 import { ProjectIconPicker } from "@/components/project-icon-picker";
+import { ProjectSelector } from "@/components/project-selector";
 import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip";
 import {
   Dialog,
@@ -29,8 +21,6 @@ import {
   DialogTitle,
 } from "@/components/ui/dialog";
 
-const NEW_PROJECT_VALUE = "__new__";
-const NO_PROJECT_VALUE = "__none__";
 const BROADCAST_CHANNEL_NAME = "sentinel-session-sync";
 
 type SessionBroadcastMessage =
@@ -70,7 +60,6 @@ export default function AppHomePage() {
   const [newProjectIcon, setNewProjectIcon] = useState<string | null>(null);
   const [newProjectParentId, setNewProjectParentId] = useState<number | null>(null);
   const [newProjectPinned, setNewProjectPinned] = useState(false);
-  const [projectSearch, setProjectSearch] = useState("");
 
   const [sessionId, setSessionId] = useState<number | null>(null);
   const [startedAt, setStartedAt] = useState<number | null>(null);
@@ -273,12 +262,6 @@ export default function AppHomePage() {
     }
   }
 
-  const selectableProjects = projectList.filter(
-    (project) =>
-      (!project.archived || project.id === projectId) &&
-      project.path.toLowerCase().includes(projectSearch.trim().toLowerCase()),
-  );
-
   async function handleDetailsChange(next: { projectId?: number | null; description?: string }) {
     const nextProjectId = next.projectId !== undefined ? next.projectId : projectId;
     const nextDescription = next.description !== undefined ? next.description : description;
@@ -411,58 +394,12 @@ export default function AppHomePage() {
 
       <Card className="w-full max-w-sm">
         <CardContent className="space-y-3">
-          <Input
-            type="search"
-            value={projectSearch}
-            onChange={(event) => setProjectSearch(event.target.value)}
-            placeholder="Search projects by name or path"
-            aria-label="Search projects"
+          <ProjectSelector
+            projects={projectList}
+            value={projectId}
+            onChange={(nextProjectId) => handleDetailsChange({ projectId: nextProjectId })}
+            onCreate={() => setCreatingProject(true)}
           />
-          <Select
-            value={projectId !== null ? String(projectId) : NO_PROJECT_VALUE}
-            onValueChange={(value) => {
-              if (value === NEW_PROJECT_VALUE) {
-                setCreatingProject(true);
-                return;
-              }
-              if (value === NO_PROJECT_VALUE) {
-                handleDetailsChange({ projectId: null });
-                return;
-              }
-              handleDetailsChange({ projectId: Number(value) });
-            }}
-          >
-            <SelectTrigger className="w-full">
-              <SelectValue>
-                {(value: string) => {
-                  const project = projectList.find((p) => String(p.id) === value);
-                  return (
-                    <span className="flex items-center gap-2">
-                      <ProjectIcon icon={project?.icon ?? null} className="size-4" />
-                      {project?.name ?? "No project"}
-                    </span>
-                  );
-                }}
-              </SelectValue>
-            </SelectTrigger>
-            <SelectContent>
-              <SelectItem value={NO_PROJECT_VALUE}>
-                <ProjectIcon icon={null} className="size-4" />
-                No project
-              </SelectItem>
-              {selectableProjects.map((project) => (
-                <SelectItem key={project.id} value={String(project.id)}>
-                  <ProjectIcon icon={project.icon} className="size-4" />
-                  {project.path}{project.pinned ? " · Pinned" : ""}
-                </SelectItem>
-              ))}
-              {selectableProjects.length === 0 && projectSearch && (
-                <div className="text-muted-foreground px-2 py-3 text-center text-sm">No matching projects</div>
-              )}
-              <SelectSeparator />
-              <SelectItem value={NEW_PROJECT_VALUE}>+ New project</SelectItem>
-            </SelectContent>
-          </Select>
 
           {creatingProject && (
             <div className="space-y-3 rounded-md border p-3">

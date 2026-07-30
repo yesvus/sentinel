@@ -101,6 +101,10 @@ describe("Next API", () => {
       cookie, body: { name: "Tokens", parentId: leaf.body.id },
     });
     expect(fourth.response.status).toBe(400);
+    const duplicate = await request("POST", "projects", {
+      cookie, body: { name: "web programming", parentId: root.body.id },
+    });
+    expect(duplicate.response.status).toBe(409);
 
     const cycle = await request("PATCH", `projects/${root.body.id}`, {
       cookie, body: { parentId: leaf.body.id },
@@ -110,6 +114,7 @@ describe("Next API", () => {
     await request("PATCH", `projects/${root.body.id}`, { cookie, body: { archived: true } });
     const projects = await request("GET", "projects", { cookie });
     expect(projects.body.filter((project: { archived: boolean }) => project.archived)).toHaveLength(3);
+    expect((await request("DELETE", `projects/${root.body.id}`, { cookie })).response.status).toBe(409);
   });
 
   it("saves the final description when stopping a session", async () => {
