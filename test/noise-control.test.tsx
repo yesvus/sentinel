@@ -14,6 +14,16 @@ vi.mock("@/lib/noise-player", () => ({
   })),
 }));
 
+vi.mock("@/lib/auth-context", () => ({
+  useAuth: vi.fn(() => ({
+    user: {
+      autoStartNoise: false,
+      focusAudioType: "speech-blocker",
+    },
+    refresh: vi.fn(),
+  })),
+}));
+
 describe("Focus Audio control", () => {
   beforeEach(() => {
     toggle.mockClear();
@@ -22,8 +32,9 @@ describe("Focus Audio control", () => {
 
   it("uses Focus Audio terminology and starts playback", () => {
     render(<NoiseControl />);
-    fireEvent.click(screen.getByRole("button", { name: "Start Focus Audio" }));
-    expect(screen.getByText("Focus Audio")).toBeInTheDocument();
+    fireEvent.click(screen.getByRole("button", { name: "Open Focus Audio controls" }));
+    fireEvent.click(screen.getByRole("button", { name: "Start audio" }));
+    expect(screen.getAllByText("Focus Audio").length).toBeGreaterThan(0);
     expect(toggle).toHaveBeenCalledOnce();
   });
 });
