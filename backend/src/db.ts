@@ -57,4 +57,17 @@ export async function initDb() {
   } catch {
     // column already exists
   }
+
+  await db.execute(`
+    CREATE TABLE IF NOT EXISTS notes (
+      id INTEGER PRIMARY KEY AUTOINCREMENT,
+      user_id INTEGER NOT NULL REFERENCES users(id),
+      scope TEXT NOT NULL CHECK (scope IN ('day', 'week')),
+      date_key TEXT NOT NULL,
+      content TEXT NOT NULL,
+      created_at TEXT NOT NULL DEFAULT (datetime('now')),
+      updated_at TEXT NOT NULL DEFAULT (datetime('now')),
+      UNIQUE (user_id, scope, date_key)
+    )
+  `);
 }
