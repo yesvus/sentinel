@@ -40,7 +40,7 @@ The tracking model (start/stop, tag with a project, add a description, see stats
 ## Tech Stack
 - Next.js + React (TypeScript)
 - shadcn/ui components (Tailwind CSS under the hood)
-- Node.js backend with a REST API (HTTP requests from the frontend to the backend)
+- Next.js Route Handlers for the same-origin REST API
 - Turso for the DB
 - Vercel for deployment
 
@@ -58,15 +58,17 @@ This used to run on Socket.IO with a separate always-on Render process for the W
 
 ## Project Structure
 ```
-frontend/   Next.js app
-backend/    Express API (auth + study sessions)
+app/         Next.js pages and same-origin API Route Handler
+components/  Application and UI components
+lib/server/  Database and authentication modules
+local.db     Local-development database
 ```
 
 ### Auth: JWT in an httpOnly cookie
 
 1. `POST /api/auth/register` or `/login`. Password is hashed with `bcrypt` (register) or compared against the hash (login).
 2. On success, the server signs a JWT (`jsonwebtoken`) containing the user's id and sends it back via a `Set-Cookie` header, marked `httpOnly` (so client-side JS can never read it, only the browser can send it automatically).
-3. Every subsequent request automatically includes that cookie. A middleware (`requireAuth`) reads it, verifies the signature against `JWT_SECRET`, and attaches the user id to the request, or responds `401 Unauthorized` if it's missing/invalid.
+3. Every subsequent request automatically includes that cookie. The server-only auth helper verifies it against `JWT_SECRET`, or responds `401 Unauthorized` if it is missing or invalid.
 
 ### API Endpoints
 
@@ -96,30 +98,24 @@ sessions  (id, user_id, started_at, ended_at, duration_seconds, description, pro
 
 ## Setup
 
-### Backend
+Install dependencies and start the full application:
+
 ```
-cd backend
 pnpm install
-cp .env.example .env   # fill in your own values, see below
-pnpm dev                # runs on http://localhost:4000
+cp .env.example .env.local
+pnpm dev
 ```
 
-You need a Turso database. If you don't have one yet:
+The UI and `/api/*` endpoints run together on `http://localhost:3000`.
+
+For a hosted environment, create a Turso database:
 ```
 turso auth login
 turso db create sentinel
 turso db show sentinel --url        # -> TURSO_DATABASE_URL
 turso db tokens create sentinel     # -> TURSO_AUTH_TOKEN
 ```
-Put those two values plus a random `JWT_SECRET` into `backend/.env`. If you skip Turso entirely, the backend falls back to a local SQLite file (`file:local.db`), so you can still develop without it.
-
-### Frontend
-```
-cd frontend
-pnpm install
-pnpm dev                # runs on http://localhost:3000
-```
-By default the frontend proxies `/api/*` to `http://localhost:4000` (see `frontend/.env.local`). In production this points at the `API_ORIGIN` env var (Vercel).
+Put those values plus a random `JWT_SECRET` into `.env.local`. Without Turso configuration, local development uses `local.db`.
 
 ## License
 
