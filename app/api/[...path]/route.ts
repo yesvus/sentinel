@@ -717,6 +717,54 @@ function socialUser(row: Record<string, unknown>) {
 async function socialRoutes(request: NextRequest, parts: string[], userId: number) {
   const section = parts[1];
   const id = parts[2] ? Number(parts[2]) : null;
+  if (section === "nudges" && id !== null && request.method === "POST") {
+    if (id === userId) return error("You cannot nudge yourself");
+    const friendship = await db.execute({
+      sql: `SELECT 1 FROM friendships
+            WHERE status = 'accepted'
+              AND ((requester_id = ? AND addressee_id = ?) OR (requester_id = ? AND addressee_id = ?))`,
+      args: [userId, id, id, userId],
+    });
+    if (!friendship.rows.length) return error("You can only nudge friends", 403);
+    const attemptKey = rateLimitKey("nudge", `${userId}:${id}`);
+    if (await rateLimited(attemptKey, 30)) return error("Too many nudges. Give your friend a moment.", 429);
+    await recordRateLimitAttempt(attemptKey);
+    const result = await db.execute({
+      sql: "INSERT INTO social_notifications (user_id, actor_id, type) VALUES (?, ?, 'nudge')",
+      args: [id, userId],
+    });
+    return NextResponse.json({ id: Number(result.lastInsertRowid) }, { status: 201 });
+  }
+  if (section === "notifications" && id === null && request.method === "GET") {
+    const result = await db.execute({
+      sql: `SELECT n.id, n.type, n.read_at, n.created_at,
+                   u.id AS actor_id, u.name AS actor_name, u.email AS actor_email, u.avatar AS actor_avatar
+            FROM social_notifications n
+            JOIN users u ON u.id = n.actor_id
+            WHERE n.user_id = ?
+            ORDER BY n.id DESC LIMIT 50`,
+      args: [userId],
+    });
+    return NextResponse.json(result.rows.map((row) => ({
+      id: Number(row.id),
+      type: row.type,
+      readAt: row.read_at ?? null,
+      createdAt: row.created_at,
+      actor: {
+        id: Number(row.actor_id),
+        name: row.actor_name ?? null,
+        email: row.actor_email,
+        avatar: row.actor_avatar ?? null,
+      },
+    })));
+  }
+  if (section === "notifications" && id === null && request.method === "PATCH") {
+    await db.execute({
+      sql: "UPDATE social_notifications SET read_at = datetime('now') WHERE user_id = ? AND read_at IS NULL",
+      args: [userId],
+    });
+    return noContent();
+  }
   if (section === "connections" && id === null && request.method === "GET") {
     const result = await db.execute({
       sql: `SELECT f.id, f.status, f.requester_id, f.addressee_id,

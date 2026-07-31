@@ -8,6 +8,8 @@ import { useAuth } from "@/lib/auth-context";
 import { NoisePlayerProvider } from "@/lib/noise-player";
 import { NoiseControl } from "@/components/noise-control";
 import { FriendsControl } from "@/components/friends-control";
+import { NotificationsControl } from "@/components/notifications-control";
+import { Toaster } from "@/components/ui/toast";
 
 export default function AppLayout({ children }: { children: React.ReactNode }) {
   const router = useRouter();
@@ -42,6 +44,7 @@ export default function AppLayout({ children }: { children: React.ReactNode }) {
             <SidebarTrigger />
             <h1 className="flex-1 text-sm font-medium">{pageTitle}</h1>
             <FriendsControl />
+            <NotificationsControl userId={user.id} />
             <NoiseControl />
           </header>
           <div className="flex min-h-0 min-w-0 flex-1 flex-col overflow-y-auto px-4 py-6 sm:px-6">
@@ -49,6 +52,7 @@ export default function AppLayout({ children }: { children: React.ReactNode }) {
           </div>
         </main>
       </SidebarProvider>
+      <Toaster />
     </NoisePlayerProvider>
   );
 }

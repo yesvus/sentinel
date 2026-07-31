@@ -162,11 +162,25 @@ async function initialize() {
     `);
   });
 
+  await migrate(4, async () => {
+    await db.execute(`
+      CREATE TABLE IF NOT EXISTS social_notifications (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        user_id INTEGER NOT NULL REFERENCES users(id),
+        actor_id INTEGER NOT NULL REFERENCES users(id),
+        type TEXT NOT NULL CHECK (type IN ('nudge')),
+        read_at TEXT,
+        created_at TEXT NOT NULL DEFAULT (datetime('now'))
+      )
+    `);
+  });
+
   for (const statement of [
     "CREATE INDEX IF NOT EXISTS idx_auth_sessions_user ON auth_sessions (user_id)",
     "CREATE INDEX IF NOT EXISTS idx_auth_sessions_expiry ON auth_sessions (expires_at)",
     "CREATE INDEX IF NOT EXISTS idx_weekly_reports_user_week ON weekly_reports (user_id, week_start)",
     "CREATE INDEX IF NOT EXISTS idx_friendships_addressee ON friendships (addressee_id, status)",
+    "CREATE INDEX IF NOT EXISTS idx_social_notifications_user_created ON social_notifications (user_id, created_at DESC)",
     "CREATE UNIQUE INDEX IF NOT EXISTS idx_one_active_session_per_user ON sessions (user_id) WHERE ended_at IS NULL",
     "CREATE INDEX IF NOT EXISTS idx_sessions_user_started ON sessions (user_id, started_at)",
     "CREATE INDEX IF NOT EXISTS idx_sessions_user_project ON sessions (user_id, project_id)",

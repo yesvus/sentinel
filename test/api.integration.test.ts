@@ -44,7 +44,7 @@ async function register(email: string) {
 
 beforeEach(async () => {
   await ensureDb();
-  for (const table of ["auth_rate_limits", "auth_sessions", "weekly_reports", "friendships", "notes", "sessions", "projects", "users"]) {
+  for (const table of ["auth_rate_limits", "auth_sessions", "weekly_reports", "social_notifications", "friendships", "notes", "sessions", "projects", "users"]) {
     await db.execute(`DELETE FROM ${table}`);
   }
 });
@@ -431,5 +431,40 @@ describe("Next API", () => {
     });
     const shared = await request("GET", "social/activity", { cookie: alice });
     expect(shared.body[0].description).toBe("Private draft");
+  });
+
+  it("delivers persistent nudges only between confirmed friends", async () => {
+    const alice = await register("nudge-alice@example.test");
+    const bob = await register("nudge-bob@example.test");
+
+    const blocked = await request("POST", "social/nudges/999999", { cookie: alice });
+    expect(blocked.response.status).toBe(403);
+
+    const sent = await request("POST", "social/requests", {
+      cookie: alice,
+      body: { email: "nudge-bob@example.test" },
+    });
+    await request("PATCH", `social/requests/${sent.body.friendshipId}`, {
+      cookie: bob,
+      body: { action: "accept" },
+    });
+
+    const connection = (await request("GET", "social/connections", { cookie: alice }))
+      .body.find((item: { user: { email: string } }) => item.user.email === "nudge-bob@example.test");
+    const nudge = await request("POST", `social/nudges/${connection.user.id}`, { cookie: alice });
+    expect(nudge.response.status).toBe(201);
+
+    expect((await request("GET", "social/notifications", { cookie: alice })).body).toEqual([]);
+    const received = await request("GET", "social/notifications", { cookie: bob });
+    expect(received.body).toHaveLength(1);
+    expect(received.body[0]).toMatchObject({
+      id: nudge.body.id,
+      type: "nudge",
+      readAt: null,
+      actor: { email: "nudge-alice@example.test" },
+    });
+
+    expect((await request("PATCH", "social/notifications", { cookie: bob })).response.status).toBe(204);
+    expect((await request("GET", "social/notifications", { cookie: bob })).body[0].readAt).not.toBeNull();
   });
 });

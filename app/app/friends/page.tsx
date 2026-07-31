@@ -1,13 +1,14 @@
 "use client";
 
 import { FormEvent, useCallback, useEffect, useState } from "react";
-import { Check, Clock3, UserPlus, Users, X } from "lucide-react";
+import { Check, Clock3, UserPlus, Users, X, Zap } from "lucide-react";
 import { ApiError, Connection, FriendActivity, social } from "@/lib/api";
 import { Avatar } from "@/lib/icons";
 import { ProjectIcon } from "@/lib/icons";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
+import { toast } from "@/components/ui/toast";
 
 function displayName(name: string | null, email: string) {
   return name?.trim() || email;
@@ -26,6 +27,7 @@ export default function FriendsPage() {
   const [email, setEmail] = useState("");
   const [loading, setLoading] = useState(true);
   const [workingId, setWorkingId] = useState<number | null>(null);
+  const [nudgingId, setNudgingId] = useState<number | null>(null);
   const [error, setError] = useState<string | null>(null);
 
   const load = useCallback(async () => {
@@ -84,6 +86,23 @@ export default function FriendsPage() {
       setError(err instanceof ApiError ? err.message : "Could not remove connection");
     } finally {
       setWorkingId(null);
+    }
+  }
+
+  async function nudge(connection: Connection) {
+    setNudgingId(connection.user.id);
+    setError(null);
+    try {
+      await social.nudge(connection.user.id);
+      toast.add({
+        type: "success",
+        title: `Nudged ${displayName(connection.user.name, connection.user.email)}`,
+        description: "They'll see it in their notifications.",
+      });
+    } catch (err) {
+      setError(err instanceof ApiError ? err.message : "Could not send nudge");
+    } finally {
+      setNudgingId(null);
     }
   }
 
@@ -150,6 +169,17 @@ export default function FriendsPage() {
                   <p className="truncate text-sm font-medium">{displayName(connection.user.name, connection.user.email)}</p>
                   <p className="text-muted-foreground text-xs">{connection.direction === "outgoing" ? "Request sent" : "Friend"}</p>
                 </div>
+                {connection.direction === "friend" && (
+                  <Button
+                    size="icon-sm"
+                    variant="outline"
+                    aria-label={`Nudge ${displayName(connection.user.name, connection.user.email)}`}
+                    disabled={nudgingId === connection.user.id}
+                    onClick={() => nudge(connection)}
+                  >
+                    <Zap />
+                  </Button>
+                )}
                 <Button size="sm" variant="ghost" disabled={workingId === connection.friendshipId} onClick={() => remove(connection)}>
                   {connection.direction === "outgoing" ? "Cancel" : "Remove"}
                 </Button>

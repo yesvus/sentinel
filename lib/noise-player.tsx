@@ -10,6 +10,7 @@ const STATE_KEY = "sentinel-noise-playing";
 const OWNER_KEY = "sentinel-noise-owner";
 const VOLUME_KEY = "sentinel-noise-volume";
 const SOUND_KEY = "sentinel-focus-audio-type";
+const DEFAULT_VOLUME = 0.75;
 export const NOISE_SESSION_EVENT = "sentinel-session-audio";
 
 type NoiseContextValue = {
@@ -64,8 +65,8 @@ function makeNoiseBuffer(context: AudioContext, type: Exclude<FocusAudioType, "b
 export function NoisePlayerProvider({ children }: { children: React.ReactNode }) {
   const { user } = useAuth();
   const [playing, setPlaying] = useState(false);
-  const [volume, setVolumeState] = useState(0.55);
-  const volumeRef = useRef(0.55);
+  const [volume, setVolumeState] = useState(DEFAULT_VOLUME);
+  const volumeRef = useRef(DEFAULT_VOLUME);
   const soundRef = useRef<FocusAudioType>("speech-blocker");
   const idRef = useRef("");
   const nodesRef = useRef<AudioNodes | null>(null);
@@ -191,7 +192,8 @@ export function NoisePlayerProvider({ children }: { children: React.ReactNode })
 
   useEffect(() => {
     idRef.current = crypto.randomUUID();
-    const storedVolume = Number(localStorage.getItem(VOLUME_KEY));
+    const storedVolumeValue = localStorage.getItem(VOLUME_KEY);
+    const storedVolume = storedVolumeValue === null ? Number.NaN : Number(storedVolumeValue);
     const initialPlaying = localStorage.getItem(STATE_KEY) === "true";
     const initialVolume =
       Number.isFinite(storedVolume) && storedVolume >= 0 && storedVolume <= 1
