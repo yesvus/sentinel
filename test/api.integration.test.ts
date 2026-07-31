@@ -8,10 +8,16 @@ import { db, ensureDb } from "@/lib/server/db";
 type Method = "GET" | "POST" | "PUT" | "PATCH" | "DELETE";
 const handlers = { GET, POST, PUT, PATCH, DELETE };
 
-async function request(method: Method, path: string, options: { body?: unknown; cookie?: string } = {}) {
+async function request(
+  method: Method,
+  path: string,
+  options: { body?: unknown; cookie?: string; origin?: string; contentLength?: number } = {},
+) {
   const headers = new Headers();
   if (options.body !== undefined) headers.set("content-type", "application/json");
   if (options.cookie) headers.set("cookie", options.cookie);
+  if (options.origin) headers.set("origin", options.origin);
+  if (options.contentLength !== undefined) headers.set("content-length", String(options.contentLength));
   const nextRequest = new NextRequest(`http://localhost:3000/api/${path}`, {
     method,
     headers,
@@ -38,7 +44,7 @@ async function register(email: string) {
 
 beforeEach(async () => {
   await ensureDb();
-  for (const table of ["auth_sessions", "weekly_reports", "friendships", "notes", "sessions", "projects", "users"]) {
+  for (const table of ["auth_rate_limits", "auth_sessions", "weekly_reports", "friendships", "notes", "sessions", "projects", "users"]) {
     await db.execute(`DELETE FROM ${table}`);
   }
 });
@@ -58,11 +64,51 @@ describe("Next API", () => {
     });
   });
 
+  it("rejects cross-origin mutations and oversized bodies", async () => {
+    const crossOrigin = await request("POST", "auth/login", {
+      origin: "https://attacker.example",
+      body: { email: "person@example.test", password: "password1" },
+    });
+    expect(crossOrigin.response.status).toBe(403);
+
+    const oversized = await request("POST", "auth/login", {
+      contentLength: 65 * 1024,
+      body: { email: "person@example.test", password: "password1" },
+    });
+    expect(oversized.response.status).toBe(413);
+  });
+
+  it("validates profile fields", async () => {
+    const cookie = await register("profile@example.test");
+    expect((await request("PATCH", "auth/me", {
+      cookie,
+      body: { name: "x".repeat(101) },
+    })).response.status).toBe(400);
+    expect((await request("PATCH", "auth/me", {
+      cookie,
+      body: { avatar: "https://attacker.example/avatar.svg" },
+    })).response.status).toBe(400);
+  });
+
   it("revokes the server-side session on logout", async () => {
     const cookie = await register("logout@example.test");
     expect((await request("GET", "auth/me", { cookie })).response.status).toBe(200);
     await request("POST", "auth/logout", { cookie });
     expect((await request("GET", "auth/me", { cookie })).response.status).toBe(401);
+  });
+
+  it("persists login throttling after repeated failures", async () => {
+    await register("throttled@example.test");
+    for (let attempt = 0; attempt < 5; attempt += 1) {
+      const failed = await request("POST", "auth/login", {
+        body: { email: "throttled@example.test", password: "wrong-password" },
+      });
+      expect(failed.response.status).toBe(401);
+    }
+    const limited = await request("POST", "auth/login", {
+      body: { email: "throttled@example.test", password: "password1" },
+    });
+    expect(limited.response.status).toBe(429);
   });
 
   it("saves the default session type", async () => {
@@ -92,6 +138,31 @@ describe("Next API", () => {
       icon: "book",
     });
     expect(note.body.content).toBe("Finished the outline");
+  });
+
+  it("does not allow sessions to reference another user's project", async () => {
+    const alice = await register("project-owner@example.test");
+    const bob = await register("project-attacker@example.test");
+    const project = await request("POST", "projects", {
+      cookie: alice,
+      body: { name: "Private project" },
+    });
+
+    const started = await request("POST", "sessions/start", {
+      cookie: bob,
+      body: { projectId: project.body.id },
+    });
+    expect(started.response.status).toBe(404);
+
+    const imported = await request("POST", "sessions", {
+      cookie: bob,
+      body: {
+        startedAt: "2026-07-30T08:00:00.000Z",
+        endedAt: "2026-07-30T09:00:00.000Z",
+        projectId: project.body.id,
+      },
+    });
+    expect(imported.response.status).toBe(404);
   });
 
   it("supports three project levels and rejects invalid hierarchy moves", async () => {

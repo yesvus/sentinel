@@ -64,12 +64,12 @@ lib/server/  Database and authentication modules
 local.db     Local-development database
 ```
 
-### Auth: JWT in an httpOnly cookie
+### Authentication
 
 1. `POST /api/auth/register` or `/login`. Password is hashed with `bcrypt` (register) or compared against the hash (login).
-2. On success, the server signs a JWT (`jsonwebtoken`) containing the user's id and sends it back via a `Set-Cookie` header, marked `httpOnly` (so client-side JS can never read it, only the browser can send it automatically).
-3. Every subsequent request automatically includes that cookie. Sentinel stores only a SHA-256
-   hash of the opaque session token and enforces expiry and revocation server-side.
+2. On success, the server creates a cryptographically random opaque session token and sends it in an `httpOnly`, `SameSite=Strict` cookie.
+3. Sentinel stores only a SHA-256 hash of that token and enforces expiry and revocation server-side. Password changes revoke all existing sessions.
+4. Authentication throttling is stored in the database so it works across server instances.
 
 ### API Endpoints
 
@@ -92,9 +92,15 @@ local.db     Local-development database
 ### Database Schema
 
 ```
-users     (id, email, password_hash, created_at)
-projects  (id, user_id, name, created_at)
-sessions  (id, user_id, started_at, ended_at, duration_seconds, description, project_id)
+users             Account, profile, privacy, audio and session defaults
+auth_sessions     Hashed, expiring and revocable login sessions
+projects          User-owned hierarchical projects
+sessions          User-owned activity sessions and Learning/Producing allocation
+notes             Daily and weekly notes
+friendships       Pending and accepted social connections
+weekly_reports    Immutable finalized weekly summaries
+auth_rate_limits  Shared authentication and abuse throttling
+schema_migrations Applied database schema versions
 ```
 
 ## Setup
@@ -117,6 +123,11 @@ turso db show sentinel --url        # -> TURSO_DATABASE_URL
 turso db tokens create sentinel     # -> TURSO_AUTH_TOKEN
 ```
 Put those values into `.env.local`. Without Turso configuration, local development uses `local.db`.
+Hosted Vercel deployments fail fast when `TURSO_DATABASE_URL` is absent, and remote
+Turso connections require `TURSO_AUTH_TOKEN`.
+
+Schema upgrades are versioned in `lib/server/db.ts`. Each version is recorded in
+`schema_migrations`; migration failures are surfaced instead of silently ignored.
 
 ## License
 
