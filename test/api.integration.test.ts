@@ -453,6 +453,9 @@ describe("Next API", () => {
       .body.find((item: { user: { email: string } }) => item.user.email === "nudge-bob@example.test");
     const nudge = await request("POST", `social/nudges/${connection.user.id}`, { cookie: alice });
     expect(nudge.response.status).toBe(201);
+    const repeated = await request("POST", `social/nudges/${connection.user.id}`, { cookie: alice });
+    expect(repeated.response.status).toBe(429);
+    expect(repeated.body.error).toBe("You can nudge this friend again in 30 seconds");
 
     expect((await request("GET", "social/notifications", { cookie: alice })).body).toEqual([]);
     const received = await request("GET", "social/notifications", { cookie: bob });

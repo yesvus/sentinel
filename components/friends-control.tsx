@@ -1,7 +1,7 @@
 "use client";
 
 import Link from "next/link";
-import { useEffect, useState } from "react";
+import { useCallback, useEffect, useState } from "react";
 import { Clock3, Users } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import {
@@ -32,12 +32,23 @@ function duration(item: FriendActivity) {
 export function FriendsControl() {
   const [activity, setActivity] = useState<FriendActivity[]>([]);
 
-  useEffect(() => {
-    const timer = window.setTimeout(() => {
-      social.activity().then(setActivity).catch(() => {});
-    }, 0);
-    return () => window.clearTimeout(timer);
+  const load = useCallback(() => {
+    social.activity().then(setActivity).catch(() => {});
   }, []);
+
+  useEffect(() => {
+    const initialTimer = window.setTimeout(load, 0);
+    const pollTimer = window.setInterval(load, 10_000);
+    const handleVisibility = () => {
+      if (document.visibilityState === "visible") load();
+    };
+    document.addEventListener("visibilitychange", handleVisibility);
+    return () => {
+      window.clearTimeout(initialTimer);
+      window.clearInterval(pollTimer);
+      document.removeEventListener("visibilitychange", handleVisibility);
+    };
+  }, [load]);
 
   const currentStudyers = activity.filter((item) => item.ended_at === null);
 

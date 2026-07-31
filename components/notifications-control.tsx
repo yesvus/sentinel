@@ -30,16 +30,21 @@ function playNudgeSound() {
   const oscillator = context.createOscillator();
   const now = context.currentTime;
   oscillator.type = "sine";
-  oscillator.frequency.setValueAtTime(660, now);
-  oscillator.frequency.exponentialRampToValueAtTime(880, now + 0.12);
+  oscillator.frequency.setValueAtTime(620, now);
+  oscillator.frequency.exponentialRampToValueAtTime(820, now + 0.14);
+  oscillator.frequency.setValueAtTime(720, now + 0.3);
+  oscillator.frequency.exponentialRampToValueAtTime(980, now + 0.48);
   gain.gain.setValueAtTime(0.0001, now);
-  gain.gain.exponentialRampToValueAtTime(0.12, now + 0.015);
-  gain.gain.exponentialRampToValueAtTime(0.0001, now + 0.22);
+  gain.gain.exponentialRampToValueAtTime(0.22, now + 0.02);
+  gain.gain.exponentialRampToValueAtTime(0.0001, now + 0.24);
+  gain.gain.exponentialRampToValueAtTime(0.2, now + 0.32);
+  gain.gain.exponentialRampToValueAtTime(0.0001, now + 0.62);
   oscillator.connect(gain);
   gain.connect(context.destination);
   oscillator.start(now);
-  oscillator.stop(now + 0.23);
+  oscillator.stop(now + 0.65);
   oscillator.addEventListener("ended", () => void context.close(), { once: true });
+  void context.resume();
 }
 
 function timeLabel(value: string) {

@@ -9,6 +9,17 @@ import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
 import { toast } from "@/components/ui/toast";
+import {
+  AlertDialog,
+  AlertDialogAction,
+  AlertDialogCancel,
+  AlertDialogContent,
+  AlertDialogDescription,
+  AlertDialogFooter,
+  AlertDialogHeader,
+  AlertDialogTitle,
+  AlertDialogTrigger,
+} from "@/components/ui/alert-dialog";
 
 function displayName(name: string | null, email: string) {
   return name?.trim() || email;
@@ -46,8 +57,17 @@ export default function FriendsPage() {
   }, []);
 
   useEffect(() => {
-    const timer = window.setTimeout(load, 0);
-    return () => window.clearTimeout(timer);
+    const initialTimer = window.setTimeout(load, 0);
+    const pollTimer = window.setInterval(load, 10_000);
+    const handleVisibility = () => {
+      if (document.visibilityState === "visible") void load();
+    };
+    document.addEventListener("visibilitychange", handleVisibility);
+    return () => {
+      window.clearTimeout(initialTimer);
+      window.clearInterval(pollTimer);
+      document.removeEventListener("visibilitychange", handleVisibility);
+    };
   }, [load]);
 
   async function sendRequest(event: FormEvent) {
@@ -180,9 +200,35 @@ export default function FriendsPage() {
                     <Zap />
                   </Button>
                 )}
-                <Button size="sm" variant="ghost" disabled={workingId === connection.friendshipId} onClick={() => remove(connection)}>
-                  {connection.direction === "outgoing" ? "Cancel" : "Remove"}
-                </Button>
+                {connection.direction === "outgoing" ? (
+                  <Button size="sm" variant="ghost" disabled={workingId === connection.friendshipId} onClick={() => remove(connection)}>
+                    Cancel
+                  </Button>
+                ) : (
+                  <AlertDialog>
+                    <AlertDialogTrigger
+                      render={
+                        <Button size="sm" variant="ghost" disabled={workingId === connection.friendshipId} />
+                      }
+                    >
+                      Remove
+                    </AlertDialogTrigger>
+                    <AlertDialogContent size="sm">
+                      <AlertDialogHeader>
+                        <AlertDialogTitle>Remove this friend?</AlertDialogTitle>
+                        <AlertDialogDescription>
+                          You and {displayName(connection.user.name, connection.user.email)} will no longer see each other&apos;s activity or be able to send nudges.
+                        </AlertDialogDescription>
+                      </AlertDialogHeader>
+                      <AlertDialogFooter>
+                        <AlertDialogCancel>Cancel</AlertDialogCancel>
+                        <AlertDialogAction variant="destructive" onClick={() => remove(connection)}>
+                          Remove friend
+                        </AlertDialogAction>
+                      </AlertDialogFooter>
+                    </AlertDialogContent>
+                  </AlertDialog>
+                )}
               </div>
             ))}
           </CardContent>

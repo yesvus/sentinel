@@ -726,8 +726,16 @@ async function socialRoutes(request: NextRequest, parts: string[], userId: numbe
       args: [userId, id, id, userId],
     });
     if (!friendship.rows.length) return error("You can only nudge friends", 403);
+    const recentNudge = await db.execute({
+      sql: `SELECT 1 FROM social_notifications
+            WHERE user_id = ? AND actor_id = ? AND type = 'nudge'
+              AND created_at > datetime('now', '-30 seconds')
+            LIMIT 1`,
+      args: [id, userId],
+    });
+    if (recentNudge.rows.length) return error("You can nudge this friend again in 30 seconds", 429);
     const attemptKey = rateLimitKey("nudge", `${userId}:${id}`);
-    if (await rateLimited(attemptKey, 30)) return error("Too many nudges. Give your friend a moment.", 429);
+    if (await rateLimited(attemptKey, 10)) return error("Too many nudges. Give your friend a moment.", 429);
     await recordRateLimitAttempt(attemptKey);
     const result = await db.execute({
       sql: "INSERT INTO social_notifications (user_id, actor_id, type) VALUES (?, ?, 'nudge')",
