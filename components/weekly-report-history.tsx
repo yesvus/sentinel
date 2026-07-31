@@ -5,7 +5,7 @@ import { CalendarRange, ChevronLeft, ChevronRight } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { reports, WeeklyReport } from "@/lib/api";
-import { formatDuration } from "@/lib/date";
+import { formatDuration, periodComparison } from "@/lib/date";
 
 export function WeeklyReportHistory() {
   const [items, setItems] = useState<WeeklyReport[]>([]);
@@ -18,6 +18,10 @@ export function WeeklyReportHistory() {
   }, []);
 
   const report = items[selected];
+  const previousReport = items[selected + 1];
+  const comparison = report && previousReport
+    ? periodComparison(report.totalSeconds, previousReport.totalSeconds)
+    : null;
   return (
     <Card className="break-inside-avoid">
       <CardHeader className="flex-row items-center justify-between gap-3">
@@ -61,13 +65,22 @@ export function WeeklyReportHistory() {
         ) : (
           <article className="space-y-5">
             <div>
-              <p className="font-medium">{report.weekStart} – {report.weekEnd}</p>
               <p className="text-muted-foreground text-xs">
                 Finalized {new Date(report.finalizedAt).toLocaleDateString()} · {report.timezone}
               </p>
             </div>
             <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-4">
-              <div><p className="text-muted-foreground text-xs">Total</p><p className="text-xl font-semibold">{formatDuration(report.totalSeconds)}</p></div>
+              <div>
+                <p className="text-muted-foreground text-xs">Total</p>
+                <p className="text-xl font-semibold">{formatDuration(report.totalSeconds)}</p>
+                {comparison && (
+                  <p className="text-muted-foreground text-xs">
+                    {comparison.diff === 0
+                      ? "Same as previous week"
+                      : `${comparison.diff > 0 ? "+" : "−"}${formatDuration(Math.abs(comparison.diff))}${comparison.percent === null ? "" : ` (${comparison.diff > 0 ? "+" : ""}${comparison.percent}%)`} vs previous week`}
+                  </p>
+                )}
+              </div>
               <div><p className="text-muted-foreground text-xs">Active days</p><p className="text-xl font-semibold">{report.activeDays}</p></div>
               <div><p className="text-muted-foreground text-xs">Median session</p><p className="text-xl font-semibold">{report.medianSeconds === null ? "—" : formatDuration(report.medianSeconds)}</p></div>
               <div><p className="text-muted-foreground text-xs">Sessions</p><p className="text-xl font-semibold">{report.sessionCount}</p></div>
