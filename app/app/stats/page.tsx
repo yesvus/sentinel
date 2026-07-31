@@ -143,12 +143,12 @@ export default function StatsPage() {
 
   const heatmapDays = buildLastNDays(totalsByDay, DAYS);
   const weeks = buildHeatmapWeeks(heatmapDays);
-  const recentDays = buildLastNDays(totalsByDay, 7);
   const toAllocationPoints = (days: Day[]) => days.map((day) => {
     const allocation = allocationByDay.get(day.key) ?? {
       learning: 0, producing: 0, unclassified: 0, total: 0,
     };
     return {
+      key: day.key,
       date: day.date.toLocaleDateString(undefined, { month: "long", day: "numeric", year: "numeric" }),
       label: day.date.toLocaleDateString(undefined, { weekday: "short" }),
       learning: allocation.learning,
@@ -156,7 +156,7 @@ export default function StatsPage() {
       total: allocation.total,
     };
   });
-  const allocationPoints = toAllocationPoints(recentDays);
+  const allocationPoints = toAllocationPoints(heatmapDays);
 
   if (loading) {
     return (
@@ -273,7 +273,7 @@ export default function StatsPage() {
 
       <LearningProducingChart
         points={allocationPoints}
-        rangeLabel="the last seven days"
+        now={now}
       />
       <WeeklyReportHistory />
 

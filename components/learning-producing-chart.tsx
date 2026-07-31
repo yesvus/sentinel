@@ -2,6 +2,7 @@
 
 import { useState } from "react";
 import { Bar, BarChart, CartesianGrid, XAxis, YAxis } from "recharts";
+import { ChevronLeft, ChevronRight } from "lucide-react";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import {
   ChartConfig,
@@ -11,10 +12,11 @@ import {
   ChartTooltip,
   ChartTooltipContent,
 } from "@/components/ui/chart";
-import { formatDuration } from "@/lib/date";
+import { addDays, dayKey, formatDuration, formatWeekRangeLabel, startOfWeek, weekKey } from "@/lib/date";
 import { Button } from "@/components/ui/button";
 
 export type AllocationPoint = {
+  key: string;
   date: string;
   label: string;
   learning: number;
@@ -31,26 +33,66 @@ const config = {
 
 export function LearningProducingChart({
   points,
-  rangeLabel = "the selected range",
+  now,
 }: {
   points: AllocationPoint[];
-  rangeLabel?: string;
+  now: number;
 }) {
   const [mode, setMode] = useState<"duration" | "percentage">("duration");
-  const data = points.map((point) => ({
+  const currentWeekStart = startOfWeek(new Date(now));
+  const [selectedWeekStart, setSelectedWeekStart] = useState(currentWeekStart);
+  const pointsByDay = new Map(points.map((point) => [point.key, point]));
+  const selectedPoints = Array.from({ length: 7 }, (_, index) => {
+    const date = addDays(selectedWeekStart, index);
+    const key = dayKey(date);
+    return pointsByDay.get(key) ?? {
+      key,
+      date: date.toLocaleDateString(undefined, { month: "long", day: "numeric", year: "numeric" }),
+      label: date.toLocaleDateString(undefined, { weekday: "short" }),
+      learning: 0,
+      producing: 0,
+      total: 0,
+    };
+  });
+  const isCurrentWeek = weekKey(selectedWeekStart) === weekKey(currentWeekStart);
+  const data = selectedPoints.map((point) => ({
     ...point,
     learningPercent: point.total ? Math.round(point.learning / point.total * 100) : 0,
     producingPercent: point.total ? Math.round(point.producing / point.total * 100) : 0,
   }));
   return (
     <Card>
-      <CardHeader>
+      <CardHeader className="flex flex-wrap items-center justify-between gap-2">
         <CardTitle>Learning and Producing</CardTitle>
+        <div className="flex items-center gap-1">
+          <Button
+            variant="ghost"
+            size="icon-sm"
+            className="text-muted-foreground"
+            onClick={() => setSelectedWeekStart((date) => addDays(date, -7))}
+            aria-label="Previous week"
+          >
+            <ChevronLeft />
+          </Button>
+          <span className="text-muted-foreground min-w-32 text-center text-sm whitespace-nowrap">
+            {formatWeekRangeLabel(selectedWeekStart)}
+          </span>
+          <Button
+            variant="ghost"
+            size="icon-sm"
+            className="text-muted-foreground"
+            disabled={isCurrentWeek}
+            onClick={() => setSelectedWeekStart((date) => addDays(date, 7))}
+            aria-label="Next week"
+          >
+            <ChevronRight />
+          </Button>
+        </div>
       </CardHeader>
       <CardContent className="space-y-4">
         <div className="flex flex-wrap items-center justify-between gap-3">
           <p className="text-muted-foreground text-sm">
-            Your session allocation over {rangeLabel}. Sessions without a selection count as Learning.
+            Your session allocation for the selected week. Sessions without a selection count as Learning.
           </p>
           <div className="flex gap-1" aria-label="Chart mode">
             <Button size="sm" variant={mode === "duration" ? "default" : "outline"} onClick={() => setMode("duration")}>Duration</Button>
@@ -107,7 +149,7 @@ export function LearningProducingChart({
                 </tr>
               </thead>
               <tbody>
-                {points.map((point) => (
+                {selectedPoints.map((point) => (
                   <tr key={point.date} className="border-b last:border-0">
                     <td className="py-2">{point.date}</td>
                     <td>{formatDuration(point.learning)}</td>
