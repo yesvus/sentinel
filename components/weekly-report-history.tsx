@@ -1,7 +1,8 @@
 "use client";
 
 import { useEffect, useState } from "react";
-import { CalendarRange } from "lucide-react";
+import { CalendarRange, ChevronLeft, ChevronRight } from "lucide-react";
+import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { reports, WeeklyReport } from "@/lib/api";
 import { formatDuration } from "@/lib/date";
@@ -24,17 +25,32 @@ export function WeeklyReportHistory() {
           <CalendarRange className="text-muted-foreground size-4" />
           Weekly reports
         </CardTitle>
-        {items.length > 0 && (
-          <select
-            value={selected}
-            onChange={(event) => setSelected(Number(event.target.value))}
-            aria-label="Choose weekly report"
-            className="border-input bg-background h-9 rounded-md border px-3 text-sm print:hidden"
-          >
-            {items.map((item, index) => (
-              <option key={item.weekStart} value={index}>{item.weekStart} – {item.weekEnd}</option>
-            ))}
-          </select>
+        {report && (
+          <div className="flex items-center gap-1 print:hidden">
+            <Button
+              variant="ghost"
+              size="icon-sm"
+              className="text-muted-foreground"
+              disabled={selected >= items.length - 1}
+              onClick={() => setSelected((index) => index + 1)}
+              aria-label="Older weekly report"
+            >
+              <ChevronLeft />
+            </Button>
+            <span className="text-muted-foreground min-w-32 text-center text-sm whitespace-nowrap">
+              {report.weekStart} – {report.weekEnd}
+            </span>
+            <Button
+              variant="ghost"
+              size="icon-sm"
+              className="text-muted-foreground"
+              disabled={selected === 0}
+              onClick={() => setSelected((index) => index - 1)}
+              aria-label="Newer weekly report"
+            >
+              <ChevronRight />
+            </Button>
+          </div>
         )}
       </CardHeader>
       <CardContent>

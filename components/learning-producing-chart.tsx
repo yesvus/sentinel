@@ -31,18 +31,13 @@ const config = {
 
 export function LearningProducingChart({
   points,
-  thisWeekPoints,
   rangeLabel = "the selected range",
 }: {
   points: AllocationPoint[];
-  thisWeekPoints?: AllocationPoint[];
   rangeLabel?: string;
 }) {
   const [mode, setMode] = useState<"duration" | "percentage">("duration");
-  const [range, setRange] = useState<"sevenDays" | "thisWeek">("sevenDays");
-  const visiblePoints = range === "thisWeek" && thisWeekPoints ? thisWeekPoints : points;
-  const visibleRangeLabel = range === "thisWeek" ? "this week" : rangeLabel;
-  const data = visiblePoints.map((point) => ({
+  const data = points.map((point) => ({
     ...point,
     learningPercent: point.total ? Math.round(point.learning / point.total * 100) : 0,
     producingPercent: point.total ? Math.round(point.producing / point.total * 100) : 0,
@@ -55,19 +50,11 @@ export function LearningProducingChart({
       <CardContent className="space-y-4">
         <div className="flex flex-wrap items-center justify-between gap-3">
           <p className="text-muted-foreground text-sm">
-            Your session allocation over {visibleRangeLabel}. Sessions without a selection count as Learning.
+            Your session allocation over {rangeLabel}. Sessions without a selection count as Learning.
           </p>
-          <div className="flex flex-wrap gap-3">
-            {thisWeekPoints && (
-              <div className="flex gap-1" aria-label="Chart period">
-                <Button size="sm" variant={range === "sevenDays" ? "default" : "outline"} onClick={() => setRange("sevenDays")}>Last 7 days</Button>
-                <Button size="sm" variant={range === "thisWeek" ? "default" : "outline"} onClick={() => setRange("thisWeek")}>This week</Button>
-              </div>
-            )}
-            <div className="flex gap-1" aria-label="Chart mode">
-              <Button size="sm" variant={mode === "duration" ? "default" : "outline"} onClick={() => setMode("duration")}>Duration</Button>
-              <Button size="sm" variant={mode === "percentage" ? "default" : "outline"} onClick={() => setMode("percentage")}>Percentage</Button>
-            </div>
+          <div className="flex gap-1" aria-label="Chart mode">
+            <Button size="sm" variant={mode === "duration" ? "default" : "outline"} onClick={() => setMode("duration")}>Duration</Button>
+            <Button size="sm" variant={mode === "percentage" ? "default" : "outline"} onClick={() => setMode("percentage")}>Percentage</Button>
           </div>
         </div>
         <ChartContainer
@@ -120,7 +107,7 @@ export function LearningProducingChart({
                 </tr>
               </thead>
               <tbody>
-                {visiblePoints.map((point) => (
+                {points.map((point) => (
                   <tr key={point.date} className="border-b last:border-0">
                     <td className="py-2">{point.date}</td>
                     <td>{formatDuration(point.learning)}</td>

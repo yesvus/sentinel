@@ -5,14 +5,7 @@ import { Card, CardHeader, CardTitle, CardContent } from "@/components/ui/card";
 import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip";
 import { StudySession, Note } from "@/lib/api";
 import { NoteEditor } from "@/components/note-editor";
-import {
-  activityStreak,
-  dailyAllocationTotals,
-  dailyTotals,
-  medianCompletedSessionSeconds,
-  projectTotals,
-  NO_PROJECT_LABEL,
-} from "@/lib/session-stats";
+import { dailyAllocationTotals, dailyTotals, projectTotals, NO_PROJECT_LABEL } from "@/lib/session-stats";
 import {
   dayKey,
   addDays,
@@ -81,15 +74,7 @@ export function ReportCards({
 
   const weekSessions = sessionList.filter((s) => weekKey(new Date(s.started_at)) === currentWeekKey);
   const topWeekProject = projectTotals(weekSessions, now).filter((p) => p.name !== NO_PROJECT_LABEL)[0] ?? null;
-
-  const todayNote = notes.find((n) => n.scope === "day" && n.date_key === todayKey);
-  const weekNote = notes.find((n) => n.scope === "week" && n.date_key === currentWeekKey);
-  const previousWeekKey = weekKey(previousWeekStart);
-  const previousWeekSessions = sessionList.filter(
-    (session) => weekKey(new Date(session.started_at)) === previousWeekKey,
-  );
-  const previousMedian = medianCompletedSessionSeconds(previousWeekSessions);
-  const previousAllocation = Array.from(dailyAllocationTotals(previousWeekSessions, now).values())
+  const weekAllocation = Array.from(dailyAllocationTotals(weekSessions, now).values())
     .reduce(
       (total, day) => ({
         learning: total.learning + day.learning,
@@ -98,11 +83,15 @@ export function ReportCards({
       }),
       { learning: 0, producing: 0, total: 0 },
     );
-  const previousActiveDays = new Set(previousWeekSessions.filter((session) => session.ended_at).map(
-    (session) => dayKey(new Date(session.started_at)),
-  )).size;
-  const previousTopProject = projectTotals(previousWeekSessions, now)[0] ?? null;
-  const streak = activityStreak(sessionList, today);
+  const learningPercent = weekAllocation.total
+    ? Math.round(weekAllocation.learning / weekAllocation.total * 100)
+    : 0;
+  const producingPercent = weekAllocation.total
+    ? Math.round(weekAllocation.producing / weekAllocation.total * 100)
+    : 0;
+
+  const todayNote = notes.find((n) => n.scope === "day" && n.date_key === todayKey);
+  const weekNote = notes.find((n) => n.scope === "week" && n.date_key === currentWeekKey);
 
   return (
     <div className="grid gap-8 md:grid-cols-2">
@@ -178,6 +167,17 @@ export function ReportCards({
             })}
           </div>
 
+          <div className="space-y-2">
+            <div className="flex justify-between gap-3 text-xs">
+              <span>Learning {learningPercent}% · {formatDuration(weekAllocation.learning)}</span>
+              <span>Producing {producingPercent}% · {formatDuration(weekAllocation.producing)}</span>
+            </div>
+            <div className="bg-muted flex h-3 overflow-hidden rounded-full" role="img" aria-label="This week Learning and Producing allocation">
+              <span style={{ width: `${learningPercent}%`, backgroundColor: "#0e7490" }} />
+              <span style={{ width: `${producingPercent}%`, backgroundColor: "#f59e0b" }} />
+            </div>
+          </div>
+
           <NoteEditor
             scope="week"
             dateKey={currentWeekKey}
@@ -189,43 +189,6 @@ export function ReportCards({
         </CardContent>
       </Card>
 
-      <Card className="md:col-span-2">
-        <CardHeader>
-          <CardTitle>Last week’s report</CardTitle>
-        </CardHeader>
-        <CardContent className="space-y-4">
-          <p className="text-muted-foreground text-sm">{formatWeekRangeLabel(previousWeekStart)}</p>
-          {previousWeekSessions.length === 0 ? (
-            <p className="text-muted-foreground text-sm">
-              No completed activity was recorded. A fresh week is ready when you are.
-            </p>
-          ) : (
-            <>
-              <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-4">
-                <div><p className="text-muted-foreground text-xs">Total</p><p className="text-xl font-semibold">{formatDuration(previousWeekSeconds)}</p></div>
-                <div><p className="text-muted-foreground text-xs">Active days</p><p className="text-xl font-semibold">{previousActiveDays}</p></div>
-                <div><p className="text-muted-foreground text-xs">Median session</p><p className="text-xl font-semibold">{previousMedian === null ? "—" : formatDuration(previousMedian)}</p></div>
-                <div><p className="text-muted-foreground text-xs">Current streak</p><p className="text-xl font-semibold">{streak} day{streak === 1 ? "" : "s"}</p></div>
-              </div>
-              <div className="space-y-2">
-                <div className="flex justify-between text-xs">
-                  <span>Learning {previousAllocation.total ? Math.round(previousAllocation.learning / previousAllocation.total * 100) : 0}%</span>
-                  <span>Producing {previousAllocation.total ? Math.round(previousAllocation.producing / previousAllocation.total * 100) : 0}%</span>
-                </div>
-                <div className="bg-muted flex h-3 overflow-hidden rounded-full" aria-label="Last week Learning and Producing allocation">
-                  <span style={{ width: `${previousAllocation.total ? previousAllocation.learning / previousAllocation.total * 100 : 0}%`, backgroundColor: "#0e7490" }} />
-                  <span style={{ width: `${previousAllocation.total ? previousAllocation.producing / previousAllocation.total * 100 : 0}%`, backgroundColor: "#f59e0b" }} />
-                </div>
-              </div>
-              <p className="text-muted-foreground text-sm">
-                {previousTopProject
-                  ? `Most tracked time belonged to ${previousTopProject.name}.`
-                  : `You were active on ${previousActiveDays} day${previousActiveDays === 1 ? "" : "s"}.`}
-              </p>
-            </>
-          )}
-        </CardContent>
-      </Card>
     </div>
   );
 }
