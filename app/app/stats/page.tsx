@@ -144,7 +144,10 @@ export default function StatsPage() {
   const heatmapDays = buildLastNDays(totalsByDay, DAYS);
   const weeks = buildHeatmapWeeks(heatmapDays);
   const recentDays = buildLastNDays(totalsByDay, 7);
-  const allocationPoints = recentDays.map((day) => {
+  const today = new Date();
+  const daysSinceMonday = (today.getDay() + 6) % 7;
+  const thisWeekDays = recentDays.slice(6 - daysSinceMonday);
+  const toAllocationPoints = (days: Day[]) => days.map((day) => {
     const allocation = allocationByDay.get(day.key) ?? {
       learning: 0, producing: 0, unclassified: 0, total: 0,
     };
@@ -156,6 +159,8 @@ export default function StatsPage() {
       total: allocation.total,
     };
   });
+  const allocationPoints = toAllocationPoints(recentDays);
+  const thisWeekAllocationPoints = toAllocationPoints(thisWeekDays);
 
   if (loading) {
     return (
@@ -272,6 +277,7 @@ export default function StatsPage() {
 
       <LearningProducingChart
         points={allocationPoints}
+        thisWeekPoints={thisWeekAllocationPoints}
         rangeLabel="the last seven days"
       />
       <WeeklyReportHistory />
