@@ -1,4 +1,5 @@
 import bcrypt from "bcrypt";
+import { createHash } from "node:crypto";
 import { NextRequest, NextResponse } from "next/server";
 import { db, ensureDb } from "@/lib/server/db";
 import {
@@ -18,28 +19,67 @@ const noContent = () => new NextResponse(null, { status: 204 });
 const error = (message: string, status = 400) => NextResponse.json({ error: message }, { status });
 const body = (request: NextRequest) => request.json().catch(() => ({}));
 const FOCUS_AUDIO_TYPES = new Set(["white", "pink", "brown", "speech-blocker", "binaural-40hz"]);
-const authAttempts = new Map<string, { count: number; resetAt: number }>();
+const AVATAR_TYPES = new Set(["cat", "dog", "bird", "fish", "rabbit", "rocket", "star", "ghost", "bot", "coffee", "gamepad", "sparkles"]);
+const PROJECT_ICON_TYPES = new Set(["book", "code", "calculator", "flask", "music", "dumbbell", "globe", "pen", "briefcase", "palette", "languages", "atom"]);
+const MAX_BODY_BYTES = 64 * 1024;
+const MAX_EMAIL_LENGTH = 254;
+const MAX_PASSWORD_LENGTH = 128;
+const MAX_NAME_LENGTH = 100;
+const MAX_DESCRIPTION_LENGTH = 4_000;
+const MAX_NOTE_LENGTH = 10_000;
 
-function authAttemptKey(request: NextRequest, email: string) {
+function clientAddress(request: NextRequest) {
   const forwarded = request.headers.get("x-forwarded-for")?.split(",")[0]?.trim();
-  return `${forwarded || "local"}:${email}`;
+  return forwarded || request.headers.get("x-real-ip") || "local";
 }
 
-function authRateLimited(key: string) {
-  const attempt = authAttempts.get(key);
-  if (!attempt || attempt.resetAt <= Date.now()) {
-    authAttempts.delete(key);
-    return false;
-  }
-  return attempt.count >= 5;
+function rateLimitKey(scope: string, value: string) {
+  return createHash("sha256").update(`${scope}:${value}`).digest("hex");
 }
 
-function recordAuthFailure(key: string) {
-  const current = authAttempts.get(key);
-  authAttempts.set(key, {
-    count: current && current.resetAt > Date.now() ? current.count + 1 : 1,
-    resetAt: Date.now() + 15 * 60_000,
+async function rateLimited(key: string, maximum: number) {
+  await db.execute("DELETE FROM auth_rate_limits WHERE reset_at <= datetime('now')");
+  const result = await db.execute({
+    sql: "SELECT attempts FROM auth_rate_limits WHERE key_hash = ? AND reset_at > datetime('now')",
+    args: [key],
   });
+  return Number(result.rows[0]?.attempts ?? 0) >= maximum;
+}
+
+async function recordRateLimitAttempt(key: string) {
+  await db.execute({
+    sql: `INSERT INTO auth_rate_limits (key_hash, attempts, reset_at)
+          VALUES (?, 1, datetime('now', '+15 minutes'))
+          ON CONFLICT (key_hash) DO UPDATE SET
+            attempts = CASE WHEN reset_at <= datetime('now') THEN 1 ELSE attempts + 1 END,
+            reset_at = CASE WHEN reset_at <= datetime('now') THEN datetime('now', '+15 minutes') ELSE reset_at END`,
+    args: [key],
+  });
+}
+
+async function clearRateLimit(key: string) {
+  await db.execute({ sql: "DELETE FROM auth_rate_limits WHERE key_hash = ?", args: [key] });
+}
+
+function validEmail(email: string) {
+  return email.length <= MAX_EMAIL_LENGTH && /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email);
+}
+
+function optionalTextError(value: unknown, label: string, maximum: number) {
+  if (value === undefined || value === null) return null;
+  if (typeof value !== "string") return error(`${label} must be text`);
+  return value.length > maximum ? error(`${label} must be at most ${maximum} characters`) : null;
+}
+
+async function projectIdError(userId: number, value: unknown) {
+  if (value === undefined || value === null) return null;
+  const projectId = Number(value);
+  if (!Number.isInteger(projectId) || projectId < 1) return error("Invalid project");
+  const project = await db.execute({
+    sql: "SELECT 1 FROM projects WHERE id = ? AND user_id = ?",
+    args: [projectId, userId],
+  });
+  return project.rows.length ? null : error("Project not found", 404);
 }
 
 function validProductionPercentage(value: unknown): value is number | null {
@@ -85,9 +125,9 @@ async function activeSession(userId: number) {
              COALESCE(grandparent.id, parent.id, projects.id) AS root_project_id,
              COALESCE(grandparent.name, parent.name, projects.name) AS root_project_name,
              COALESCE(grandparent.icon, parent.icon, projects.icon) AS root_project_icon
-      FROM sessions LEFT JOIN projects ON projects.id = sessions.project_id
-      LEFT JOIN projects parent ON parent.id = projects.parent_id
-      LEFT JOIN projects grandparent ON grandparent.id = parent.parent_id
+      FROM sessions LEFT JOIN projects ON projects.id = sessions.project_id AND projects.user_id = sessions.user_id
+      LEFT JOIN projects parent ON parent.id = projects.parent_id AND parent.user_id = sessions.user_id
+      LEFT JOIN projects grandparent ON grandparent.id = parent.parent_id AND grandparent.user_id = sessions.user_id
       WHERE sessions.user_id = ? AND sessions.ended_at IS NULL
     `,
     args: [userId],
@@ -107,9 +147,12 @@ async function authRoutes(request: NextRequest, parts: string[]) {
     const data = await body(request);
     const email = typeof data.email === "string" ? data.email.trim().toLowerCase() : "";
     const password = data.password;
-    if (!email || typeof password !== "string" || password.length < 8) {
-      return error("Email and a password of at least 8 characters are required");
+    if (!validEmail(email) || typeof password !== "string" || password.length < 8 || password.length > MAX_PASSWORD_LENGTH) {
+      return error("A valid email and a password of 8 to 128 characters are required");
     }
+    const attemptKey = rateLimitKey("register", clientAddress(request));
+    if (await rateLimited(attemptKey, 10)) return error("Too many registrations. Try again later.", 429);
+    await recordRateLimitAttempt(attemptKey);
     const existing = await db.execute({ sql: "SELECT id FROM users WHERE lower(email) = ?", args: [email] });
     if (existing.rows.length) return error("Email already registered", 409);
     const passwordHash = await bcrypt.hash(password, 10);
@@ -130,18 +173,19 @@ async function authRoutes(request: NextRequest, parts: string[]) {
     const data = await body(request);
     if (typeof data.email !== "string" || typeof data.password !== "string") return error("Email and password are required");
     const email = data.email.trim().toLowerCase();
-    const attemptKey = authAttemptKey(request, email);
-    if (authRateLimited(attemptKey)) return error("Too many sign-in attempts. Try again later.", 429);
+    if (!validEmail(email) || data.password.length > MAX_PASSWORD_LENGTH) return error("Invalid email or password", 401);
+    const attemptKey = rateLimitKey("login", `${clientAddress(request)}:${email}`);
+    if (await rateLimited(attemptKey, 5)) return error("Too many sign-in attempts. Try again later.", 429);
     const result = await db.execute({
       sql: "SELECT id, email, password_hash, name, avatar, share_session_descriptions, auto_start_noise, focus_audio_type, default_session_type FROM users WHERE lower(email) = ?",
       args: [email],
     });
     const user = result.rows[0];
     if (!user || !(await bcrypt.compare(data.password, user.password_hash as string))) {
-      recordAuthFailure(attemptKey);
+      await recordRateLimitAttempt(attemptKey);
       return error("Invalid email or password", 401);
     }
-    authAttempts.delete(attemptKey);
+    await clearRateLimit(attemptKey);
     const response = NextResponse.json({
       id: Number(user.id), email: user.email, name: user.name, avatar: user.avatar,
       shareSessionDescriptions: Boolean(user.share_session_descriptions),
@@ -178,6 +222,11 @@ async function authRoutes(request: NextRequest, parts: string[]) {
   }
   if (action === "me" && request.method === "PATCH") {
     const data = await body(request);
+    const nameError = optionalTextError(data.name, "Name", MAX_NAME_LENGTH);
+    if (nameError) return nameError;
+    if (data.avatar !== undefined && data.avatar !== null && !AVATAR_TYPES.has(data.avatar)) {
+      return error("Invalid avatar");
+    }
     await db.execute({
       sql: "UPDATE users SET name = ?, avatar = ? WHERE id = ?",
       args: [data.name ?? null, data.avatar ?? null, userId],
@@ -237,8 +286,10 @@ async function authRoutes(request: NextRequest, parts: string[]) {
   }
   if (action === "change-password" && request.method === "POST") {
     const data = await body(request);
-    if (typeof data.currentPassword !== "string" || typeof data.newPassword !== "string" || data.newPassword.length < 8) {
-      return error("Current password and a new password of at least 8 characters are required");
+    if (typeof data.currentPassword !== "string" || typeof data.newPassword !== "string" ||
+        data.newPassword.length < 8 || data.newPassword.length > MAX_PASSWORD_LENGTH ||
+        data.currentPassword.length > MAX_PASSWORD_LENGTH) {
+      return error("Current password and a new password of 8 to 128 characters are required");
     }
     const result = await db.execute({ sql: "SELECT password_hash FROM users WHERE id = ?", args: [userId] });
     if (!result.rows[0] || !(await bcrypt.compare(data.currentPassword, result.rows[0].password_hash as string))) {
@@ -261,11 +312,15 @@ async function sessionRoutes(request: NextRequest, parts: string[], userId: numb
   if (action === "active" && request.method === "GET") return NextResponse.json(await activeSession(userId));
   if (action === "start" && request.method === "POST") {
     const data = await body(request);
+    const descriptionError = optionalTextError(data.description, "Description", MAX_DESCRIPTION_LENGTH);
+    if (descriptionError) return descriptionError;
+    const invalidProject = await projectIdError(userId, data.projectId);
+    if (invalidProject) return invalidProject;
     const startedAt = new Date().toISOString();
     try {
       const result = await db.execute({
         sql: "INSERT INTO sessions (user_id, started_at, description, project_id) VALUES (?, ?, ?, ?)",
-        args: [userId, startedAt, data.description ?? null, data.projectId ?? null],
+        args: [userId, startedAt, data.description ?? null, data.projectId == null ? null : Number(data.projectId)],
       });
       return NextResponse.json({ id: Number(result.lastInsertRowid), startedAt }, { status: 201 });
     } catch (caught) {
@@ -307,9 +362,9 @@ async function sessionRoutes(request: NextRequest, parts: string[], userId: numb
                COALESCE(grandparent.id, parent.id, projects.id) AS root_project_id,
                COALESCE(grandparent.name, parent.name, projects.name) AS root_project_name,
                COALESCE(grandparent.icon, parent.icon, projects.icon) AS root_project_icon
-        FROM sessions LEFT JOIN projects ON projects.id = sessions.project_id
-        LEFT JOIN projects parent ON parent.id = projects.parent_id
-        LEFT JOIN projects grandparent ON grandparent.id = parent.parent_id
+        FROM sessions LEFT JOIN projects ON projects.id = sessions.project_id AND projects.user_id = sessions.user_id
+        LEFT JOIN projects parent ON parent.id = projects.parent_id AND parent.user_id = sessions.user_id
+        LEFT JOIN projects grandparent ON grandparent.id = parent.parent_id AND grandparent.user_id = sessions.user_id
         WHERE sessions.user_id = ? ${rangeClause} ${cursorClause}
         ORDER BY sessions.started_at DESC, sessions.id DESC
         ${limit !== null ? "LIMIT ?" : ""}
@@ -334,6 +389,10 @@ async function sessionRoutes(request: NextRequest, parts: string[], userId: numb
     const data = await body(request);
     const allocationError = productionPercentageError(data.productionPercentage);
     if (allocationError) return allocationError;
+    const descriptionError = optionalTextError(data.description, "Description", MAX_DESCRIPTION_LENGTH);
+    if (descriptionError) return descriptionError;
+    const invalidProject = await projectIdError(userId, data.projectId);
+    if (invalidProject) return invalidProject;
     if (typeof data.startedAt !== "string" || typeof data.endedAt !== "string") return error("startedAt and endedAt are required");
     const start = new Date(data.startedAt);
     const end = new Date(data.endedAt);
@@ -342,7 +401,8 @@ async function sessionRoutes(request: NextRequest, parts: string[], userId: numb
     const durationSeconds = Math.round((end.getTime() - start.getTime()) / 1000);
     const result = await db.execute({
       sql: "INSERT INTO sessions (user_id, started_at, ended_at, duration_seconds, description, project_id, production_percentage) VALUES (?, ?, ?, ?, ?, ?, ?)",
-      args: [userId, start.toISOString(), end.toISOString(), durationSeconds, data.description ?? null, data.projectId ?? null, data.productionPercentage ?? null],
+      args: [userId, start.toISOString(), end.toISOString(), durationSeconds, data.description ?? null,
+        data.projectId == null ? null : Number(data.projectId), data.productionPercentage ?? null],
     });
     return NextResponse.json({
       id: Number(result.lastInsertRowid), startedAt: start.toISOString(), endedAt: end.toISOString(), durationSeconds,
@@ -356,6 +416,8 @@ async function sessionRoutes(request: NextRequest, parts: string[], userId: numb
     const data = await body(request);
     const allocationError = productionPercentageError(data.productionPercentage);
     if (allocationError) return allocationError;
+    const descriptionError = optionalTextError(data.description, "Description", MAX_DESCRIPTION_LENGTH);
+    if (descriptionError) return descriptionError;
     const existing = await db.execute({
       sql: "SELECT started_at, description FROM sessions WHERE id = ? AND user_id = ?",
       args: [id, userId],
@@ -385,6 +447,10 @@ async function sessionRoutes(request: NextRequest, parts: string[], userId: numb
     const data = await body(request);
     const allocationError = productionPercentageError(data.productionPercentage);
     if (allocationError) return allocationError;
+    const descriptionError = optionalTextError(data.description, "Description", MAX_DESCRIPTION_LENGTH);
+    if (descriptionError) return descriptionError;
+    const invalidProject = await projectIdError(userId, data.projectId);
+    if (invalidProject) return invalidProject;
     const existing = await db.execute({
       sql: "SELECT started_at, ended_at, description, project_id, production_percentage FROM sessions WHERE id = ? AND user_id = ?",
       args: [id, userId],
@@ -399,7 +465,9 @@ async function sessionRoutes(request: NextRequest, parts: string[], userId: numb
     if (end && end <= start) return error("endedAt must be after startedAt");
     const durationSeconds = end ? Math.round((end.getTime() - start.getTime()) / 1000) : null;
     const description = data.description !== undefined ? data.description : session.description;
-    const projectId = data.projectId !== undefined ? data.projectId : session.project_id;
+    const projectId = data.projectId !== undefined
+      ? (data.projectId === null ? null : Number(data.projectId))
+      : session.project_id;
     const productionPercentage = data.productionPercentage !== undefined
       ? data.productionPercentage
       : session.production_percentage;
@@ -495,6 +563,11 @@ async function projectRoutes(request: NextRequest, parts: string[], userId: numb
   if (id === null && request.method === "POST") {
     const data = await body(request);
     if (typeof data.name !== "string" || !data.name.trim()) return error("Name is required");
+    if (data.name.trim().length > MAX_NAME_LENGTH) return error(`Name must be at most ${MAX_NAME_LENGTH} characters`);
+    const descriptionError = optionalTextError(data.description, "Description", MAX_DESCRIPTION_LENGTH);
+    if (descriptionError) return descriptionError;
+    if (data.icon !== undefined && data.icon !== null && !PROJECT_ICON_TYPES.has(data.icon)) return error("Invalid project icon");
+    if (data.pinned !== undefined && typeof data.pinned !== "boolean") return error("pinned must be a boolean");
     const parentId = data.parentId == null ? null : Number(data.parentId);
     const rows = await userProjects(userId);
     const parentError = validateProjectParent(rows, null, parentId);
@@ -523,6 +596,12 @@ async function projectRoutes(request: NextRequest, parts: string[], userId: numb
     if (parentError) return error(parentError);
     const name = data.name !== undefined ? (typeof data.name === "string" ? data.name.trim() : "") : existing.name;
     if (!name) return error("Name is required");
+    if (name.length > MAX_NAME_LENGTH) return error(`Name must be at most ${MAX_NAME_LENGTH} characters`);
+    const descriptionError = optionalTextError(data.description, "Description", MAX_DESCRIPTION_LENGTH);
+    if (descriptionError) return descriptionError;
+    if (data.icon !== undefined && data.icon !== null && !PROJECT_ICON_TYPES.has(data.icon)) return error("Invalid project icon");
+    if (data.pinned !== undefined && typeof data.pinned !== "boolean") return error("pinned must be a boolean");
+    if (data.archived !== undefined && typeof data.archived !== "boolean") return error("archived must be a boolean");
     if (rows.some((row) => row.id !== id && row.parent_id === parentId && row.name.toLowerCase() === name.toLowerCase())) {
       return error("A project with this name already exists under that parent", 409);
     }
@@ -592,6 +671,7 @@ async function noteRoutes(request: NextRequest, parts: string[], userId: number)
   if (request.method === "PUT") {
     const data = await body(request);
     if (typeof data.content !== "string") return error("content is required");
+    if (data.content.length > MAX_NOTE_LENGTH) return error(`content must be at most ${MAX_NOTE_LENGTH} characters`);
     const content = data.content.trim();
     if (!content) {
       await db.execute({
@@ -643,7 +723,10 @@ async function socialRoutes(request: NextRequest, parts: string[], userId: numbe
   if (section === "requests" && id === null && request.method === "POST") {
     const data = await body(request);
     const email = typeof data.email === "string" ? data.email.trim().toLowerCase() : "";
-    if (!email) return error("Email is required");
+    if (!validEmail(email)) return error("A valid email is required");
+    const attemptKey = rateLimitKey("friend-request", `${clientAddress(request)}:${userId}`);
+    if (await rateLimited(attemptKey, 20)) return error("Too many friend requests. Try again later.", 429);
+    await recordRateLimitAttempt(attemptKey);
     const found = await db.execute({
       sql: "SELECT id, name, email, avatar FROM users WHERE lower(email) = ?",
       args: [email],
@@ -710,7 +793,8 @@ async function socialRoutes(request: NextRequest, parts: string[], userId: numbe
                    u.name AS user_name, u.email AS user_email, u.avatar AS user_avatar
             FROM friendships f
             JOIN users u ON u.id = CASE WHEN f.requester_id = ? THEN f.addressee_id ELSE f.requester_id END
-            JOIN sessions s ON s.user_id = u.id LEFT JOIN projects p ON p.id = s.project_id
+            JOIN sessions s ON s.user_id = u.id
+            LEFT JOIN projects p ON p.id = s.project_id AND p.user_id = s.user_id
             WHERE f.status = 'accepted' AND (f.requester_id = ? OR f.addressee_id = ?)
             ORDER BY (s.ended_at IS NULL) DESC, s.started_at DESC LIMIT 100`,
       args: [userId, userId, userId],
@@ -752,9 +836,9 @@ async function reportRoutes(request: NextRequest, parts: string[], userId: numbe
     sql: `SELECT s.started_at, s.duration_seconds, s.production_percentage,
                  COALESCE(grandparent.name, parent.name, project.name) AS root_project_name
           FROM sessions s
-          LEFT JOIN projects project ON project.id = s.project_id
-          LEFT JOIN projects parent ON parent.id = project.parent_id
-          LEFT JOIN projects grandparent ON grandparent.id = parent.parent_id
+          LEFT JOIN projects project ON project.id = s.project_id AND project.user_id = s.user_id
+          LEFT JOIN projects parent ON parent.id = project.parent_id AND parent.user_id = s.user_id
+          LEFT JOIN projects grandparent ON grandparent.id = parent.parent_id AND grandparent.user_id = s.user_id
           WHERE s.user_id = ? AND s.ended_at IS NOT NULL`,
     args: [userId],
   });
@@ -835,9 +919,9 @@ async function calendarRoutes(request: NextRequest, parts: string[], userId: num
                    CASE WHEN grandparent.id IS NOT NULL THEN grandparent.name || ' / ' || parent.name || ' / ' || project.name
                         WHEN parent.id IS NOT NULL THEN parent.name || ' / ' || project.name ELSE project.name END AS project_path
             FROM sessions
-            LEFT JOIN projects project ON project.id = sessions.project_id
-            LEFT JOIN projects parent ON parent.id = project.parent_id
-            LEFT JOIN projects grandparent ON grandparent.id = parent.parent_id
+            LEFT JOIN projects project ON project.id = sessions.project_id AND project.user_id = sessions.user_id
+            LEFT JOIN projects parent ON parent.id = project.parent_id AND parent.user_id = sessions.user_id
+            LEFT JOIN projects grandparent ON grandparent.id = parent.parent_id AND grandparent.user_id = sessions.user_id
             WHERE sessions.user_id = ? AND sessions.ended_at IS NOT NULL
             ORDER BY sessions.started_at DESC LIMIT 1000`,
       args: [owner.rows[0].id],
@@ -882,6 +966,10 @@ async function calendarRoutes(request: NextRequest, parts: string[], userId: num
 
 async function handle(request: NextRequest, context: Context) {
   await ensureDb();
+  const contentLength = Number(request.headers.get("content-length") ?? 0);
+  if (Number.isFinite(contentLength) && contentLength > MAX_BODY_BYTES) {
+    return error("Request body is too large", 413);
+  }
   if (request.method !== "GET" && request.method !== "HEAD") {
     const origin = request.headers.get("origin");
     if (origin && origin !== request.nextUrl.origin) return error("Invalid request origin", 403);
