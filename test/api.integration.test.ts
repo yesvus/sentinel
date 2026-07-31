@@ -326,6 +326,53 @@ describe("Next API", () => {
     expect((await request("GET", "sessions/active", { cookie })).body.id).toBe(started.body.id);
   });
 
+  it("turns a completed session into the only ongoing session", async () => {
+    const cookie = await register("resume-completed@example.test");
+    const completed = await request("POST", "sessions", {
+      cookie,
+      body: {
+        startedAt: new Date(Date.now() - 60 * 60 * 1000).toISOString(),
+        endedAt: new Date(Date.now() - 30 * 60 * 1000).toISOString(),
+        productionPercentage: 70,
+      },
+    });
+
+    const updated = await request("PATCH", `sessions/${completed.body.id}`, {
+      cookie,
+      body: { endedAt: null, productionPercentage: null },
+    });
+
+    expect(updated.response.status).toBe(200);
+    expect(updated.body).toMatchObject({
+      id: completed.body.id,
+      endedAt: null,
+      durationSeconds: null,
+      productionPercentage: null,
+    });
+    expect((await request("GET", "sessions/active", { cookie })).body.id).toBe(completed.body.id);
+  });
+
+  it("rejects making a completed session ongoing when another is active", async () => {
+    const cookie = await register("duplicate-active-edit@example.test");
+    const completed = await request("POST", "sessions", {
+      cookie,
+      body: {
+        startedAt: new Date(Date.now() - 60 * 60 * 1000).toISOString(),
+        endedAt: new Date(Date.now() - 30 * 60 * 1000).toISOString(),
+      },
+    });
+    const active = await request("POST", "sessions/start", { cookie });
+
+    const updated = await request("PATCH", `sessions/${completed.body.id}`, {
+      cookie,
+      body: { endedAt: null },
+    });
+
+    expect(updated.response.status).toBe(409);
+    expect(updated.body.error).toBe("A session is already in progress");
+    expect(updated.body.session.id).toBe(active.body.id);
+  });
+
   it("paginates history with a stable cursor and no duplicates", async () => {
     const cookie = await register("pagination@example.test");
     const startedAt = "2026-07-30T08:00:00.000Z";

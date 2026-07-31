@@ -141,7 +141,7 @@ export const sessions = {
       projectId?: number | null;
       description?: string | null;
       startedAt?: string;
-      endedAt?: string;
+      endedAt?: string | null;
       productionPercentage?: number | null;
     }
   ) =>

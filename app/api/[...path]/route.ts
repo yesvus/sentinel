@@ -459,22 +459,35 @@ async function sessionRoutes(request: NextRequest, parts: string[], userId: numb
     if (!session) return error("Session not found", 404);
     const start = new Date(data.startedAt ?? session.started_at as string);
     const wasActive = session.ended_at === null;
-    const end = data.endedAt !== undefined ? new Date(data.endedAt) : wasActive ? null : new Date(session.ended_at as string);
+    const end = data.endedAt === null
+      ? null
+      : data.endedAt !== undefined
+        ? new Date(data.endedAt)
+        : wasActive
+          ? null
+          : new Date(session.ended_at as string);
     if (Number.isNaN(start.getTime()) || (end && Number.isNaN(end.getTime()))) return error("startedAt and endedAt must be valid dates");
-    if (wasActive && start.getTime() > Date.now()) return error("startedAt cannot be in the future");
+    if (end === null && start.getTime() > Date.now()) return error("startedAt cannot be in the future");
     if (end && end <= start) return error("endedAt must be after startedAt");
     const durationSeconds = end ? Math.round((end.getTime() - start.getTime()) / 1000) : null;
     const description = data.description !== undefined ? data.description : session.description;
     const projectId = data.projectId !== undefined
       ? (data.projectId === null ? null : Number(data.projectId))
       : session.project_id;
-    const productionPercentage = data.productionPercentage !== undefined
-      ? data.productionPercentage
-      : session.production_percentage;
-    await db.execute({
-      sql: "UPDATE sessions SET description = ?, project_id = ?, started_at = ?, ended_at = ?, duration_seconds = ?, production_percentage = ? WHERE id = ? AND user_id = ?",
-      args: [description ?? null, projectId ?? null, start.toISOString(), end?.toISOString() ?? null, durationSeconds, productionPercentage ?? null, id, userId],
-    });
+    const productionPercentage = end === null
+      ? null
+      : data.productionPercentage !== undefined
+        ? data.productionPercentage
+        : session.production_percentage;
+    try {
+      await db.execute({
+        sql: "UPDATE sessions SET description = ?, project_id = ?, started_at = ?, ended_at = ?, duration_seconds = ?, production_percentage = ? WHERE id = ? AND user_id = ?",
+        args: [description ?? null, projectId ?? null, start.toISOString(), end?.toISOString() ?? null, durationSeconds, productionPercentage ?? null, id, userId],
+      });
+    } catch (caught) {
+      if (!uniqueActiveError(caught)) throw caught;
+      return NextResponse.json({ error: "A session is already in progress", session: await activeSession(userId) }, { status: 409 });
+    }
     return NextResponse.json({
       id, description: description ?? null, projectId: projectId ?? null,
       startedAt: start.toISOString(), endedAt: end?.toISOString() ?? null, durationSeconds,

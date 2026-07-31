@@ -1,5 +1,5 @@
 import { fireEvent, render, screen, waitFor } from "@testing-library/react";
-import { describe, expect, it, vi } from "vitest";
+import { beforeEach, describe, expect, it, vi } from "vitest";
 import { HistorySection } from "@/components/history-section";
 import type { StudySession } from "@/lib/api";
 
@@ -18,7 +18,9 @@ vi.mock("@/lib/api", () => {
 });
 
 describe("active session editing", () => {
-  it("does not show or submit an end time", async () => {
+  beforeEach(() => update.mockClear());
+
+  it("shows an ongoing session with a disabled end time", async () => {
     const now = Date.now();
     const active: StudySession = {
       id: 42,
@@ -49,10 +51,60 @@ describe("active session editing", () => {
 
     fireEvent.click(screen.getByRole("button", { name: "Edit session" }));
     expect(await screen.findByText("Update the running session without stopping it.")).toBeInTheDocument();
-    expect(screen.queryByLabelText("End time")).not.toBeInTheDocument();
+    expect(screen.getByRole("checkbox", { name: /Ongoing session/ })).toBeChecked();
+    expect(screen.getByLabelText("End time")).toBeDisabled();
 
     fireEvent.click(screen.getByRole("button", { name: "Save changes" }));
     await waitFor(() => expect(update).toHaveBeenCalledOnce());
-    expect(update.mock.calls[0][1]).not.toHaveProperty("endedAt");
+    expect(update.mock.calls[0][1]).toMatchObject({
+      endedAt: null,
+      productionPercentage: null,
+    });
+  });
+
+  it("can turn a completed session into an ongoing session", async () => {
+    const now = Date.now();
+    const completed: StudySession = {
+      id: 43,
+      started_at: new Date(now - 60 * 60 * 1000).toISOString(),
+      ended_at: new Date(now - 30 * 60 * 1000).toISOString(),
+      duration_seconds: 30 * 60,
+      description: "Completed work",
+      project_id: null,
+      project_name: null,
+      project_icon: null,
+      production_percentage: 50,
+    };
+
+    render(
+      <HistorySection
+        sessions={[completed]}
+        projects={[]}
+        notes={[]}
+        now={now}
+        hasMore={false}
+        loadingMore={false}
+        loadMoreError={null}
+        onLoadMore={vi.fn()}
+        onSessionsChange={vi.fn()}
+        onNoteSaved={vi.fn()}
+        onNoteDeleted={vi.fn()}
+      />
+    );
+
+    fireEvent.click(screen.getByRole("button", { name: "Edit session" }));
+    const ongoing = await screen.findByRole("checkbox", { name: /Ongoing session/ });
+    expect(ongoing).not.toBeChecked();
+    expect(screen.getByLabelText("End time")).toBeEnabled();
+
+    fireEvent.click(ongoing);
+    expect(screen.getByLabelText("End time")).toBeDisabled();
+    fireEvent.click(screen.getByRole("button", { name: "Save changes" }));
+
+    await waitFor(() => expect(update).toHaveBeenCalledOnce());
+    expect(update.mock.calls[0][1]).toMatchObject({
+      endedAt: null,
+      productionPercentage: null,
+    });
   });
 });

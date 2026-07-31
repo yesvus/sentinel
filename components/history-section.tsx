@@ -224,10 +224,10 @@ export function HistorySection({
       if (editingId !== null) {
         await sessionsApi.update(editingId, {
           startedAt: startedAt.toISOString(),
-          ...(endedAt ? { endedAt: endedAt.toISOString() } : {}),
+          endedAt: endedAt?.toISOString() ?? null,
           projectId: addProjectId,
           description: addDescription || null,
-          ...(!editingActive ? { productionPercentage: addProductionPercentage } : {}),
+          productionPercentage: editingActive ? null : addProductionPercentage,
         });
         onSessionsChange((list) =>
           list
@@ -244,9 +244,7 @@ export function HistorySection({
                     project_id: addProjectId,
                     project_name: project?.name ?? null,
                     project_icon: project?.icon ?? null,
-                    production_percentage: editingActive
-                      ? (s.production_percentage ?? 0)
-                      : addProductionPercentage,
+                    production_percentage: editingActive ? null : addProductionPercentage,
                   }
                 : s
             )
@@ -354,6 +352,26 @@ export function HistorySection({
               </DialogDescription>
             </DialogHeader>
             <form className="space-y-4" onSubmit={handleAddSession}>
+              {editingId !== null && (
+                <label
+                  htmlFor="edit-ongoing"
+                  className="border-border flex cursor-pointer items-center justify-between gap-4 rounded-lg border px-3 py-2.5"
+                >
+                  <span>
+                    <span className="block text-sm font-medium">Ongoing session</span>
+                    <span className="text-muted-foreground block text-xs">
+                      Keep this session running without an end time.
+                    </span>
+                  </span>
+                  <input
+                    id="edit-ongoing"
+                    type="checkbox"
+                    checked={editingActive}
+                    onChange={(event) => setEditingActive(event.target.checked)}
+                    className="accent-primary size-4"
+                  />
+                </label>
+              )}
               <div className="space-y-2">
                 <Label htmlFor="add-date">Date</Label>
                 <Input
@@ -364,7 +382,7 @@ export function HistorySection({
                   required
                 />
               </div>
-              <div className={`grid gap-3 ${editingActive ? "grid-cols-1" : "grid-cols-2"}`}>
+              <div className="grid grid-cols-2 gap-3">
                 <div className="space-y-2">
                   <Label htmlFor="add-start">Start time</Label>
                   <Input
@@ -375,18 +393,17 @@ export function HistorySection({
                     required
                   />
                 </div>
-                {!editingActive && (
-                  <div className="space-y-2">
-                    <Label htmlFor="add-end">End time</Label>
-                    <Input
-                      id="add-end"
-                      type="time"
-                      value={addEndTime}
-                      onChange={(e) => setAddEndTime(e.target.value)}
-                      required
-                    />
-                  </div>
-                )}
+                <div className="space-y-2">
+                  <Label htmlFor="add-end">End time</Label>
+                  <Input
+                    id="add-end"
+                    type="time"
+                    value={addEndTime}
+                    onChange={(e) => setAddEndTime(e.target.value)}
+                    disabled={editingActive}
+                    required={!editingActive}
+                  />
+                </div>
               </div>
               <div className="space-y-2">
                 <Label>Project</Label>
