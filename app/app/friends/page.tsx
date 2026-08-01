@@ -8,6 +8,7 @@ import { ProjectIcon } from "@/lib/icons";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
+import { Skeleton } from "@/components/ui/skeleton";
 import { toast } from "@/components/ui/toast";
 import { dayKey, formatDayLabel, formatTime, startOfDay } from "@/lib/date";
 import {
@@ -173,7 +174,7 @@ export default function FriendsPage() {
   const others = connections.filter((item) => item.direction !== "incoming");
 
   return (
-    <div className="mx-auto grid w-full max-w-6xl gap-6 lg:grid-cols-[340px_1fr]">
+    <div className="animate-in fade-in duration-500 fill-mode-both mx-auto grid w-full max-w-6xl gap-6 lg:grid-cols-[340px_1fr]">
       <div className="space-y-6">
         <Card>
           <CardHeader>
@@ -224,6 +225,15 @@ export default function FriendsPage() {
         <Card>
           <CardHeader><CardTitle className="flex items-center gap-2"><Users className="text-muted-foreground size-4" />Connections</CardTitle></CardHeader>
           <CardContent className="space-y-3">
+            {loading && [0, 1].map((i) => (
+              <div key={i} className="flex items-center gap-3">
+                <Skeleton className="size-9 shrink-0 rounded-full" />
+                <div className="min-w-0 flex-1 space-y-1.5">
+                  <Skeleton className="h-3.5 w-2/3" />
+                  <Skeleton className="h-3 w-1/3" />
+                </div>
+              </div>
+            ))}
             {!loading && others.length === 0 && <p className="text-muted-foreground text-sm">No connections yet.</p>}
             {others.map((connection) => (
               <div key={connection.friendshipId} className="flex items-center gap-3">
@@ -281,6 +291,24 @@ export default function FriendsPage() {
       <Card className="h-fit">
         <CardHeader><CardTitle>Friend activity</CardTitle></CardHeader>
         <CardContent>
+          {loading && (
+            <div className="space-y-5">
+              {[0, 1].map((i) => (
+                <div key={i} className="space-y-4">
+                  <Skeleton className="h-3 w-24" />
+                  {[0, 1].map((j) => (
+                    <div key={j} className="flex gap-3">
+                      <Skeleton className="size-10 shrink-0 rounded-full" />
+                      <div className="min-w-0 flex-1 space-y-2">
+                        <Skeleton className="h-4 w-1/3" />
+                        <Skeleton className="h-3.5 w-2/3" />
+                      </div>
+                    </div>
+                  ))}
+                </div>
+              ))}
+            </div>
+          )}
           {!loading && activity.length === 0 && (
             <div className="py-12 text-center">
               <Users className="text-muted-foreground mx-auto mb-3 size-8" />

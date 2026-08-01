@@ -1,8 +1,10 @@
 "use client";
 
 import { useEffect, useState } from "react";
+import { useRouter, useSearchParams } from "next/navigation";
 import { ChevronLeft, ChevronRight, Clock3, Copy, Square, SquareCheck, Target } from "lucide-react";
 import { Button } from "@/components/ui/button";
+import { Skeleton } from "@/components/ui/skeleton";
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription } from "@/components/ui/dialog";
 import {
   tasks as tasksApi,
@@ -26,8 +28,13 @@ import { dayKey, weekKey, addDays, startOfWeek, formatDuration, formatWeekRangeL
 
 export default function PlanPage() {
   const { user } = useAuth();
+  const router = useRouter();
+  const searchParams = useSearchParams();
   const [weekOffset, setWeekOffset] = useState(0);
-  const [focusedDayKey, setFocusedDayKey] = useState<string | null>(null);
+  const [focusedDayKey, setFocusedDayKey] = useState<string | null>(() => {
+    const day = searchParams.get("day");
+    return day && /^\d{4}-\d{2}-\d{2}$/.test(day) ? day : null;
+  });
   const [taskList, setTaskList] = useState<Task[]>([]);
   const [noteList, setNoteList] = useState<Note[]>([]);
   const [sessionList, setSessionList] = useState<StudySession[]>([]);
@@ -131,8 +138,25 @@ export default function PlanPage() {
 
   if (loading) {
     return (
-      <div className="flex flex-1 items-center justify-center">
-        <p className="text-muted-foreground text-sm">Loading...</p>
+      <div className="w-full space-y-4">
+        <div className="grid grid-cols-1 items-start gap-4 md:grid-cols-2">
+          {[0, 1].map((i) => (
+            <div key={i} className="space-y-2 rounded-lg border p-4">
+              <Skeleton className="h-5 w-32" />
+              <Skeleton className="h-4 w-full" />
+              <Skeleton className="h-4 w-2/3" />
+            </div>
+          ))}
+        </div>
+        <div className="grid grid-cols-7 items-start gap-2">
+          {Array.from({ length: 7 }, (_, i) => (
+            <div key={i} className="min-h-40 space-y-2 rounded-lg border p-2.5">
+              <Skeleton className="h-4 w-12" />
+              <Skeleton className="h-3 w-full" />
+              <Skeleton className="h-3 w-4/5" />
+            </div>
+          ))}
+        </div>
       </div>
     );
   }
@@ -140,7 +164,7 @@ export default function PlanPage() {
   const focusedDate = focusedDayKey ? parseDateKey(focusedDayKey) : null;
 
   return (
-    <div className="w-full space-y-4">
+    <div className="animate-in fade-in duration-500 fill-mode-both w-full space-y-4">
       {showDailyReminder && (
         <button
           type="button"
@@ -225,7 +249,7 @@ export default function PlanPage() {
               key={key}
               type="button"
               onClick={() => setFocusedDayKey(key)}
-              className={`hover:border-primary/40 hover:bg-muted/30 flex min-h-40 min-w-0 flex-col items-start gap-1.5 rounded-lg border p-2.5 text-left transition-colors ${
+              className={`hover:border-primary/40 hover:bg-muted/30 flex min-h-40 min-w-0 flex-col items-start gap-1.5 rounded-lg border p-2.5 text-left transition-[color,background-color,border-color,transform] duration-150 active:scale-[0.97] ${
                 isToday ? "border-primary/50 bg-primary/5" : "border-border"
               }`}
             >
@@ -276,12 +300,17 @@ export default function PlanPage() {
         })}
       </div>
 
-      <Dialog open={focusedDayKey !== null} onOpenChange={(open) => !open && setFocusedDayKey(null)}>
-        <DialogContent className="max-h-[85vh] max-w-2xl overflow-y-auto">
+      <Dialog open={focusedDayKey !== null} onOpenChange={(open) => {
+        if (!open) {
+          setFocusedDayKey(null);
+          router.replace("/app/plan");
+        }
+      }}>
+        <DialogContent className="max-w-2xl">
           {focusedDayKey && focusedDate && (
             <>
               <DialogHeader>
-                <div className="flex items-center justify-between gap-2 pr-8">
+                <div className="flex items-center justify-between gap-2">
                   <DialogTitle>
                     {focusedDate.toLocaleDateString(undefined, { weekday: "long", month: "short", day: "numeric" })}
                     {focusedDayKey === todayKey && " (Today)"}

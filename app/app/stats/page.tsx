@@ -3,6 +3,7 @@
 import { useEffect, useState } from "react";
 import { Hourglass } from "lucide-react";
 import { Card, CardHeader, CardTitle, CardContent } from "@/components/ui/card";
+import { Skeleton } from "@/components/ui/skeleton";
 import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip";
 import { sessions as sessionsApi, projects as projectsApi, notes as notesApi, tasks as tasksApi, StudySession, Project, Note, Task } from "@/lib/api";
 import { dayKey, formatDuration } from "@/lib/date";
@@ -162,14 +163,49 @@ export default function StatsPage() {
 
   if (loading) {
     return (
-      <div className="flex flex-1 items-center justify-center">
-        <p className="text-muted-foreground text-sm">Loading...</p>
+      <div className="mx-auto w-full max-w-5xl space-y-8">
+        <div className="grid gap-8 md:grid-cols-2">
+          {[0, 1].map((i) => (
+            <Card key={i}>
+              <CardHeader><Skeleton className="h-5 w-32" /></CardHeader>
+              <CardContent className="space-y-3">
+                <Skeleton className="h-4 w-full" />
+                <Skeleton className="h-4 w-2/3" />
+              </CardContent>
+            </Card>
+          ))}
+        </div>
+        <div className="flex flex-wrap items-stretch gap-4 sm:gap-8">
+          <Card className="w-full shrink-0 sm:w-auto">
+            <CardHeader><Skeleton className="h-5 w-24" /></CardHeader>
+            <CardContent>
+              <Skeleton className="h-4 w-56" />
+              <Skeleton className="mt-4 h-28 w-full max-w-md" />
+            </CardContent>
+          </Card>
+          <Card className="min-w-64 flex-1">
+            <CardHeader><Skeleton className="h-5 w-32" /></CardHeader>
+            <CardContent className="space-y-2">
+              {[0, 1, 2, 3].map((i) => <Skeleton key={i} className="h-4 w-full" />)}
+            </CardContent>
+          </Card>
+        </div>
+        <Card>
+          <CardHeader><Skeleton className="h-5 w-40" /></CardHeader>
+          <CardContent><Skeleton className="h-40 w-full" /></CardContent>
+        </Card>
+        <Card>
+          <CardHeader><Skeleton className="h-5 w-36" /></CardHeader>
+          <CardContent className="space-y-3">
+            {[0, 1, 2].map((i) => <Skeleton key={i} className="h-14 w-full" />)}
+          </CardContent>
+        </Card>
       </div>
     );
   }
 
   return (
-    <div className="mx-auto w-full max-w-5xl space-y-8">
+    <div className="animate-in fade-in duration-500 fill-mode-both mx-auto w-full max-w-5xl space-y-8">
       <ReportCards
         sessions={historySessions}
         notes={noteList}
