@@ -5,7 +5,7 @@ import { Pencil, Plus, Trash2 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { ProjectSelector } from "@/components/project-selector";
-import { ProjectIcon } from "@/lib/icons";
+import { ProjectIcon, NoProjectIcon } from "@/lib/icons";
 import { tasks as tasksApi, projects as projectsApi, ApiError, Task, Project } from "@/lib/api";
 
 const NO_PROJECT_KEY = "none";
@@ -177,12 +177,14 @@ export function DailyTaskPlanner({
           </Button>
         </form>
       )}
-      {!creatingProject && addProjectId !== null && (() => {
+      {!creatingProject && (() => {
         const suggestions = backlogTasks.filter((task) => task.project_id === addProjectId);
         if (!suggestions.length) return null;
         return (
           <div className="space-y-1">
-            <p className="text-muted-foreground text-xs">Suggested from project</p>
+            <p className="text-muted-foreground text-xs">
+              {addProjectId === null ? "Suggested" : "Suggested from project"}
+            </p>
             <div className="flex flex-wrap gap-1.5">
               {suggestions.map((task) => (
                 <button
@@ -208,12 +210,16 @@ export function DailyTaskPlanner({
         {orderedGroups.map(({ project, tasks: groupTasks }) => (
           <div key={project?.id ?? NO_PROJECT_KEY} className="space-y-1">
             <div className="text-muted-foreground flex min-w-0 items-center gap-1.5 text-xs font-medium">
-              <ProjectIcon icon={project?.icon ?? null} className="size-3.5 shrink-0" />
+              {project ? (
+                <ProjectIcon icon={project.icon} className="size-3.5 shrink-0" />
+              ) : (
+                <NoProjectIcon className="size-3.5 shrink-0" />
+              )}
               <span className="truncate">{project?.path ?? "No project"}</span>
             </div>
             <div className="space-y-1 pl-1">
               {groupTasks.map((task) => (
-                <div key={task.id} className="group flex items-start gap-2 rounded-md px-1.5 py-1">
+                <div key={task.id} className="group hover:bg-muted/50 relative flex items-start gap-2 rounded-md px-1.5 py-0.5">
                   {editingId === task.id ? (
                     <div className="flex flex-1 items-center gap-2" onClick={(e) => e.stopPropagation()}>
                       <Input autoFocus value={editTitle} onChange={(e) => setEditTitle(e.target.value)} className="flex-1" />
@@ -236,18 +242,18 @@ export function DailyTaskPlanner({
                       <span className={`min-w-0 flex-1 text-sm break-words ${task.completed_at ? "text-muted-foreground line-through" : ""}`}>
                         {task.title}
                       </span>
-                      <div className="flex shrink-0 gap-1 opacity-0 group-hover:opacity-100">
-                        <Button variant="ghost" size="icon-sm" aria-label="Edit task" onClick={() => startEdit(task)}>
-                          <Pencil className="size-3.5" />
+                      <div className="absolute top-1/2 right-1 flex shrink-0 -translate-y-1/2 gap-1 rounded-md opacity-0 group-hover:opacity-100">
+                        <Button variant="ghost" size="icon-xs" aria-label="Edit task" onClick={() => startEdit(task)}>
+                          <Pencil className="size-3" />
                         </Button>
                         <Button
                           variant="ghost"
-                          size="icon-sm"
+                          size="icon-xs"
                           className="text-destructive hover:text-destructive"
                           aria-label="Delete task"
                           onClick={() => remove(task.id)}
                         >
-                          <Trash2 className="size-3.5" />
+                          <Trash2 className="size-3" />
                         </Button>
                       </div>
                     </>

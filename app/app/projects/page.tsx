@@ -6,6 +6,7 @@ import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Textarea } from "@/components/ui/textarea";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
+import { Skeleton } from "@/components/ui/skeleton";
 import { ApiError, Project, Task, projects as projectsApi, tasks as tasksApi } from "@/lib/api";
 import { ProjectIcon } from "@/lib/icons";
 import { ProjectIconPicker } from "@/components/project-icon-picker";
@@ -44,32 +45,41 @@ export default function ProjectsPage() {
   const [editingParentId, setEditingParentId] = useState<number | null>(null);
   const [showArchived, setShowArchived] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const [loading, setLoading] = useState(true);
 
   const [taskList, setTaskList] = useState<Task[]>([]);
-  const [backlogProjectId, setBacklogProjectId] = useState<number | null>(null);
+  const [backlogTarget, setBacklogTarget] = useState<number | "none" | null>(null);
   const [newBacklogTitle, setNewBacklogTitle] = useState("");
   const [backlogBusy, setBacklogBusy] = useState(false);
   const [backlogError, setBacklogError] = useState<string | null>(null);
 
   useEffect(() => {
-    const timer = window.setTimeout(() => projectsApi.list().then(setProjectList).catch(() => setError("Could not load projects")), 0);
+    const timer = window.setTimeout(
+      () =>
+        projectsApi
+          .list()
+          .then(setProjectList)
+          .catch(() => setError("Could not load projects"))
+          .finally(() => setLoading(false)),
+      0,
+    );
     tasksApi.list().then(setTaskList).catch(() => {});
     return () => window.clearTimeout(timer);
   }, []);
 
-  function openBacklog(projectId: number) {
-    setBacklogProjectId(projectId);
+  function openBacklog(target: number | "none") {
+    setBacklogTarget(target);
     setNewBacklogTitle("");
     setBacklogError(null);
   }
 
   async function handleAddBacklogTask(e: FormEvent) {
     e.preventDefault();
-    if (!newBacklogTitle.trim() || backlogProjectId === null) return;
+    if (!newBacklogTitle.trim() || backlogTarget === null) return;
     setBacklogBusy(true);
     setBacklogError(null);
     try {
-      const created = await tasksApi.create(null, newBacklogTitle.trim(), backlogProjectId);
+      const created = await tasksApi.create(null, newBacklogTitle.trim(), backlogTarget === "none" ? null : backlogTarget);
       setTaskList((list) => [...list, created]);
       setNewBacklogTitle("");
     } catch (err) {
@@ -152,7 +162,7 @@ export default function ProjectsPage() {
   appendBranch(null);
 
   return (
-    <div className="mx-auto w-full max-w-5xl space-y-6">
+    <div className="animate-in fade-in duration-500 fill-mode-both mx-auto w-full max-w-5xl space-y-6">
       <div className="flex flex-wrap items-center justify-between gap-4">
         <div>
           <h2 className="text-xl font-semibold">Projects</h2>
@@ -160,10 +170,21 @@ export default function ProjectsPage() {
             Organize work into up to three levels.
           </p>
         </div>
-        <Button onClick={() => setCreateOpen(true)}>
-          <Plus />
-          New project
-        </Button>
+        <div className="flex gap-2">
+          <Button variant="outline" className="gap-1" onClick={() => openBacklog("none")}>
+            <ListTodo className="size-3.5" />
+            No-project tasks
+            {taskList.filter((t) => t.project_id === null && t.period_start === null).length > 0 && (
+              <span className="text-muted-foreground">
+                ({taskList.filter((t) => t.project_id === null && t.period_start === null).length})
+              </span>
+            )}
+          </Button>
+          <Button onClick={() => setCreateOpen(true)}>
+            <Plus />
+            New project
+          </Button>
+        </div>
       </div>
 
       <Dialog open={createOpen} onOpenChange={setCreateOpen}>
@@ -202,8 +223,22 @@ export default function ProjectsPage() {
         </CardHeader>
         <CardContent className="space-y-3">
           {error && !createOpen && <p className="text-destructive text-sm">{error}</p>}
-          {visibleProjects.length === 0 && <p className="text-muted-foreground text-sm">No projects yet.</p>}
-          {orderedProjects.map((project) => {
+          {loading && (
+            <div className="space-y-3">
+              {[0, 1, 2].map((i) => (
+                <div key={i} className="flex items-start gap-3 rounded-lg p-4 ring-1 ring-foreground/10">
+                  <Skeleton className="size-10 shrink-0 rounded-lg" />
+                  <div className="min-w-0 flex-1 space-y-2">
+                    <Skeleton className="h-4 w-1/3" />
+                    <Skeleton className="h-3 w-1/2" />
+                    <Skeleton className="h-3 w-2/3" />
+                  </div>
+                </div>
+              ))}
+            </div>
+          )}
+          {!loading && visibleProjects.length === 0 && <p className="text-muted-foreground text-sm">No projects yet.</p>}
+          {!loading && orderedProjects.map((project) => {
             const parent = project.parentId === null
               ? null
               : projectList.find((item) => item.id === project.parentId) ?? null;
@@ -309,17 +344,20 @@ export default function ProjectsPage() {
         </CardContent>
       </Card>
 
-      <Dialog open={backlogProjectId !== null} onOpenChange={(open) => !open && setBacklogProjectId(null)}>
-        <DialogContent className="max-h-[85vh] max-w-md overflow-y-auto">
-          {backlogProjectId !== null && (() => {
-            const project = projectList.find((p) => p.id === backlogProjectId);
+      <Dialog open={backlogTarget !== null} onOpenChange={(open) => !open && setBacklogTarget(null)}>
+        <DialogContent className="max-w-md">
+          {backlogTarget !== null && (() => {
+            const project = backlogTarget === "none" ? null : projectList.find((p) => p.id === backlogTarget);
+            const backlogProjectId = backlogTarget === "none" ? null : backlogTarget;
             const backlogTasks = taskList.filter((t) => t.project_id === backlogProjectId && t.period_start === null);
             return (
               <>
                 <DialogHeader>
-                  <DialogTitle>{project?.path ?? "Project"} — Tasks</DialogTitle>
+                  <DialogTitle>{backlogTarget === "none" ? "No project" : (project?.path ?? "Project")} — Tasks</DialogTitle>
                   <DialogDescription>
-                    No date attached. These show up as suggestions when planning a day for this project.
+                    {backlogTarget === "none"
+                      ? "No date or project attached. These show up as suggestions when planning a day with no project selected."
+                      : "No date attached. These show up as suggestions when planning a day for this project."}
                   </DialogDescription>
                 </DialogHeader>
                 <form className="flex gap-2" onSubmit={handleAddBacklogTask}>
@@ -340,16 +378,16 @@ export default function ProjectsPage() {
                 ) : (
                   <div className="space-y-1">
                     {backlogTasks.map((task) => (
-                      <div key={task.id} className="group flex items-center gap-2 rounded-md px-1.5 py-1">
+                      <div key={task.id} className="group relative flex items-center gap-2 rounded-md px-1.5 py-0.5">
                         <span className="min-w-0 flex-1 text-sm break-words">{task.title}</span>
                         <Button
                           variant="ghost"
-                          size="icon-sm"
-                          className="text-destructive hover:text-destructive shrink-0 opacity-0 group-hover:opacity-100"
+                          size="icon-xs"
+                          className="text-destructive hover:text-destructive bg-background absolute top-1/2 right-1 shrink-0 -translate-y-1/2 opacity-0 group-hover:opacity-100"
                           aria-label="Delete task"
                           onClick={() => handleDeleteBacklogTask(task.id)}
                         >
-                          <Trash2 className="size-3.5" />
+                          <Trash2 className="size-3" />
                         </Button>
                       </div>
                     ))}
