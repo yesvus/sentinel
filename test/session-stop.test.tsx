@@ -13,6 +13,14 @@ vi.mock("@/lib/auth-context", () => ({
   }),
 }));
 
+vi.mock("@/components/ui/sidebar", () => ({
+  useSidebar: () => ({ isMobile: false, setOpen: vi.fn(), setOpenMobile: vi.fn() }),
+}));
+
+vi.mock("@/lib/active-session-context", () => ({
+  useInitialActiveSession: () => null,
+}));
+
 vi.mock("@/lib/api", () => {
   class ApiError extends Error {
     constructor(public status: number, message: string, public body?: unknown) {
@@ -30,6 +38,8 @@ vi.mock("@/lib/api", () => {
     },
     sessions: {
       getActive: vi.fn().mockResolvedValue(null),
+      list: vi.fn().mockResolvedValue([]),
+      page: vi.fn().mockResolvedValue({ items: [], nextCursor: null }),
       start,
       stop,
       update: vi.fn().mockResolvedValue({}),
