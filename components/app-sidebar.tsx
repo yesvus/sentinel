@@ -2,7 +2,7 @@
 
 import Link from "next/link";
 import { usePathname, useRouter } from "next/navigation";
-import { Home, BarChart2, User, Settings, LogOut, ChevronsUpDown, Moon, Sun, FolderKanban, Monitor, Clock3, Check, Users, ListTodo } from "lucide-react";
+import { Home, BarChart2, User, Settings, LogOut, ChevronsUpDown, Moon, Sun, FolderKanban, Monitor, Check, Users, ListTodo } from "lucide-react";
 import {
   Sidebar,
   SidebarContent,
@@ -41,7 +41,7 @@ export function AppSidebar() {
   const pathname = usePathname();
   const router = useRouter();
   const { user, refresh } = useAuth();
-  const { state, isMobile, setOpenMobile } = useSidebar();
+  const { state, isMobile, setOpen, setOpenMobile } = useSidebar();
   const { mode, setMode } = useTheme();
 
   async function handleLogout() {
@@ -54,15 +54,28 @@ export function AppSidebar() {
     if (isMobile) setOpenMobile(false);
   }
 
+  function handleSidebarClick(event: React.MouseEvent<HTMLDivElement>) {
+    if (isMobile || state !== "collapsed") return;
+    const target = event.target as HTMLElement;
+    if (target.closest('button, a, [role="button"], input, select, textarea')) return;
+    setOpen(true);
+  }
+
   return (
-    <Sidebar collapsible="icon">
+    <Sidebar
+      collapsible="icon"
+      onClick={handleSidebarClick}
+      className={!isMobile && state === "collapsed" ? "cursor-pointer" : undefined}
+    >
       <SidebarHeader className="h-14 justify-center border-b">
-        <p
-          className="text-primary px-2 text-lg tracking-tight"
+        <Link
+          href="/app"
+          onClick={handleNavigate}
+          className="text-primary hover:opacity-80 select-none px-2 text-lg tracking-tight transition-opacity"
           style={{ fontFamily: "var(--font-wordmark)", fontWeight: 800 }}
         >
           {state === "collapsed" ? "S" : "Sentinel"}
-        </p>
+        </Link>
       </SidebarHeader>
       <SidebarContent>
         <SidebarGroup>
@@ -126,7 +139,6 @@ export function AppSidebar() {
                     ["system", "System", Monitor],
                     ["light", "Light", Sun],
                     ["dark", "Dark", Moon],
-                    ["scheduled", "Scheduled", Clock3],
                   ] as const).map(([value, label, Icon]) => (
                     <DropdownMenuItem key={value} onClick={() => setMode(value)}>
                       <Icon />
