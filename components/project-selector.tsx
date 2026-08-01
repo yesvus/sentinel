@@ -21,11 +21,13 @@ export function ProjectSelector({
   value,
   onChange,
   onCreate,
+  disabled,
 }: {
   projects: Project[];
   value: number | null;
   onChange: (id: number | null) => void;
   onCreate?: () => void;
+  disabled?: boolean;
 }) {
   const [open, setOpen] = useState(false);
   const [search, setSearch] = useState("");
@@ -70,6 +72,7 @@ export function ProjectSelector({
             role="combobox"
             aria-expanded={open}
             aria-label="Choose project"
+            disabled={disabled}
             className="w-full justify-between font-normal"
           />
         }

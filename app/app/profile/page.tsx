@@ -4,7 +4,8 @@ import { useState, FormEvent } from "react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
-import { UserRound, KeyRound } from "lucide-react";
+import { Textarea } from "@/components/ui/textarea";
+import { UserRound, KeyRound, Sparkles } from "lucide-react";
 import { Card, CardHeader, CardTitle, CardContent } from "@/components/ui/card";
 import { auth, ApiError } from "@/lib/api";
 import { useAuth } from "@/lib/auth-context";
@@ -22,6 +23,11 @@ export default function ProfilePage() {
   const [passwordSaved, setPasswordSaved] = useState(false);
   const [changingPassword, setChangingPassword] = useState(false);
 
+  const [planContext, setPlanContext] = useState(user?.planContext ?? "");
+  const [savingPlanContext, setSavingPlanContext] = useState(false);
+  const [planContextError, setPlanContextError] = useState<string | null>(null);
+  const [planContextSaved, setPlanContextSaved] = useState(false);
+
   async function handleSaveProfile(e: FormEvent) {
     e.preventDefault();
     setProfileError(null);
@@ -35,6 +41,22 @@ export default function ProfilePage() {
       setProfileError(err instanceof ApiError ? err.message : "Something went wrong");
     } finally {
       setSavingProfile(false);
+    }
+  }
+
+  async function handleSavePlanContext(e: FormEvent) {
+    e.preventDefault();
+    setPlanContextError(null);
+    setPlanContextSaved(false);
+    setSavingPlanContext(true);
+    try {
+      await auth.updateProfile({ planContext: planContext.trim() || null });
+      await refresh();
+      setPlanContextSaved(true);
+    } catch (err) {
+      setPlanContextError(err instanceof ApiError ? err.message : "Something went wrong");
+    } finally {
+      setSavingPlanContext(false);
     }
   }
 
@@ -144,6 +166,34 @@ export default function ProfilePage() {
           </CardContent>
         </Card>
       </div>
+
+      <Card>
+        <CardHeader>
+          <CardTitle className="flex items-center gap-2">
+            <Sparkles className="text-muted-foreground size-4" />
+            About you
+          </CardTitle>
+        </CardHeader>
+        <CardContent>
+          <form className="space-y-4" onSubmit={handleSavePlanContext}>
+            <p className="text-muted-foreground text-sm">
+              Included in every AI review prompt as context: your role, working hours, constraints,
+              and current focus. The more specific, the less generic the feedback.
+            </p>
+            <Textarea
+              value={planContext}
+              onChange={(e) => setPlanContext(e.target.value)}
+              placeholder="e.g. Backend engineer, mornings are meetings, evenings are deep work. Currently focused on shipping the v2 API."
+              className="min-h-24"
+            />
+            {planContextError && <p className="text-destructive text-sm">{planContextError}</p>}
+            {planContextSaved && <p className="text-sm text-emerald-600">Saved.</p>}
+            <Button type="submit" disabled={savingPlanContext}>
+              {savingPlanContext ? "Saving..." : "Save"}
+            </Button>
+          </form>
+        </CardContent>
+      </Card>
     </div>
   );
 }

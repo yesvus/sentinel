@@ -9,6 +9,8 @@ import { useAuth } from "@/lib/auth-context";
 import { ThemeMode, useTheme } from "@/lib/theme-context";
 import { pad } from "@/lib/date";
 
+const WEEKDAY_NAMES = ["Sunday", "Monday", "Tuesday", "Wednesday", "Thursday", "Friday", "Saturday"];
+
 export default function SettingsPage() {
   const { user, refresh } = useAuth();
   const { mode, schedule, setMode, setSchedule } = useTheme();
@@ -77,6 +79,22 @@ export default function SettingsPage() {
     setError(null);
     try {
       await auth.updateSessionSettings({ planReminderHour: hour });
+      await refresh();
+    } catch (err) {
+      setError(err instanceof ApiError ? err.message : "Could not save reminder time");
+    } finally {
+      setSavingSessionDefault(false);
+    }
+  }
+
+  async function updateWeeklyReminder(details: { day?: number; hour?: number }) {
+    setSavingSessionDefault(true);
+    setError(null);
+    try {
+      await auth.updateSessionSettings({
+        planWeeklyReminderDay: details.day,
+        planWeeklyReminderHour: details.hour,
+      });
       await refresh();
     } catch (err) {
       setError(err instanceof ApiError ? err.message : "Could not save reminder time");
@@ -200,7 +218,7 @@ export default function SettingsPage() {
           )}
           <div className="space-y-2 border-t pt-4">
             <div>
-              <p className="text-sm font-medium">Plan reminder</p>
+              <p className="text-sm font-medium">Daily planning reminder</p>
               <p className="text-muted-foreground text-sm">
                 A soft nudge on the Plan tab after this time if tomorrow isn&apos;t planned yet. It&apos;s just a
                 reminder — nothing is blocked.
@@ -213,6 +231,35 @@ export default function SettingsPage() {
               disabled={savingSessionDefault}
               className="border-input bg-background h-9 w-full max-w-40 rounded-md border px-3"
             />
+          </div>
+          <div className="space-y-2 border-t pt-4">
+            <div>
+              <p className="text-sm font-medium">Weekly planning reminder</p>
+              <p className="text-muted-foreground text-sm">
+                A soft nudge on this day and time to wrap up the week and plan the next one.
+              </p>
+            </div>
+            <div className="flex flex-wrap gap-2">
+              <select
+                value={user?.planWeeklyReminderDay ?? 0}
+                onChange={(event) => updateWeeklyReminder({ day: Number(event.target.value) })}
+                disabled={savingSessionDefault}
+                aria-label="Weekly planning day"
+                className="border-input bg-background h-9 rounded-md border px-3 text-sm"
+              >
+                {WEEKDAY_NAMES.map((label, i) => (
+                  <option key={label} value={i}>{label}</option>
+                ))}
+              </select>
+              <input
+                type="time"
+                value={`${pad(user?.planWeeklyReminderHour ?? 19)}:00`}
+                onChange={(event) => updateWeeklyReminder({ hour: Number(event.target.value.split(":")[0]) })}
+                disabled={savingSessionDefault}
+                aria-label="Weekly planning time"
+                className="border-input bg-background h-9 w-full max-w-40 rounded-md border px-3"
+              />
+            </div>
           </div>
         </CardContent>
       </Card>

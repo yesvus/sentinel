@@ -1,12 +1,12 @@
 "use client";
 
 import { FormEvent, useEffect, useState } from "react";
-import { Archive, FolderKanban, Pin, Plus, RotateCcw } from "lucide-react";
+import { Archive, FolderKanban, ListTodo, Pin, Plus, RotateCcw, Trash2 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Textarea } from "@/components/ui/textarea";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
-import { ApiError, Project, projects as projectsApi } from "@/lib/api";
+import { ApiError, Project, Task, projects as projectsApi, tasks as tasksApi } from "@/lib/api";
 import { ProjectIcon } from "@/lib/icons";
 import { ProjectIconPicker } from "@/components/project-icon-picker";
 import {
@@ -45,10 +45,48 @@ export default function ProjectsPage() {
   const [showArchived, setShowArchived] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
+  const [taskList, setTaskList] = useState<Task[]>([]);
+  const [backlogProjectId, setBacklogProjectId] = useState<number | null>(null);
+  const [newBacklogTitle, setNewBacklogTitle] = useState("");
+  const [backlogBusy, setBacklogBusy] = useState(false);
+  const [backlogError, setBacklogError] = useState<string | null>(null);
+
   useEffect(() => {
     const timer = window.setTimeout(() => projectsApi.list().then(setProjectList).catch(() => setError("Could not load projects")), 0);
+    tasksApi.list().then(setTaskList).catch(() => {});
     return () => window.clearTimeout(timer);
   }, []);
+
+  function openBacklog(projectId: number) {
+    setBacklogProjectId(projectId);
+    setNewBacklogTitle("");
+    setBacklogError(null);
+  }
+
+  async function handleAddBacklogTask(e: FormEvent) {
+    e.preventDefault();
+    if (!newBacklogTitle.trim() || backlogProjectId === null) return;
+    setBacklogBusy(true);
+    setBacklogError(null);
+    try {
+      const created = await tasksApi.create(null, newBacklogTitle.trim(), backlogProjectId);
+      setTaskList((list) => [...list, created]);
+      setNewBacklogTitle("");
+    } catch (err) {
+      setBacklogError(err instanceof ApiError ? err.message : "Couldn't add task");
+    } finally {
+      setBacklogBusy(false);
+    }
+  }
+
+  async function handleDeleteBacklogTask(id: number) {
+    try {
+      await tasksApi.remove(id);
+      setTaskList((list) => list.filter((t) => t.id !== id));
+    } catch {
+      // best-effort; leave the task in place if the delete failed
+    }
+  }
 
   async function create(event: FormEvent) {
     event.preventDefault();
@@ -217,6 +255,15 @@ export default function ProjectsPage() {
                     <p className="text-muted-foreground mt-1 text-sm whitespace-pre-wrap">{project.description || "No description yet."}</p>
                   </div>
                   <div className="flex gap-1">
+                    <Button size="sm" variant="outline" className="gap-1" onClick={() => openBacklog(project.id)}>
+                      <ListTodo className="size-3.5" />
+                      Tasks
+                      {taskList.filter((t) => t.project_id === project.id && t.period_start === null).length > 0 && (
+                        <span className="text-muted-foreground">
+                          ({taskList.filter((t) => t.project_id === project.id && t.period_start === null).length})
+                        </span>
+                      )}
+                    </Button>
                     <Button size="sm" variant="outline" onClick={() => {
                       setEditingId(project.id);
                       setEditingName(project.name);
@@ -261,6 +308,58 @@ export default function ProjectsPage() {
           )})}
         </CardContent>
       </Card>
+
+      <Dialog open={backlogProjectId !== null} onOpenChange={(open) => !open && setBacklogProjectId(null)}>
+        <DialogContent className="max-h-[85vh] max-w-md overflow-y-auto">
+          {backlogProjectId !== null && (() => {
+            const project = projectList.find((p) => p.id === backlogProjectId);
+            const backlogTasks = taskList.filter((t) => t.project_id === backlogProjectId && t.period_start === null);
+            return (
+              <>
+                <DialogHeader>
+                  <DialogTitle>{project?.path ?? "Project"} — Tasks</DialogTitle>
+                  <DialogDescription>
+                    No date attached. These show up as suggestions when planning a day for this project.
+                  </DialogDescription>
+                </DialogHeader>
+                <form className="flex gap-2" onSubmit={handleAddBacklogTask}>
+                  <Input
+                    autoFocus
+                    value={newBacklogTitle}
+                    onChange={(e) => setNewBacklogTitle(e.target.value)}
+                    placeholder="Task title"
+                    className="min-w-0 flex-1"
+                  />
+                  <Button type="submit" disabled={backlogBusy}>
+                    {backlogBusy ? "Adding..." : "Add"}
+                  </Button>
+                </form>
+                {backlogError && <p className="text-destructive text-sm">{backlogError}</p>}
+                {backlogTasks.length === 0 ? (
+                  <p className="text-muted-foreground text-sm">No tasks yet.</p>
+                ) : (
+                  <div className="space-y-1">
+                    {backlogTasks.map((task) => (
+                      <div key={task.id} className="group flex items-center gap-2 rounded-md px-1.5 py-1">
+                        <span className="min-w-0 flex-1 text-sm break-words">{task.title}</span>
+                        <Button
+                          variant="ghost"
+                          size="icon-sm"
+                          className="text-destructive hover:text-destructive shrink-0 opacity-0 group-hover:opacity-100"
+                          aria-label="Delete task"
+                          onClick={() => handleDeleteBacklogTask(task.id)}
+                        >
+                          <Trash2 className="size-3.5" />
+                        </Button>
+                      </div>
+                    ))}
+                  </div>
+                )}
+              </>
+            );
+          })()}
+        </DialogContent>
+      </Dialog>
     </div>
   );
 }

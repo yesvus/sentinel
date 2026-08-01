@@ -1,5 +1,5 @@
 import { StudySession } from "./api";
-import { dayKey } from "./date";
+import { dayKey, addDays } from "./date";
 
 const NO_PROJECT_LABEL = "No project";
 
@@ -97,6 +97,78 @@ export function activityStreak(sessionList: StudySession[], now = new Date()) {
     cursor.setDate(cursor.getDate() - 1);
   }
   return current;
+}
+
+export type WeekStats = {
+  weekStart: Date;
+  trackedSeconds: number;
+  activeDays: number;
+  learningPercent: number;
+  topProject: string | null;
+  topProjectSeconds: number;
+  /** Tracked seconds for each of the 7 days starting at `weekStart` (Mon..Sun). */
+  dailySeconds: number[];
+};
+
+/** Aggregates a 7-day window starting at `weekStart` (local midnight). */
+export function weekStatsFor(sessionList: StudySession[], weekStart: Date, now: number): WeekStats {
+  const start = weekStart.getTime();
+  const end = start + 7 * 86_400_000;
+  const weekSessions = sessionList.filter((session) => {
+    const startedAt = new Date(session.started_at).getTime();
+    return startedAt >= start && startedAt < end;
+  });
+  const dailyMap = dailyTotals(weekSessions, now);
+  const allocation = dailyAllocationTotals(weekSessions, now);
+  let trackedSeconds = 0;
+  let learningSeconds = 0;
+  for (const day of allocation.values()) {
+    trackedSeconds += day.total;
+    learningSeconds += day.learning;
+  }
+  const activeDays = Array.from(dailyMap.values()).filter((seconds) => seconds > 0).length;
+  const topProjectEntry = projectTotals(weekSessions, now).filter((project) => project.name !== NO_PROJECT_LABEL)[0] ?? null;
+  const dailySeconds = Array.from({ length: 7 }, (_, i) => dailyMap.get(dayKey(addDays(weekStart, i))) ?? 0);
+  return {
+    weekStart,
+    trackedSeconds,
+    activeDays,
+    learningPercent: trackedSeconds ? Math.round((learningSeconds / trackedSeconds) * 100) : 0,
+    topProject: topProjectEntry?.name ?? null,
+    topProjectSeconds: topProjectEntry?.seconds ?? 0,
+    dailySeconds,
+  };
+}
+
+export type PartialWeekStats = { activeDays: number; trackedSeconds: number; learningPercent: number };
+
+/** Aggregate stats for the days within `weekStart`'s week up to and including `throughDayKey`. */
+export function partialWeekStats(
+  sessionList: StudySession[],
+  weekStart: Date,
+  throughDayKey: string,
+  now: number
+): PartialWeekStats {
+  const start = weekStart.getTime();
+  const end = start + 7 * 86_400_000;
+  const relevant = sessionList.filter((session) => {
+    const startedAt = new Date(session.started_at).getTime();
+    if (startedAt < start || startedAt >= end) return false;
+    return dayKey(new Date(session.started_at)) <= throughDayKey;
+  });
+  const activeDayKeys = new Set(relevant.map((session) => dayKey(new Date(session.started_at))));
+  let trackedSeconds = 0;
+  let learningSeconds = 0;
+  for (const session of relevant) {
+    const split = splitSessionDuration(session, now);
+    trackedSeconds += split.total;
+    learningSeconds += split.learning;
+  }
+  return {
+    activeDays: activeDayKeys.size,
+    trackedSeconds,
+    learningPercent: trackedSeconds ? Math.round((learningSeconds / trackedSeconds) * 100) : 0,
+  };
 }
 
 export { NO_PROJECT_LABEL };

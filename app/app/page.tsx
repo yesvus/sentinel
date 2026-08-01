@@ -1,7 +1,7 @@
 "use client";
 
-import { useEffect, useRef, useState } from "react";
-import { Info, Pencil, Play, Square } from "lucide-react";
+import { useEffect, useRef, useState, FormEvent } from "react";
+import { Info, Pencil, Plus, Play, Square } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
@@ -13,7 +13,7 @@ import { NOISE_SESSION_EVENT } from "@/lib/noise-player";
 import { ProjectIconPicker } from "@/components/project-icon-picker";
 import { ProjectSelector } from "@/components/project-selector";
 import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip";
-import { pad, dayKey, weekKey } from "@/lib/date";
+import { pad, dayKey } from "@/lib/date";
 import {
   Dialog,
   DialogContent,
@@ -69,8 +69,13 @@ export default function AppHomePage() {
   const [projectList, setProjectList] = useState<Project[]>([]);
   const [projectId, setProjectId] = useState<number | null>(null);
   const [description, setDescription] = useState("");
+  const [descriptionStatus, setDescriptionStatus] = useState<"idle" | "saving" | "saved">("idle");
+  const [refreshingActive, setRefreshingActive] = useState(false);
   const [taskList, setTaskList] = useState<Task[]>([]);
   const [selectedTaskIds, setSelectedTaskIds] = useState<number[]>([]);
+  const [newTaskTitle, setNewTaskTitle] = useState("");
+  const [taskSubmitting, setTaskSubmitting] = useState(false);
+  const [taskFormOpen, setTaskFormOpen] = useState(false);
   const [creatingProject, setCreatingProject] = useState(false);
   const [newProjectName, setNewProjectName] = useState("");
   const [newProjectIcon, setNewProjectIcon] = useState<string | null>(null);
@@ -118,6 +123,32 @@ export default function AppHomePage() {
 
   function toggleTask(id: number) {
     setSelectedTaskIds((current) => (current.includes(id) ? current.filter((t) => t !== id) : [...current, id]));
+  }
+
+  async function toggleTaskCompletion(task: Task) {
+    try {
+      const updated = await tasksApi.update(task.id, { completed: task.completed_at === null });
+      setTaskList((list) => list.map((t) => (t.id === updated.id ? updated : t)));
+    } catch {
+      // best-effort toggle, not worth surfacing an error for
+    }
+  }
+
+  async function handleAddTask(e: FormEvent) {
+    e.preventDefault();
+    if (!newTaskTitle.trim()) return;
+    setTaskSubmitting(true);
+    try {
+      const created = await tasksApi.create(todayKey, newTaskTitle.trim(), projectId);
+      setTaskList((list) => [...list, created]);
+      if (!isRunning) setSelectedTaskIds((ids) => [...ids, created.id]);
+      setNewTaskTitle("");
+      setTaskFormOpen(false);
+    } catch (err) {
+      setError(err instanceof ApiError ? err.message : "Couldn't add task");
+    } finally {
+      setTaskSubmitting(false);
+    }
   }
 
   useEffect(() => {
@@ -175,6 +206,7 @@ export default function AppHomePage() {
   // Cross-device sync: catch up with whatever happened elsewhere when we come back to this tab.
   useEffect(() => {
     function refetchActive() {
+      setRefreshingActive(true);
       sessions
         .getActive()
         .then((active) => {
@@ -187,7 +219,8 @@ export default function AppHomePage() {
           setStartedAt(null);
           setElapsedMs(0);
         })
-        .catch(() => {});
+        .catch(() => {})
+        .finally(() => setRefreshingActive(false));
     }
 
     function handleVisibility() {
@@ -330,7 +363,10 @@ export default function AppHomePage() {
     const nextProjectId = next.projectId !== undefined ? next.projectId : projectId;
     const nextDescription = next.description !== undefined ? next.description : description;
 
-    if (next.projectId !== undefined) setProjectId(next.projectId);
+    if (next.projectId !== undefined) {
+      setProjectId(next.projectId);
+      if (sessionId === null) setSelectedTaskIds([]);
+    }
     if (next.description !== undefined) setDescription(next.description);
 
     if (sessionId === null) return;
@@ -340,28 +376,31 @@ export default function AppHomePage() {
         .update(sessionId, { projectId: nextProjectId, description: nextDescription })
         .then(() => {
           broadcast({ type: "updated", projectId: nextProjectId, description: nextDescription });
+          if (next.description !== undefined) {
+            setDescriptionStatus("saved");
+            setTimeout(() => setDescriptionStatus((s) => (s === "saved" ? "idle" : s)), 1500);
+          }
         })
         .catch(() => {
           // best-effort save, not worth surfacing to the user mid-session
+          if (next.description !== undefined) setDescriptionStatus("idle");
         });
 
     if (next.description !== undefined) {
       // Debounce so we're not firing a request on every keystroke.
       if (descriptionSaveTimeout.current) clearTimeout(descriptionSaveTimeout.current);
-      descriptionSaveTimeout.current = setTimeout(save, 600);
+      descriptionSaveTimeout.current = setTimeout(() => {
+        setDescriptionStatus("saving");
+        save();
+      }, 600);
     } else {
       await save();
     }
   }
 
   const todayKey = dayKey(new Date());
-  const thisWeekKey = weekKey(new Date());
-  const availableTasks = taskList.filter(
-    (task) =>
-      task.completed_at === null &&
-      ((task.scope === "day" && task.period_start === todayKey) ||
-        (task.scope === "week" && task.period_start === thisWeekKey))
-  );
+  const todayProjectTasks = taskList.filter((task) => task.period_start === todayKey && task.project_id === projectId);
+  const availableTasks = todayProjectTasks.filter((task) => task.completed_at === null);
 
   return (
     <div className="flex flex-1 flex-col items-center justify-center gap-10 px-4">
@@ -547,6 +586,7 @@ export default function AppHomePage() {
             value={projectId}
             onChange={(nextProjectId) => handleDetailsChange({ projectId: nextProjectId })}
             onCreate={() => setCreatingProject(true)}
+            disabled={isRunning || refreshingActive}
           />
 
           {creatingProject && (
@@ -594,30 +634,109 @@ export default function AppHomePage() {
             </div>
           )}
 
-          {!isRunning && availableTasks.length > 0 && (
-            <div className="space-y-1.5">
-              <p className="text-muted-foreground text-xs font-medium">Working on</p>
-              <div className="space-y-1">
-                {availableTasks.map((task) => (
+          <div className="space-y-1.5">
+            <div className="flex items-center justify-between">
+              <p className="text-muted-foreground text-xs font-medium">{isRunning ? "Tasks" : "Working on"}</p>
+              {isRunning && !taskFormOpen && (
+                <Button
+                  type="button"
+                  size="icon-sm"
+                  variant="ghost"
+                  className="text-muted-foreground -my-1"
+                  aria-label="Add a task"
+                  onClick={() => setTaskFormOpen(true)}
+                >
+                  <Plus className="size-4" />
+                </Button>
+              )}
+            </div>
+            {taskFormOpen && (
+              <form className="flex gap-2" onSubmit={handleAddTask}>
+                <Input
+                  autoFocus
+                  value={newTaskTitle}
+                  onChange={(e) => setNewTaskTitle(e.target.value)}
+                  placeholder="Add a task"
+                  className="h-8 flex-1 text-sm"
+                />
+                <Button type="submit" size="sm" disabled={taskSubmitting}>
+                  {taskSubmitting ? "Adding..." : "Add"}
+                </Button>
+                <Button
+                  type="button"
+                  size="sm"
+                  variant="ghost"
+                  onClick={() => {
+                    setTaskFormOpen(false);
+                    setNewTaskTitle("");
+                  }}
+                >
+                  Cancel
+                </Button>
+              </form>
+            )}
+            {!isRunning && !taskFormOpen && (
+              <div className="flex flex-wrap gap-1.5">
+                {availableTasks.map((task) => {
+                  const selected = selectedTaskIds.includes(task.id);
+                  return (
+                    <button
+                      key={task.id}
+                      type="button"
+                      onClick={() => toggleTask(task.id)}
+                      aria-pressed={selected}
+                      className={`rounded-full border px-3 py-1 text-sm transition-colors ${
+                        selected
+                          ? "border-primary bg-primary/10 text-primary"
+                          : "border-border text-muted-foreground hover:bg-muted/50"
+                      }`}
+                    >
+                      {task.title}
+                    </button>
+                  );
+                })}
+                <button
+                  type="button"
+                  onClick={() => setTaskFormOpen(true)}
+                  aria-label="Add a task"
+                  className="border-border text-muted-foreground hover:bg-muted/50 rounded-full border border-dashed px-3 py-1 text-sm"
+                >
+                  <Plus className="size-3.5" />
+                </button>
+              </div>
+            )}
+            {isRunning && todayProjectTasks.length > 0 && (
+              <div className="flex flex-col gap-1">
+                {todayProjectTasks.map((task) => (
                   <label key={task.id} className="flex cursor-pointer items-start gap-2 text-sm">
                     <input
                       type="checkbox"
-                      checked={selectedTaskIds.includes(task.id)}
-                      onChange={() => toggleTask(task.id)}
+                      checked={task.completed_at !== null}
+                      onChange={() => toggleTaskCompletion(task)}
                       className="accent-primary mt-0.5 size-4 shrink-0"
                     />
-                    <span>{task.title}</span>
+                    <span className={task.completed_at ? "text-muted-foreground line-through" : ""}>
+                      {task.title}
+                    </span>
                   </label>
                 ))}
               </div>
-            </div>
-          )}
+            )}
+          </div>
 
-          <Textarea
-            placeholder="What are you working on? (optional)"
-            value={description}
-            onChange={(e) => handleDetailsChange({ description: e.target.value })}
-          />
+          <div className="space-y-1">
+            <Textarea
+              placeholder="Include more details about your session (optional)"
+              value={description}
+              onChange={(e) => handleDetailsChange({ description: e.target.value })}
+              disabled={refreshingActive}
+            />
+            {descriptionStatus !== "idle" && (
+              <p className="text-muted-foreground text-xs">
+                {descriptionStatus === "saving" ? "Saving..." : "Saved"}
+              </p>
+            )}
+          </div>
         </CardContent>
       </Card>
     </div>

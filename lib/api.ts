@@ -75,6 +75,9 @@ export type User = {
   defaultSessionType: "learning" | "producing";
   trackProductionSplit: boolean;
   planReminderHour: number;
+  planWeeklyReminderDay: number;
+  planWeeklyReminderHour: number;
+  planContext: string | null;
 };
 
 export type FocusAudioType = "white" | "pink" | "brown" | "speech-blocker" | "binaural-40hz";
@@ -86,8 +89,8 @@ export const auth = {
     api<User>("/api/auth/login", { method: "POST", body: JSON.stringify({ email, password }) }),
   logout: () => api<void>("/api/auth/logout", { method: "POST" }),
   me: () => api<User>("/api/auth/me"),
-  updateProfile: (details: { name?: string | null; avatar?: string | null }) =>
-    api<{ name: string | null; avatar: string | null }>("/api/auth/me", {
+  updateProfile: (details: { name?: string | null; avatar?: string | null; planContext?: string | null }) =>
+    api<{ name: string | null; avatar: string | null; planContext: string | null }>("/api/auth/me", {
       method: "PATCH",
       body: JSON.stringify(details),
     }),
@@ -110,11 +113,16 @@ export const auth = {
     defaultSessionType?: "learning" | "producing";
     trackProductionSplit?: boolean;
     planReminderHour?: number;
+    planWeeklyReminderDay?: number;
+    planWeeklyReminderHour?: number;
   }) =>
-    api<{ defaultSessionType: "learning" | "producing"; trackProductionSplit: boolean; planReminderHour: number }>(
-      "/api/auth/session-settings",
-      { method: "PATCH", body: JSON.stringify(settings) }
-    ),
+    api<{
+      defaultSessionType: "learning" | "producing";
+      trackProductionSplit: boolean;
+      planReminderHour: number;
+      planWeeklyReminderDay: number;
+      planWeeklyReminderHour: number;
+    }>("/api/auth/session-settings", { method: "PATCH", body: JSON.stringify(settings) }),
 };
 
 export type StudySession = {
@@ -192,11 +200,13 @@ export const sessions = {
     }),
 };
 
-export type Note = { id: number; scope: "day" | "week"; date_key: string; content: string; updated_at: string };
+export type Note = { id: number; scope: "day" | "week" | "long-term"; date_key: string; content: string; updated_at: string };
+
+export const LONG_TERM_NOTE_KEY = "long-term";
 
 export const notes = {
   list: () => api<Note[]>("/api/notes"),
-  upsert: (scope: "day" | "week", dateKey: string, content: string) =>
+  upsert: (scope: "day" | "week" | "long-term", dateKey: string, content: string) =>
     api<Note | undefined>(`/api/notes/${scope}/${dateKey}`, {
       method: "PUT",
       body: JSON.stringify({ content }),
@@ -205,21 +215,21 @@ export const notes = {
 
 export type Task = {
   id: number;
-  scope: "week" | "day";
-  period_start: string;
+  /** null = backlog item on a project, not yet scheduled to a day. */
+  period_start: string | null;
+  project_id: number | null;
   title: string;
-  description: string | null;
   completed_at: string | null;
 };
 
 export const tasks = {
   list: () => api<Task[]>("/api/tasks"),
-  create: (scope: "week" | "day", periodStart: string, title: string, description?: string | null) =>
+  create: (periodStart: string | null, title: string, projectId?: number | null) =>
     api<Task>("/api/tasks", {
       method: "POST",
-      body: JSON.stringify({ scope, periodStart, title, description }),
+      body: JSON.stringify({ periodStart, title, projectId }),
     }),
-  update: (id: number, details: { title?: string; description?: string | null; completed?: boolean }) =>
+  update: (id: number, details: { title?: string; projectId?: number | null; periodStart?: string | null; completed?: boolean }) =>
     api<Task>(`/api/tasks/${id}`, { method: "PATCH", body: JSON.stringify(details) }),
   remove: (id: number) => api<void>(`/api/tasks/${id}`, { method: "DELETE" }),
 };

@@ -181,14 +181,16 @@ async function initialize() {
 
   await migrate(6, async () => {
     await addColumn("users", "plan_reminder_hour INTEGER NOT NULL DEFAULT 19");
+    await addColumn("users", "plan_weekly_reminder_day INTEGER NOT NULL DEFAULT 0");
+    await addColumn("users", "plan_weekly_reminder_hour INTEGER NOT NULL DEFAULT 19");
+    await addColumn("users", "plan_context TEXT");
     await db.execute(`
       CREATE TABLE IF NOT EXISTS tasks (
         id INTEGER PRIMARY KEY AUTOINCREMENT,
         user_id INTEGER NOT NULL REFERENCES users(id),
-        scope TEXT NOT NULL CHECK (scope IN ('week', 'day')),
-        period_start TEXT NOT NULL,
+        period_start TEXT, -- NULL = backlog item on a project, not yet scheduled to a day
+        project_id INTEGER REFERENCES projects(id),
         title TEXT NOT NULL,
-        description TEXT,
         completed_at TEXT,
         created_at TEXT NOT NULL DEFAULT (datetime('now'))
       )
@@ -202,6 +204,54 @@ async function initialize() {
     `);
   });
 
+  await migrate(7, async () => {
+    // SQLite can't ALTER a CHECK constraint in place; rebuild the table.
+    await db.execute(`
+      CREATE TABLE notes_new (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        user_id INTEGER NOT NULL REFERENCES users(id),
+        scope TEXT NOT NULL CHECK (scope IN ('day', 'week', 'long-term')),
+        date_key TEXT NOT NULL,
+        content TEXT NOT NULL,
+        created_at TEXT NOT NULL DEFAULT (datetime('now')),
+        updated_at TEXT NOT NULL DEFAULT (datetime('now')),
+        UNIQUE (user_id, scope, date_key)
+      )
+    `);
+    await db.execute(`INSERT INTO notes_new SELECT * FROM notes`);
+    await db.execute(`DROP TABLE notes`);
+    await db.execute(`ALTER TABLE notes_new RENAME TO notes`);
+  });
+
+  await migrate(8, async () => {
+    // period_start was NOT NULL in the original migration 6; relax it so a task can be an
+    // unscheduled project backlog item (no date yet). session_tasks.task_id references this
+    // table, so foreign key checks must be off for the rebuild-drop-rename.
+    await db.execute("PRAGMA foreign_keys = OFF");
+    try {
+      await db.execute("DROP TABLE IF EXISTS tasks_new");
+      await db.execute(`
+        CREATE TABLE tasks_new (
+          id INTEGER PRIMARY KEY AUTOINCREMENT,
+          user_id INTEGER NOT NULL REFERENCES users(id),
+          period_start TEXT,
+          project_id INTEGER REFERENCES projects(id),
+          title TEXT NOT NULL,
+          completed_at TEXT,
+          created_at TEXT NOT NULL DEFAULT (datetime('now'))
+        )
+      `);
+      await db.execute(`
+        INSERT INTO tasks_new (id, user_id, period_start, project_id, title, completed_at, created_at)
+        SELECT id, user_id, period_start, project_id, title, completed_at, created_at FROM tasks
+      `);
+      await db.execute(`DROP TABLE tasks`);
+      await db.execute(`ALTER TABLE tasks_new RENAME TO tasks`);
+    } finally {
+      await db.execute("PRAGMA foreign_keys = ON");
+    }
+  });
+
   for (const statement of [
     "CREATE INDEX IF NOT EXISTS idx_auth_sessions_user ON auth_sessions (user_id)",
     "CREATE INDEX IF NOT EXISTS idx_auth_sessions_expiry ON auth_sessions (expires_at)",
@@ -213,7 +263,8 @@ async function initialize() {
     "CREATE INDEX IF NOT EXISTS idx_sessions_user_project ON sessions (user_id, project_id)",
     "CREATE INDEX IF NOT EXISTS idx_projects_user_parent ON projects (user_id, parent_id)",
     "CREATE INDEX IF NOT EXISTS idx_projects_user_archived ON projects (user_id, archived)",
-    "CREATE INDEX IF NOT EXISTS idx_tasks_user_period ON tasks (user_id, scope, period_start)",
+    "CREATE INDEX IF NOT EXISTS idx_tasks_user_period ON tasks (user_id, period_start)",
+    "CREATE INDEX IF NOT EXISTS idx_tasks_user_project ON tasks (user_id, project_id)",
     "CREATE INDEX IF NOT EXISTS idx_session_tasks_task ON session_tasks (task_id)",
   ]) await db.execute(statement);
 }

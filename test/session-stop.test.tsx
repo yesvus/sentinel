@@ -48,7 +48,7 @@ describe("stopping a session with a description", () => {
 
   async function startWithDescription(description: string) {
     render(<AppHomePage />);
-    const textarea = screen.getByPlaceholderText("What are you working on? (optional)");
+    const textarea = screen.getByPlaceholderText("Include more details about your session (optional)");
     fireEvent.change(textarea, { target: { value: description } });
     const startButton = await screen.findByRole("button", { name: "Start session" });
     await waitFor(() => expect(startButton).toBeEnabled());

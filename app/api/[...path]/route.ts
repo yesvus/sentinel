@@ -28,7 +28,7 @@ const MAX_NAME_LENGTH = 100;
 const MAX_DESCRIPTION_LENGTH = 4_000;
 const MAX_NOTE_LENGTH = 10_000;
 const MAX_TASK_TITLE_LENGTH = 200;
-const MAX_TASK_DESCRIPTION_LENGTH = 4_000;
+const MAX_PLAN_CONTEXT_LENGTH = 2_000;
 
 function clientAddress(request: NextRequest) {
   const forwarded = request.headers.get("x-forwarded-for")?.split(",")[0]?.trim();
@@ -205,6 +205,9 @@ async function authRoutes(request: NextRequest, parts: string[]) {
       defaultSessionType: "learning",
       trackProductionSplit: true,
       planReminderHour: 19,
+      planWeeklyReminderDay: 0,
+      planWeeklyReminderHour: 19,
+      planContext: null,
     }, { status: 201 });
     response.cookies.set("token", await createSession(id), COOKIE_OPTIONS);
     return response;
@@ -217,7 +220,7 @@ async function authRoutes(request: NextRequest, parts: string[]) {
     const attemptKey = rateLimitKey("login", `${clientAddress(request)}:${email}`);
     if (await rateLimited(attemptKey, 5)) return error("Too many sign-in attempts. Try again later.", 429);
     const result = await db.execute({
-      sql: "SELECT id, email, password_hash, name, avatar, share_session_descriptions, auto_start_noise, focus_audio_type, default_session_type, track_production_split, plan_reminder_hour FROM users WHERE lower(email) = ?",
+      sql: "SELECT id, email, password_hash, name, avatar, share_session_descriptions, auto_start_noise, focus_audio_type, default_session_type, track_production_split, plan_reminder_hour, plan_weekly_reminder_day, plan_weekly_reminder_hour, plan_context FROM users WHERE lower(email) = ?",
       args: [email],
     });
     const user = result.rows[0];
@@ -234,6 +237,9 @@ async function authRoutes(request: NextRequest, parts: string[]) {
       defaultSessionType: user.default_session_type ?? "learning",
       trackProductionSplit: Boolean(user.track_production_split ?? 1),
       planReminderHour: Number(user.plan_reminder_hour ?? 19),
+      planWeeklyReminderDay: Number(user.plan_weekly_reminder_day ?? 0),
+      planWeeklyReminderHour: Number(user.plan_weekly_reminder_hour ?? 19),
+      planContext: user.plan_context ?? null,
     });
     response.cookies.set("token", await createSession(Number(user.id)), COOKIE_OPTIONS);
     return response;
@@ -249,7 +255,7 @@ async function authRoutes(request: NextRequest, parts: string[]) {
   if (!userId) return unauthorized();
   if (action === "me" && request.method === "GET") {
     const result = await db.execute({
-      sql: "SELECT id, email, name, avatar, share_session_descriptions, auto_start_noise, focus_audio_type, default_session_type, track_production_split, plan_reminder_hour FROM users WHERE id = ?",
+      sql: "SELECT id, email, name, avatar, share_session_descriptions, auto_start_noise, focus_audio_type, default_session_type, track_production_split, plan_reminder_hour, plan_weekly_reminder_day, plan_weekly_reminder_hour, plan_context FROM users WHERE id = ?",
       args: [userId],
     });
     const user = result.rows[0];
@@ -262,6 +268,9 @@ async function authRoutes(request: NextRequest, parts: string[]) {
       defaultSessionType: user.default_session_type ?? "learning",
       trackProductionSplit: Boolean(user.track_production_split ?? 1),
       planReminderHour: Number(user.plan_reminder_hour ?? 19),
+      planWeeklyReminderDay: Number(user.plan_weekly_reminder_day ?? 0),
+      planWeeklyReminderHour: Number(user.plan_weekly_reminder_hour ?? 19),
+      planContext: user.plan_context ?? null,
     });
   }
   if (action === "me" && request.method === "PATCH") {
@@ -271,11 +280,20 @@ async function authRoutes(request: NextRequest, parts: string[]) {
     if (data.avatar !== undefined && data.avatar !== null && !AVATAR_TYPES.has(data.avatar)) {
       return error("Invalid avatar");
     }
+    const planContextError = optionalTextError(data.planContext, "About you", MAX_PLAN_CONTEXT_LENGTH);
+    if (planContextError) return planContextError;
+    const existing = await db.execute({ sql: "SELECT name, avatar, plan_context FROM users WHERE id = ?", args: [userId] });
+    const row = existing.rows[0];
+    const name = data.name !== undefined ? data.name : row.name;
+    const avatar = data.avatar !== undefined ? data.avatar : row.avatar;
+    const planContext = data.planContext !== undefined
+      ? (typeof data.planContext === "string" ? data.planContext.trim() || null : null)
+      : row.plan_context;
     await db.execute({
-      sql: "UPDATE users SET name = ?, avatar = ? WHERE id = ?",
-      args: [data.name ?? null, data.avatar ?? null, userId],
+      sql: "UPDATE users SET name = ?, avatar = ?, plan_context = ? WHERE id = ?",
+      args: [name, avatar, planContext, userId],
     });
-    return NextResponse.json({ name: data.name ?? null, avatar: data.avatar ?? null });
+    return NextResponse.json({ name, avatar, planContext });
   }
   if (action === "privacy" && request.method === "PATCH") {
     const data = await body(request);
@@ -331,30 +349,54 @@ async function authRoutes(request: NextRequest, parts: string[]) {
     ) {
       return error("planReminderHour must be an integer from 0 to 23");
     }
-    if (data.defaultSessionType === undefined && data.trackProductionSplit === undefined && data.planReminderHour === undefined) {
+    if (
+      data.planWeeklyReminderDay !== undefined &&
+      (!Number.isInteger(data.planWeeklyReminderDay) || data.planWeeklyReminderDay < 0 || data.planWeeklyReminderDay > 6)
+    ) {
+      return error("planWeeklyReminderDay must be an integer from 0 (Sunday) to 6 (Saturday)");
+    }
+    if (
+      data.planWeeklyReminderHour !== undefined &&
+      (!Number.isInteger(data.planWeeklyReminderHour) || data.planWeeklyReminderHour < 0 || data.planWeeklyReminderHour > 23)
+    ) {
+      return error("planWeeklyReminderHour must be an integer from 0 to 23");
+    }
+    if (
+      data.defaultSessionType === undefined && data.trackProductionSplit === undefined &&
+      data.planReminderHour === undefined && data.planWeeklyReminderDay === undefined &&
+      data.planWeeklyReminderHour === undefined
+    ) {
       return error("At least one session setting is required");
     }
     await db.execute({
       sql: `UPDATE users
             SET default_session_type = COALESCE(?, default_session_type),
                 track_production_split = COALESCE(?, track_production_split),
-                plan_reminder_hour = COALESCE(?, plan_reminder_hour)
+                plan_reminder_hour = COALESCE(?, plan_reminder_hour),
+                plan_weekly_reminder_day = COALESCE(?, plan_weekly_reminder_day),
+                plan_weekly_reminder_hour = COALESCE(?, plan_weekly_reminder_hour)
             WHERE id = ?`,
       args: [
         data.defaultSessionType ?? null,
         data.trackProductionSplit === undefined ? null : data.trackProductionSplit ? 1 : 0,
         data.planReminderHour ?? null,
+        data.planWeeklyReminderDay ?? null,
+        data.planWeeklyReminderHour ?? null,
         userId,
       ],
     });
     const result = await db.execute({
-      sql: "SELECT default_session_type, track_production_split, plan_reminder_hour FROM users WHERE id = ?",
+      sql: `SELECT default_session_type, track_production_split, plan_reminder_hour,
+                   plan_weekly_reminder_day, plan_weekly_reminder_hour
+            FROM users WHERE id = ?`,
       args: [userId],
     });
     return NextResponse.json({
       defaultSessionType: result.rows[0].default_session_type,
       trackProductionSplit: Boolean(result.rows[0].track_production_split),
       planReminderHour: Number(result.rows[0].plan_reminder_hour),
+      planWeeklyReminderDay: Number(result.rows[0].plan_weekly_reminder_day),
+      planWeeklyReminderHour: Number(result.rows[0].plan_weekly_reminder_hour),
     });
   }
   if (action === "change-password" && request.method === "POST") {
@@ -759,7 +801,10 @@ async function noteRoutes(request: NextRequest, parts: string[], userId: number)
   }
   const scope = parts[1];
   const dateKey = parts[2];
-  if ((scope !== "day" && scope !== "week") || !/^\d{4}-\d{2}-\d{2}$/.test(dateKey ?? "")) return error("Invalid note scope or date");
+  const validDateKey = scope === "long-term" ? dateKey === "long-term" : /^\d{4}-\d{2}-\d{2}$/.test(dateKey ?? "");
+  if ((scope !== "day" && scope !== "week" && scope !== "long-term") || !validDateKey) {
+    return error("Invalid note scope or date");
+  }
   if (request.method === "DELETE") {
     await db.execute({
       sql: "DELETE FROM notes WHERE user_id = ? AND scope = ? AND date_key = ?",
@@ -796,9 +841,16 @@ async function noteRoutes(request: NextRequest, parts: string[], userId: number)
   return error("Not found", 404);
 }
 
+function periodStartError(value: unknown) {
+  if (value === undefined || value === null) return null;
+  return typeof value === "string" && /^\d{4}-\d{2}-\d{2}$/.test(value)
+    ? null
+    : error("periodStart must be a YYYY-MM-DD date or null");
+}
+
 async function taskRoutes(request: NextRequest, parts: string[], userId: number) {
   const id = parts[1] ? Number(parts[1]) : null;
-  const TASK_COLUMNS = "id, scope, period_start, title, description, completed_at";
+  const TASK_COLUMNS = "id, period_start, project_id, title, completed_at";
 
   if (id === null && request.method === "GET") {
     const result = await db.execute({
@@ -809,18 +861,15 @@ async function taskRoutes(request: NextRequest, parts: string[], userId: number)
   }
   if (id === null && request.method === "POST") {
     const data = await body(request);
-    if (data.scope !== "week" && data.scope !== "day") return error("scope must be week or day");
-    if (typeof data.periodStart !== "string" || !/^\d{4}-\d{2}-\d{2}$/.test(data.periodStart)) {
-      return error("periodStart must be a YYYY-MM-DD date");
-    }
+    const periodStartInvalid = periodStartError(data.periodStart);
+    if (periodStartInvalid) return periodStartInvalid;
     if (typeof data.title !== "string" || !data.title.trim()) return error("Title is required");
     if (data.title.trim().length > MAX_TASK_TITLE_LENGTH) return error(`Title must be at most ${MAX_TASK_TITLE_LENGTH} characters`);
-    const descriptionError = optionalTextError(data.description, "Description", MAX_TASK_DESCRIPTION_LENGTH);
-    if (descriptionError) return descriptionError;
-    const description = typeof data.description === "string" ? data.description.trim() || null : null;
+    const invalidProject = await projectIdError(userId, data.projectId);
+    if (invalidProject) return invalidProject;
     const result = await db.execute({
-      sql: "INSERT INTO tasks (user_id, scope, period_start, title, description) VALUES (?, ?, ?, ?, ?)",
-      args: [userId, data.scope, data.periodStart, data.title.trim(), description],
+      sql: "INSERT INTO tasks (user_id, period_start, project_id, title) VALUES (?, ?, ?, ?)",
+      args: [userId, data.periodStart ?? null, data.projectId == null ? null : Number(data.projectId), data.title.trim()],
     });
     const created = await db.execute({
       sql: `SELECT ${TASK_COLUMNS} FROM tasks WHERE id = ?`,
@@ -832,7 +881,7 @@ async function taskRoutes(request: NextRequest, parts: string[], userId: number)
   if (request.method === "PATCH") {
     const data = await body(request);
     const existing = await db.execute({
-      sql: "SELECT title, description, completed_at FROM tasks WHERE id = ? AND user_id = ?",
+      sql: "SELECT title, project_id, period_start, completed_at FROM tasks WHERE id = ? AND user_id = ?",
       args: [id, userId],
     });
     const row = existing.rows[0];
@@ -840,16 +889,19 @@ async function taskRoutes(request: NextRequest, parts: string[], userId: number)
     const title = data.title !== undefined ? (typeof data.title === "string" ? data.title.trim() : "") : (row.title as string);
     if (!title) return error("Title is required");
     if (title.length > MAX_TASK_TITLE_LENGTH) return error(`Title must be at most ${MAX_TASK_TITLE_LENGTH} characters`);
-    const descriptionError = optionalTextError(data.description, "Description", MAX_TASK_DESCRIPTION_LENGTH);
-    if (descriptionError) return descriptionError;
-    const description = data.description !== undefined
-      ? (typeof data.description === "string" ? data.description.trim() || null : null)
-      : row.description;
+    const invalidProject = await projectIdError(userId, data.projectId);
+    if (invalidProject) return invalidProject;
+    const projectId = data.projectId !== undefined
+      ? (data.projectId == null ? null : Number(data.projectId))
+      : row.project_id;
+    const periodStartInvalid = periodStartError(data.periodStart);
+    if (periodStartInvalid) return periodStartInvalid;
+    const periodStart = data.periodStart !== undefined ? data.periodStart : row.period_start;
     if (data.completed !== undefined && typeof data.completed !== "boolean") return error("completed must be a boolean");
     const completedAt = data.completed !== undefined ? (data.completed ? new Date().toISOString() : null) : row.completed_at;
     await db.execute({
-      sql: "UPDATE tasks SET title = ?, description = ?, completed_at = ? WHERE id = ? AND user_id = ?",
-      args: [title, description, completedAt, id!, userId],
+      sql: "UPDATE tasks SET title = ?, project_id = ?, period_start = ?, completed_at = ? WHERE id = ? AND user_id = ?",
+      args: [title, projectId, periodStart, completedAt, id!, userId],
     });
     const updated = await db.execute({
       sql: `SELECT ${TASK_COLUMNS} FROM tasks WHERE id = ?`,

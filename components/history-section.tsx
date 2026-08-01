@@ -40,6 +40,7 @@ import { ProjectIcon } from "@/lib/icons";
 import { useAuth } from "@/lib/auth-context";
 import { toast } from "@/components/ui/toast";
 import { exportSessions, buildAiPrompt } from "@/lib/export";
+import { partialWeekStats } from "@/lib/session-stats";
 import { sessionDurationSeconds } from "@/lib/session-stats";
 import {
   dayKey,
@@ -318,14 +319,16 @@ export function HistorySection({
     return `sentinel-sessions-${key}.csv`;
   }
 
-  function copyAiPrompt(day: DayGroup, weekKeyValue: string) {
+  function copyAiPrompt(day: DayGroup, week: WeekGroup) {
     const prompt = buildAiPrompt({
-      dayLabel: formatDayLabel(day.date),
+      userContext: user?.planContext ?? null,
+      date: day.date,
       sessionList: day.sessions,
-      dayTasks: taskList.filter((task) => task.scope === "day" && task.period_start === day.key),
-      weekTasks: taskList.filter((task) => task.scope === "week" && task.period_start === weekKeyValue),
+      dayTasks: taskList.filter((task) => task.period_start === day.key),
+      projectList,
+      weekGoalsText: findNote("week", week.key)?.content ?? null,
+      weekSoFar: partialWeekStats(week.sessions, week.weekStart, day.key, now),
       dayNote: findNote("day", day.key),
-      weekNote: findNote("week", weekKeyValue),
       now,
     });
     navigator.clipboard.writeText(prompt);
@@ -566,7 +569,7 @@ export function HistorySection({
                                         variant="ghost"
                                         size="icon-sm"
                                         className="text-muted-foreground"
-                                        onClick={() => copyAiPrompt(day, week.key)}
+                                        onClick={() => copyAiPrompt(day, week)}
                                       >
                                         <Copy />
                                       </Button>
