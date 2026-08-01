@@ -7,13 +7,13 @@ import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Textarea } from "@/components/ui/textarea";
 import { Card, CardContent } from "@/components/ui/card";
-import { sessions, projects as projectsApi, ApiError, Project, StudySession } from "@/lib/api";
+import { sessions, projects as projectsApi, tasks as tasksApi, ApiError, Project, StudySession, Task } from "@/lib/api";
 import { useAuth } from "@/lib/auth-context";
 import { NOISE_SESSION_EVENT } from "@/lib/noise-player";
 import { ProjectIconPicker } from "@/components/project-icon-picker";
 import { ProjectSelector } from "@/components/project-selector";
 import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip";
-import { pad } from "@/lib/date";
+import { pad, dayKey, weekKey } from "@/lib/date";
 import {
   Dialog,
   DialogContent,
@@ -69,6 +69,8 @@ export default function AppHomePage() {
   const [projectList, setProjectList] = useState<Project[]>([]);
   const [projectId, setProjectId] = useState<number | null>(null);
   const [description, setDescription] = useState("");
+  const [taskList, setTaskList] = useState<Task[]>([]);
+  const [selectedTaskIds, setSelectedTaskIds] = useState<number[]>([]);
   const [creatingProject, setCreatingProject] = useState(false);
   const [newProjectName, setNewProjectName] = useState("");
   const [newProjectIcon, setNewProjectIcon] = useState<string | null>(null);
@@ -111,7 +113,12 @@ export default function AppHomePage() {
 
   useEffect(() => {
     projectsApi.list().then(setProjectList).catch(() => {});
+    tasksApi.list().then(setTaskList).catch(() => {});
   }, []);
+
+  function toggleTask(id: number) {
+    setSelectedTaskIds((current) => (current.includes(id) ? current.filter((t) => t !== id) : [...current, id]));
+  }
 
   useEffect(() => {
     sessions
@@ -137,6 +144,7 @@ export default function AppHomePage() {
         setLastDuration(null);
         setProjectId(message.projectId);
         setDescription(message.description ?? "");
+        setSelectedTaskIds([]);
       } else if (message.type === "stopped") {
         setLastDuration(message.durationSeconds);
         setSessionId(null);
@@ -211,11 +219,12 @@ export default function AppHomePage() {
     setError(null);
     setBusy(true);
     try {
-      const session = await sessions.start({ projectId, description: description || null });
+      const session = await sessions.start({ projectId, description: description || null, taskIds: selectedTaskIds });
       setSessionId(session.id);
       setStartedAt(new Date(session.startedAt).getTime());
       setElapsedMs(0);
       setLastDuration(null);
+      setSelectedTaskIds([]);
       broadcast({
         type: "started",
         id: session.id,
@@ -344,6 +353,15 @@ export default function AppHomePage() {
       await save();
     }
   }
+
+  const todayKey = dayKey(new Date());
+  const thisWeekKey = weekKey(new Date());
+  const availableTasks = taskList.filter(
+    (task) =>
+      task.completed_at === null &&
+      ((task.scope === "day" && task.period_start === todayKey) ||
+        (task.scope === "week" && task.period_start === thisWeekKey))
+  );
 
   return (
     <div className="flex flex-1 flex-col items-center justify-center gap-10 px-4">
@@ -573,6 +591,25 @@ export default function AppHomePage() {
               <Button type="button" variant={newProjectPinned ? "default" : "outline"} onClick={() => setNewProjectPinned((value) => !value)}>
                 {newProjectPinned ? "Pinned" : "Pin project"}
               </Button>
+            </div>
+          )}
+
+          {!isRunning && availableTasks.length > 0 && (
+            <div className="space-y-1.5">
+              <p className="text-muted-foreground text-xs font-medium">Working on</p>
+              <div className="space-y-1">
+                {availableTasks.map((task) => (
+                  <label key={task.id} className="flex cursor-pointer items-start gap-2 text-sm">
+                    <input
+                      type="checkbox"
+                      checked={selectedTaskIds.includes(task.id)}
+                      onChange={() => toggleTask(task.id)}
+                      className="accent-primary mt-0.5 size-4 shrink-0"
+                    />
+                    <span>{task.title}</span>
+                  </label>
+                ))}
+              </div>
             </div>
           )}
 

@@ -2,7 +2,7 @@
 
 import Link from "next/link";
 import { usePathname, useRouter } from "next/navigation";
-import { Home, BarChart2, User, Settings, LogOut, ChevronsUpDown, Moon, Sun, FolderKanban, Monitor, Clock3, Check, Users } from "lucide-react";
+import { Home, BarChart2, User, Settings, LogOut, ChevronsUpDown, Moon, Sun, FolderKanban, Monitor, Clock3, Check, Users, ListTodo } from "lucide-react";
 import {
   Sidebar,
   SidebarContent,
@@ -31,6 +31,7 @@ import {
 
 export const NAV_ITEMS = [
   { title: "Home", url: "/app", icon: Home },
+  { title: "Plan", url: "/app/plan", icon: ListTodo },
   { title: "Stats", url: "/app/stats", icon: BarChart2 },
   { title: "Projects", url: "/app/projects", icon: FolderKanban },
   { title: "Friends", url: "/app/friends", icon: Users },

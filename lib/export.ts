@@ -1,4 +1,4 @@
-import { StudySession, Note, Project } from "./api";
+import { StudySession, Note, Project, Task } from "./api";
 
 const CSV_HEADER = [
   "Type",
@@ -124,4 +124,77 @@ export function exportSessions(
   now: number
 ) {
   downloadCsv(filename, sessionsToCsv(sessionList, noteList, projectList, now));
+}
+
+function taskLines(taskList: Task[]) {
+  if (!taskList.length) return "_None._";
+  return taskList
+    .map((task) => {
+      const box = task.completed_at ? "[x]" : "[ ]";
+      const details = task.description ? `\n  ${task.description.replace(/\n/g, "\n  ")}` : "";
+      return `- ${box} ${task.title}${details}`;
+    })
+    .join("\n");
+}
+
+function sessionLines(sessionList: StudySession[], now: number) {
+  if (!sessionList.length) return "_No sessions logged._";
+  return sessionList
+    .slice()
+    .sort((a, b) => new Date(a.started_at).getTime() - new Date(b.started_at).getTime())
+    .map((session) => {
+      const isActive = session.ended_at === null;
+      const start = new Date(session.started_at);
+      const seconds = isActive
+        ? Math.max(0, Math.floor((now - start.getTime()) / 1000))
+        : (session.duration_seconds ?? 0);
+      const startLabel = start.toLocaleTimeString(undefined, { hour: "2-digit", minute: "2-digit", hour12: false });
+      const endLabel = isActive
+        ? "now"
+        : new Date(session.ended_at!).toLocaleTimeString(undefined, { hour: "2-digit", minute: "2-digit", hour12: false });
+      const minutes = Math.round(seconds / 60);
+      const project = session.project_path ?? session.project_name ?? "No project";
+      const description = session.description ? `: ${session.description}` : "";
+      return `- ${startLabel}–${endLabel} (${minutes}m) · ${project}${description}`;
+    })
+    .join("\n");
+}
+
+/** Builds a markdown prompt to paste into an AI chat for reviewing a single day. `now` covers a still-running session. */
+export function buildAiPrompt({
+  dayLabel,
+  sessionList,
+  dayTasks,
+  weekTasks,
+  dayNote,
+  weekNote,
+  now,
+}: {
+  dayLabel: string;
+  sessionList: StudySession[];
+  dayTasks: Task[];
+  weekTasks: Task[];
+  dayNote: Note | undefined;
+  weekNote: Note | undefined;
+  now: number;
+}) {
+  return `# Day review — ${dayLabel}
+
+## Sessions
+${sessionLines(sessionList, now)}
+
+## Today's tasks
+${taskLines(dayTasks)}
+
+## This week's tasks
+${taskLines(weekTasks)}
+
+## Today's note
+${dayNote?.content?.trim() || "_None._"}
+
+## This week's note
+${weekNote?.content?.trim() || "_None._"}
+
+---
+Based on the above, grade how the day went, call out anything that stands out (good or bad), and suggest 1-3 concrete improvements for tomorrow.`;
 }

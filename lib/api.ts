@@ -16,6 +16,7 @@ function cacheLifetime(path: string) {
   if (path === "/api/projects") return 60_000;
   if (path.startsWith("/api/sessions?")) return 30_000;
   if (path === "/api/notes") return 30_000;
+  if (path === "/api/tasks") return 30_000;
   if (path.startsWith("/api/reports/weekly?")) return 10 * 60_000;
   return 0;
 }
@@ -73,6 +74,7 @@ export type User = {
   focusAudioType: FocusAudioType;
   defaultSessionType: "learning" | "producing";
   trackProductionSplit: boolean;
+  planReminderHour: number;
 };
 
 export type FocusAudioType = "white" | "pink" | "brown" | "speech-blocker" | "binaural-40hz";
@@ -104,11 +106,15 @@ export const auth = {
       method: "PATCH",
       body: JSON.stringify(details),
     }),
-  updateSessionSettings: (settings: { defaultSessionType?: "learning" | "producing"; trackProductionSplit?: boolean }) =>
-    api<{ defaultSessionType: "learning" | "producing"; trackProductionSplit: boolean }>("/api/auth/session-settings", {
-      method: "PATCH",
-      body: JSON.stringify(settings),
-    }),
+  updateSessionSettings: (settings: {
+    defaultSessionType?: "learning" | "producing";
+    trackProductionSplit?: boolean;
+    planReminderHour?: number;
+  }) =>
+    api<{ defaultSessionType: "learning" | "producing"; trackProductionSplit: boolean; planReminderHour: number }>(
+      "/api/auth/session-settings",
+      { method: "PATCH", body: JSON.stringify(settings) }
+    ),
 };
 
 export type StudySession = {
@@ -131,7 +137,7 @@ export type StudySession = {
 export type SessionPage = { items: StudySession[]; nextCursor: string | null };
 
 export const sessions = {
-  start: (details?: { projectId?: number | null; description?: string | null }) =>
+  start: (details?: { projectId?: number | null; description?: string | null; taskIds?: number[] }) =>
     api<{ id: number; startedAt: string }>("/api/sessions/start", {
       method: "POST",
       body: JSON.stringify(details ?? {}),
@@ -195,6 +201,27 @@ export const notes = {
       method: "PUT",
       body: JSON.stringify({ content }),
     }),
+};
+
+export type Task = {
+  id: number;
+  scope: "week" | "day";
+  period_start: string;
+  title: string;
+  description: string | null;
+  completed_at: string | null;
+};
+
+export const tasks = {
+  list: () => api<Task[]>("/api/tasks"),
+  create: (scope: "week" | "day", periodStart: string, title: string, description?: string | null) =>
+    api<Task>("/api/tasks", {
+      method: "POST",
+      body: JSON.stringify({ scope, periodStart, title, description }),
+    }),
+  update: (id: number, details: { title?: string; description?: string | null; completed?: boolean }) =>
+    api<Task>(`/api/tasks/${id}`, { method: "PATCH", body: JSON.stringify(details) }),
+  remove: (id: number) => api<void>(`/api/tasks/${id}`, { method: "DELETE" }),
 };
 
 export type Project = {

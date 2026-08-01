@@ -1,7 +1,7 @@
 "use client";
 
 import { useState, FormEvent } from "react";
-import { History as HistoryIcon, Trash2, Plus, Pencil, Download, ChevronDown, ChevronRight } from "lucide-react";
+import { History as HistoryIcon, Trash2, Plus, Pencil, Download, Copy, ChevronDown, ChevronRight } from "lucide-react";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -35,11 +35,11 @@ import {
   AlertDialogCancel,
   AlertDialogAction,
 } from "@/components/ui/alert-dialog";
-import { sessions as sessionsApi, ApiError, StudySession, Project, Note } from "@/lib/api";
+import { sessions as sessionsApi, ApiError, StudySession, Project, Note, Task } from "@/lib/api";
 import { ProjectIcon } from "@/lib/icons";
-import { NoteEditor } from "@/components/note-editor";
 import { useAuth } from "@/lib/auth-context";
-import { exportSessions } from "@/lib/export";
+import { toast } from "@/components/ui/toast";
+import { exportSessions, buildAiPrompt } from "@/lib/export";
 import { sessionDurationSeconds } from "@/lib/session-stats";
 import {
   dayKey,
@@ -111,26 +111,24 @@ export function HistorySection({
   sessions: sessionList,
   projects: projectList,
   notes,
+  tasks: taskList,
   now,
   hasMore,
   loadingMore,
   loadMoreError,
   onLoadMore,
   onSessionsChange,
-  onNoteSaved,
-  onNoteDeleted,
 }: {
   sessions: StudySession[];
   projects: Project[];
   notes: Note[];
+  tasks: Task[];
   now: number;
   hasMore: boolean;
   loadingMore: boolean;
   loadMoreError: string | null;
   onLoadMore: () => void;
   onSessionsChange: (updater: (list: StudySession[]) => StudySession[]) => void;
-  onNoteSaved: (note: Note) => void;
-  onNoteDeleted: (scope: "day" | "week", dateKey: string) => void;
 }) {
   const { user } = useAuth();
   const trackProductionSplit = user?.trackProductionSplit ?? true;
@@ -320,6 +318,25 @@ export function HistorySection({
     return `sentinel-sessions-${key}.csv`;
   }
 
+  function copyAiPrompt(day: DayGroup, weekKeyValue: string) {
+    const prompt = buildAiPrompt({
+      dayLabel: formatDayLabel(day.date),
+      sessionList: day.sessions,
+      dayTasks: taskList.filter((task) => task.scope === "day" && task.period_start === day.key),
+      weekTasks: taskList.filter((task) => task.scope === "week" && task.period_start === weekKeyValue),
+      dayNote: findNote("day", day.key),
+      weekNote: findNote("week", weekKeyValue),
+      now,
+    });
+    navigator.clipboard.writeText(prompt);
+    toast.add({
+      id: `ai-prompt-${day.key}`,
+      type: "success",
+      title: "Copied AI prompt",
+      description: "Paste it into your AI chat for a review.",
+    });
+  }
+
   return (
     <Card>
       <CardHeader className="flex flex-wrap items-center justify-between gap-2">
@@ -491,7 +508,6 @@ export function HistorySection({
         )}
         <div className="space-y-6">
           {weeks.map((week) => {
-            const weekNote = findNote("week", week.key);
             const weekCollapsed = collapsedWeeks.has(week.key);
 
             return (
@@ -531,21 +547,8 @@ export function HistorySection({
 
                 {!weekCollapsed && (
                   <>
-                    <div className="pl-5">
-                      <NoteEditor
-                        scope="week"
-                        dateKey={week.key}
-                        note={weekNote}
-                        label={formatWeekRangeLabel(week.weekStart)}
-                        onSaved={onNoteSaved}
-                        onDeleted={() => onNoteDeleted("week", week.key)}
-                      />
-                    </div>
-
                     <div className="space-y-4 pl-5">
                       {week.days.map((day) => {
-                        const dayNote = findNote("day", day.key);
-
                         return (
                           <div key={day.key} className="space-y-2">
                             <div className="flex flex-wrap items-center justify-between gap-2">
@@ -555,31 +558,39 @@ export function HistorySection({
                                   {formatDuration(day.totalSeconds)}
                                 </span>
                               </div>
-                              <Tooltip>
-                                <TooltipTrigger
-                                  render={
-                                    <Button
-                                      variant="ghost"
-                                      size="icon-sm"
-                                      className="text-muted-foreground"
-                                      onClick={() => exportSessions(exportFilename("day", day.key), day.sessions, notesForDay(day.key), projectList, now)}
-                                    >
-                                      <Download />
-                                    </Button>
-                                  }
-                                />
-                                <TooltipContent>Export this day as CSV</TooltipContent>
-                              </Tooltip>
+                              <div className="flex items-center">
+                                <Tooltip>
+                                  <TooltipTrigger
+                                    render={
+                                      <Button
+                                        variant="ghost"
+                                        size="icon-sm"
+                                        className="text-muted-foreground"
+                                        onClick={() => copyAiPrompt(day, week.key)}
+                                      >
+                                        <Copy />
+                                      </Button>
+                                    }
+                                  />
+                                  <TooltipContent>Copy an AI review prompt for this day</TooltipContent>
+                                </Tooltip>
+                                <Tooltip>
+                                  <TooltipTrigger
+                                    render={
+                                      <Button
+                                        variant="ghost"
+                                        size="icon-sm"
+                                        className="text-muted-foreground"
+                                        onClick={() => exportSessions(exportFilename("day", day.key), day.sessions, notesForDay(day.key), projectList, now)}
+                                      >
+                                        <Download />
+                                      </Button>
+                                    }
+                                  />
+                                  <TooltipContent>Export this day as CSV</TooltipContent>
+                                </Tooltip>
+                              </div>
                             </div>
-
-                            <NoteEditor
-                              scope="day"
-                              dateKey={day.key}
-                              note={dayNote}
-                              label={formatDayLabel(day.date)}
-                              onSaved={onNoteSaved}
-                              onDeleted={() => onNoteDeleted("day", day.key)}
-                            />
 
                             <div className="space-y-2">
                               {day.sessions.map((session) => {

@@ -4,7 +4,7 @@ import { useEffect, useState } from "react";
 import { Hourglass } from "lucide-react";
 import { Card, CardHeader, CardTitle, CardContent } from "@/components/ui/card";
 import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip";
-import { sessions as sessionsApi, projects as projectsApi, notes as notesApi, StudySession, Project, Note } from "@/lib/api";
+import { sessions as sessionsApi, projects as projectsApi, notes as notesApi, tasks as tasksApi, StudySession, Project, Note, Task } from "@/lib/api";
 import { dayKey, formatDuration } from "@/lib/date";
 import { dailyAllocationTotals, dailyTotals } from "@/lib/session-stats";
 import { ReportCards } from "@/components/report-cards";
@@ -73,6 +73,7 @@ export default function StatsPage() {
   const [historyLoadError, setHistoryLoadError] = useState<string | null>(null);
   const [projectList, setProjectList] = useState<Project[]>([]);
   const [noteList, setNoteList] = useState<Note[]>([]);
+  const [taskList, setTaskList] = useState<Task[]>([]);
   const [loading, setLoading] = useState(true);
   const [now, setNow] = useState(() => Date.now());
   const [selectedRoot, setSelectedRoot] = useState("all");
@@ -90,6 +91,7 @@ export default function StatsPage() {
       .finally(() => setLoading(false));
     projectsApi.list().then(setProjectList).catch(() => {});
     notesApi.list().then(setNoteList).catch(() => {});
+    tasksApi.list().then(setTaskList).catch(() => {});
   }, []);
 
   useEffect(() => {
@@ -281,14 +283,13 @@ export default function StatsPage() {
         sessions={filteredSessions}
         projects={projectList}
         notes={noteList}
+        tasks={taskList}
         now={now}
         hasMore={historyCursor !== null}
         loadingMore={loadingMoreHistory}
         loadMoreError={historyLoadError}
         onLoadMore={loadMoreHistory}
         onSessionsChange={handleHistorySessionsChange}
-        onNoteSaved={handleNoteSaved}
-        onNoteDeleted={handleNoteDeleted}
       />
     </div>
   );

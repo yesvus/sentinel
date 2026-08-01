@@ -27,6 +27,8 @@ const MAX_PASSWORD_LENGTH = 128;
 const MAX_NAME_LENGTH = 100;
 const MAX_DESCRIPTION_LENGTH = 4_000;
 const MAX_NOTE_LENGTH = 10_000;
+const MAX_TASK_TITLE_LENGTH = 200;
+const MAX_TASK_DESCRIPTION_LENGTH = 4_000;
 
 function clientAddress(request: NextRequest) {
   const forwarded = request.headers.get("x-forwarded-for")?.split(",")[0]?.trim();
@@ -80,6 +82,21 @@ async function projectIdError(userId: number, value: unknown) {
     args: [projectId, userId],
   });
   return project.rows.length ? null : error("Project not found", 404);
+}
+
+async function taskIdsError(userId: number, value: unknown) {
+  if (value === undefined) return null;
+  if (!Array.isArray(value)) return error("taskIds must be an array");
+  if (value.length > 20) return error("Too many tasks selected");
+  const ids = value.map(Number);
+  if (ids.some((taskId) => !Number.isInteger(taskId) || taskId < 1)) return error("Invalid task id");
+  if (!ids.length) return null;
+  const placeholders = ids.map(() => "?").join(",");
+  const rows = await db.execute({
+    sql: `SELECT id FROM tasks WHERE user_id = ? AND id IN (${placeholders})`,
+    args: [userId, ...ids],
+  });
+  return rows.rows.length === new Set(ids).size ? null : error("One or more tasks not found", 404);
 }
 
 function validProductionPercentage(value: unknown): value is number | null {
@@ -187,6 +204,7 @@ async function authRoutes(request: NextRequest, parts: string[]) {
       focusAudioType: "speech-blocker",
       defaultSessionType: "learning",
       trackProductionSplit: true,
+      planReminderHour: 19,
     }, { status: 201 });
     response.cookies.set("token", await createSession(id), COOKIE_OPTIONS);
     return response;
@@ -199,7 +217,7 @@ async function authRoutes(request: NextRequest, parts: string[]) {
     const attemptKey = rateLimitKey("login", `${clientAddress(request)}:${email}`);
     if (await rateLimited(attemptKey, 5)) return error("Too many sign-in attempts. Try again later.", 429);
     const result = await db.execute({
-      sql: "SELECT id, email, password_hash, name, avatar, share_session_descriptions, auto_start_noise, focus_audio_type, default_session_type, track_production_split FROM users WHERE lower(email) = ?",
+      sql: "SELECT id, email, password_hash, name, avatar, share_session_descriptions, auto_start_noise, focus_audio_type, default_session_type, track_production_split, plan_reminder_hour FROM users WHERE lower(email) = ?",
       args: [email],
     });
     const user = result.rows[0];
@@ -215,6 +233,7 @@ async function authRoutes(request: NextRequest, parts: string[]) {
       focusAudioType: user.focus_audio_type ?? "speech-blocker",
       defaultSessionType: user.default_session_type ?? "learning",
       trackProductionSplit: Boolean(user.track_production_split ?? 1),
+      planReminderHour: Number(user.plan_reminder_hour ?? 19),
     });
     response.cookies.set("token", await createSession(Number(user.id)), COOKIE_OPTIONS);
     return response;
@@ -230,7 +249,7 @@ async function authRoutes(request: NextRequest, parts: string[]) {
   if (!userId) return unauthorized();
   if (action === "me" && request.method === "GET") {
     const result = await db.execute({
-      sql: "SELECT id, email, name, avatar, share_session_descriptions, auto_start_noise, focus_audio_type, default_session_type, track_production_split FROM users WHERE id = ?",
+      sql: "SELECT id, email, name, avatar, share_session_descriptions, auto_start_noise, focus_audio_type, default_session_type, track_production_split, plan_reminder_hour FROM users WHERE id = ?",
       args: [userId],
     });
     const user = result.rows[0];
@@ -242,6 +261,7 @@ async function authRoutes(request: NextRequest, parts: string[]) {
       focusAudioType: user.focus_audio_type ?? "speech-blocker",
       defaultSessionType: user.default_session_type ?? "learning",
       trackProductionSplit: Boolean(user.track_production_split ?? 1),
+      planReminderHour: Number(user.plan_reminder_hour ?? 19),
     });
   }
   if (action === "me" && request.method === "PATCH") {
@@ -305,27 +325,36 @@ async function authRoutes(request: NextRequest, parts: string[]) {
     if (data.trackProductionSplit !== undefined && typeof data.trackProductionSplit !== "boolean") {
       return error("trackProductionSplit must be a boolean");
     }
-    if (data.defaultSessionType === undefined && data.trackProductionSplit === undefined) {
+    if (
+      data.planReminderHour !== undefined &&
+      (!Number.isInteger(data.planReminderHour) || data.planReminderHour < 0 || data.planReminderHour > 23)
+    ) {
+      return error("planReminderHour must be an integer from 0 to 23");
+    }
+    if (data.defaultSessionType === undefined && data.trackProductionSplit === undefined && data.planReminderHour === undefined) {
       return error("At least one session setting is required");
     }
     await db.execute({
       sql: `UPDATE users
             SET default_session_type = COALESCE(?, default_session_type),
-                track_production_split = COALESCE(?, track_production_split)
+                track_production_split = COALESCE(?, track_production_split),
+                plan_reminder_hour = COALESCE(?, plan_reminder_hour)
             WHERE id = ?`,
       args: [
         data.defaultSessionType ?? null,
         data.trackProductionSplit === undefined ? null : data.trackProductionSplit ? 1 : 0,
+        data.planReminderHour ?? null,
         userId,
       ],
     });
     const result = await db.execute({
-      sql: "SELECT default_session_type, track_production_split FROM users WHERE id = ?",
+      sql: "SELECT default_session_type, track_production_split, plan_reminder_hour FROM users WHERE id = ?",
       args: [userId],
     });
     return NextResponse.json({
       defaultSessionType: result.rows[0].default_session_type,
       trackProductionSplit: Boolean(result.rows[0].track_production_split),
+      planReminderHour: Number(result.rows[0].plan_reminder_hour),
     });
   }
   if (action === "change-password" && request.method === "POST") {
@@ -360,13 +389,26 @@ async function sessionRoutes(request: NextRequest, parts: string[], userId: numb
     if (descriptionError) return descriptionError;
     const invalidProject = await projectIdError(userId, data.projectId);
     if (invalidProject) return invalidProject;
+    const invalidTasks = await taskIdsError(userId, data.taskIds);
+    if (invalidTasks) return invalidTasks;
     const startedAt = new Date().toISOString();
     try {
       const result = await db.execute({
         sql: "INSERT INTO sessions (user_id, started_at, description, project_id) VALUES (?, ?, ?, ?)",
         args: [userId, startedAt, data.description ?? null, data.projectId == null ? null : Number(data.projectId)],
       });
-      return NextResponse.json({ id: Number(result.lastInsertRowid), startedAt }, { status: 201 });
+      const sessionId = Number(result.lastInsertRowid);
+      const uniqueTaskIds = new Set<number>();
+      if (Array.isArray(data.taskIds)) {
+        for (const rawTaskId of data.taskIds) uniqueTaskIds.add(Number(rawTaskId));
+      }
+      for (const taskId of uniqueTaskIds) {
+        await db.execute({
+          sql: "INSERT INTO session_tasks (session_id, task_id) VALUES (?, ?)",
+          args: [sessionId, taskId],
+        });
+      }
+      return NextResponse.json({ id: sessionId, startedAt }, { status: 201 });
     } catch (caught) {
       if (!uniqueActiveError(caught)) throw caught;
       return NextResponse.json({ error: "A session is already in progress", session: await activeSession(userId) }, { status: 409 });
@@ -754,6 +796,77 @@ async function noteRoutes(request: NextRequest, parts: string[], userId: number)
   return error("Not found", 404);
 }
 
+async function taskRoutes(request: NextRequest, parts: string[], userId: number) {
+  const id = parts[1] ? Number(parts[1]) : null;
+  const TASK_COLUMNS = "id, scope, period_start, title, description, completed_at";
+
+  if (id === null && request.method === "GET") {
+    const result = await db.execute({
+      sql: `SELECT ${TASK_COLUMNS} FROM tasks WHERE user_id = ? ORDER BY created_at`,
+      args: [userId],
+    });
+    return NextResponse.json(result.rows);
+  }
+  if (id === null && request.method === "POST") {
+    const data = await body(request);
+    if (data.scope !== "week" && data.scope !== "day") return error("scope must be week or day");
+    if (typeof data.periodStart !== "string" || !/^\d{4}-\d{2}-\d{2}$/.test(data.periodStart)) {
+      return error("periodStart must be a YYYY-MM-DD date");
+    }
+    if (typeof data.title !== "string" || !data.title.trim()) return error("Title is required");
+    if (data.title.trim().length > MAX_TASK_TITLE_LENGTH) return error(`Title must be at most ${MAX_TASK_TITLE_LENGTH} characters`);
+    const descriptionError = optionalTextError(data.description, "Description", MAX_TASK_DESCRIPTION_LENGTH);
+    if (descriptionError) return descriptionError;
+    const description = typeof data.description === "string" ? data.description.trim() || null : null;
+    const result = await db.execute({
+      sql: "INSERT INTO tasks (user_id, scope, period_start, title, description) VALUES (?, ?, ?, ?, ?)",
+      args: [userId, data.scope, data.periodStart, data.title.trim(), description],
+    });
+    const created = await db.execute({
+      sql: `SELECT ${TASK_COLUMNS} FROM tasks WHERE id = ?`,
+      args: [Number(result.lastInsertRowid)],
+    });
+    return NextResponse.json(created.rows[0], { status: 201 });
+  }
+  if (!Number.isInteger(id)) return error("Not found", 404);
+  if (request.method === "PATCH") {
+    const data = await body(request);
+    const existing = await db.execute({
+      sql: "SELECT title, description, completed_at FROM tasks WHERE id = ? AND user_id = ?",
+      args: [id, userId],
+    });
+    const row = existing.rows[0];
+    if (!row) return error("Task not found", 404);
+    const title = data.title !== undefined ? (typeof data.title === "string" ? data.title.trim() : "") : (row.title as string);
+    if (!title) return error("Title is required");
+    if (title.length > MAX_TASK_TITLE_LENGTH) return error(`Title must be at most ${MAX_TASK_TITLE_LENGTH} characters`);
+    const descriptionError = optionalTextError(data.description, "Description", MAX_TASK_DESCRIPTION_LENGTH);
+    if (descriptionError) return descriptionError;
+    const description = data.description !== undefined
+      ? (typeof data.description === "string" ? data.description.trim() || null : null)
+      : row.description;
+    if (data.completed !== undefined && typeof data.completed !== "boolean") return error("completed must be a boolean");
+    const completedAt = data.completed !== undefined ? (data.completed ? new Date().toISOString() : null) : row.completed_at;
+    await db.execute({
+      sql: "UPDATE tasks SET title = ?, description = ?, completed_at = ? WHERE id = ? AND user_id = ?",
+      args: [title, description, completedAt, id!, userId],
+    });
+    const updated = await db.execute({
+      sql: `SELECT ${TASK_COLUMNS} FROM tasks WHERE id = ?`,
+      args: [id],
+    });
+    return NextResponse.json(updated.rows[0]);
+  }
+  if (request.method === "DELETE") {
+    const owned = await db.execute({ sql: "SELECT 1 FROM tasks WHERE id = ? AND user_id = ?", args: [id, userId] });
+    if (!owned.rows.length) return error("Task not found", 404);
+    await db.execute({ sql: "DELETE FROM session_tasks WHERE task_id = ?", args: [id] });
+    await db.execute({ sql: "DELETE FROM tasks WHERE id = ?", args: [id] });
+    return noContent();
+  }
+  return error("Not found", 404);
+}
+
 function socialUser(row: Record<string, unknown>) {
   return { id: Number(row.user_id), name: row.name ?? null, email: row.email, avatar: row.avatar ?? null };
 }
@@ -1132,6 +1245,7 @@ async function handle(request: NextRequest, context: Context) {
   if (path[0] === "sessions") return sessionRoutes(request, path, userId);
   if (path[0] === "projects") return projectRoutes(request, path, userId);
   if (path[0] === "notes") return noteRoutes(request, path, userId);
+  if (path[0] === "tasks") return taskRoutes(request, path, userId);
   if (path[0] === "social") return socialRoutes(request, path, userId);
   if (path[0] === "reports") return reportRoutes(request, path, userId);
   if (path[0] === "calendar") return calendarRoutes(request, path, userId);

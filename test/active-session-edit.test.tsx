@@ -42,14 +42,13 @@ describe("active session editing", () => {
         sessions={[active]}
         projects={[]}
         notes={[]}
+        tasks={[]}
         now={now}
         hasMore={false}
         loadingMore={false}
         loadMoreError={null}
         onLoadMore={vi.fn()}
         onSessionsChange={vi.fn()}
-        onNoteSaved={vi.fn()}
-        onNoteDeleted={vi.fn()}
       />
     );
 
@@ -85,14 +84,13 @@ describe("active session editing", () => {
         sessions={[completed]}
         projects={[]}
         notes={[]}
+        tasks={[]}
         now={now}
         hasMore={false}
         loadingMore={false}
         loadMoreError={null}
         onLoadMore={vi.fn()}
         onSessionsChange={vi.fn()}
-        onNoteSaved={vi.fn()}
-        onNoteDeleted={vi.fn()}
       />
     );
 

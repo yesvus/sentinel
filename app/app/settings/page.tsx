@@ -7,6 +7,7 @@ import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { ApiError, auth, calendar } from "@/lib/api";
 import { useAuth } from "@/lib/auth-context";
 import { ThemeMode, useTheme } from "@/lib/theme-context";
+import { pad } from "@/lib/date";
 
 export default function SettingsPage() {
   const { user, refresh } = useAuth();
@@ -66,6 +67,19 @@ export default function SettingsPage() {
       await refresh();
     } catch (err) {
       setError(err instanceof ApiError ? err.message : "Could not save session setting");
+    } finally {
+      setSavingSessionDefault(false);
+    }
+  }
+
+  async function updatePlanReminderHour(hour: number) {
+    setSavingSessionDefault(true);
+    setError(null);
+    try {
+      await auth.updateSessionSettings({ planReminderHour: hour });
+      await refresh();
+    } catch (err) {
+      setError(err instanceof ApiError ? err.message : "Could not save reminder time");
     } finally {
       setSavingSessionDefault(false);
     }
@@ -184,6 +198,22 @@ export default function SettingsPage() {
               </div>
             </div>
           )}
+          <div className="space-y-2 border-t pt-4">
+            <div>
+              <p className="text-sm font-medium">Plan reminder</p>
+              <p className="text-muted-foreground text-sm">
+                A soft nudge on the Plan tab after this time if tomorrow isn&apos;t planned yet. It&apos;s just a
+                reminder — nothing is blocked.
+              </p>
+            </div>
+            <input
+              type="time"
+              value={`${pad(user?.planReminderHour ?? 19)}:00`}
+              onChange={(event) => updatePlanReminderHour(Number(event.target.value.split(":")[0]))}
+              disabled={savingSessionDefault}
+              className="border-input bg-background h-9 w-full max-w-40 rounded-md border px-3"
+            />
+          </div>
         </CardContent>
       </Card>
       <Card>
