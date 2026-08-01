@@ -53,9 +53,9 @@ export function AlwaysOpenNote({
         placeholder={placeholder}
         className={className ?? "min-h-20"}
       />
-      {status !== "idle" && (
-        <p className="text-muted-foreground text-xs">{status === "saving" ? "Saving..." : "Saved"}</p>
-      )}
+      <p className={`text-muted-foreground h-4 text-xs ${status === "idle" ? "invisible" : "visible"}`}>
+        {status === "saving" ? "Saving..." : "Saved"}
+      </p>
     </div>
   );
 }

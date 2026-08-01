@@ -993,11 +993,9 @@ export default function AppHomePage() {
               onChange={(e) => handleDetailsChange({ description: e.target.value })}
               disabled={refreshingActive}
             />
-            {descriptionStatus !== "idle" && (
-              <p className="text-muted-foreground text-xs">
-                {descriptionStatus === "saving" ? "Saving..." : "Saved"}
-              </p>
-            )}
+            <p className={`text-muted-foreground h-4 text-xs ${descriptionStatus === "idle" ? "invisible" : "visible"}`}>
+              {descriptionStatus === "saving" ? "Saving..." : "Saved"}
+            </p>
           </div>
         </CardContent>
       </Card>
