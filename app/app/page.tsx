@@ -8,8 +8,9 @@ import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Textarea } from "@/components/ui/textarea";
 import { Card, CardContent } from "@/components/ui/card";
+import { Skeleton } from "@/components/ui/skeleton";
 import { toast } from "@/components/ui/toast";
-import { sessions, projects as projectsApi, tasks as tasksApi, ApiError, Project, StudySession, Task } from "@/lib/api";
+import { sessions, projects as projectsApi, tasks as tasksApi, notes as notesApi, ApiError, Note, Project, StudySession, Task } from "@/lib/api";
 import { useAuth } from "@/lib/auth-context";
 import { NOISE_SESSION_EVENT } from "@/lib/noise-player";
 import { ProjectIconPicker } from "@/components/project-icon-picker";
@@ -75,8 +76,10 @@ export default function AppHomePage() {
   const [descriptionStatus, setDescriptionStatus] = useState<"idle" | "saving" | "saved">("idle");
   const [refreshingActive, setRefreshingActive] = useState(false);
   const [taskList, setTaskList] = useState<Task[]>([]);
+  const [noteList, setNoteList] = useState<Note[]>([]);
   const [todaySessions, setTodaySessions] = useState<StudySession[]>([]);
   const [recentSessions, setRecentSessions] = useState<StudySession[]>([]);
+  const [sidebarDataLoaded, setSidebarDataLoaded] = useState(false);
   const [sidebarsVisible, setSidebarsVisible] = useState(false);
   const [sidebarsExiting, setSidebarsExiting] = useState(false);
   const [selectedTaskIds, setSelectedTaskIds] = useState<number[]>([]);
@@ -172,15 +175,20 @@ export default function AppHomePage() {
   function loadSidebars() {
     const today = new Date();
     today.setHours(0, 0, 0, 0);
-    sessions.list({ from: today.toISOString() }).then(setTodaySessions).catch(() => {});
-    // The active session is included first, so fetch one extra item to keep four completed sessions visible.
-    sessions.page(null, 5).then((page) => setRecentSessions(page.items.filter((session) => session.ended_at !== null).slice(0, 4))).catch(() => {});
+    return Promise.all([
+      sessions.list({ from: today.toISOString() }).then(setTodaySessions).catch(() => {}),
+      // The active session is included first, so fetch one extra item to keep four completed sessions visible.
+      sessions.page(null, 5).then((page) => setRecentSessions(page.items.filter((session) => session.ended_at !== null).slice(0, 4))).catch(() => {}),
+    ]);
   }
 
   useEffect(() => {
-    projectsApi.list().then(setProjectList).catch(() => {});
-    tasksApi.list().then(setTaskList).catch(() => {});
-    loadSidebars();
+    Promise.all([
+      projectsApi.list().then(setProjectList).catch(() => {}),
+      tasksApi.list().then(setTaskList).catch(() => {}),
+      notesApi.list().then(setNoteList).catch(() => {}),
+      loadSidebars(),
+    ]).finally(() => setSidebarDataLoaded(true));
   }, []);
 
   function toggleTask(id: number) {
@@ -479,6 +487,7 @@ export default function AppHomePage() {
 
   const todayKey = dayKey(new Date());
   const todayLabel = new Date().toLocaleDateString(undefined, { weekday: "long", month: "long", day: "numeric" });
+  const todayNote = noteList.find((note) => note.scope === "day" && note.date_key === todayKey);
   const todayProjectTasks = taskList.filter((task) => task.period_start === todayKey && task.project_id === projectId);
   const availableTasks = todayProjectTasks.filter((task) => task.completed_at === null);
   const todayTasks = taskList.filter((task) => task.period_start === todayKey);
@@ -508,7 +517,14 @@ export default function AppHomePage() {
           {todayTrackedSeconds > 0 && <span className="text-muted-foreground font-mono text-xs">{formatDuration(todayTrackedSeconds)}</span>}
         </div>
         <div className="space-y-3 px-1">
-          {orderedTodayTaskGroups.map(({ project, tasks }) => (
+          {!sidebarDataLoaded && (
+            <div className="space-y-2">
+              <Skeleton className="h-3 w-20" />
+              <Skeleton className="h-4 w-full" />
+              <Skeleton className="h-4 w-2/3" />
+            </div>
+          )}
+          {sidebarDataLoaded && orderedTodayTaskGroups.map(({ project, tasks }) => (
             <button
               key={project?.id ?? "none"}
               type="button"
@@ -539,8 +555,11 @@ export default function AppHomePage() {
               ))}
             </button>
           ))}
-          {todayTasks.length === 0 && (
+          {sidebarDataLoaded && todayTasks.length === 0 && (
             <p className="text-muted-foreground text-sm">Nothing planned for today.</p>
+          )}
+          {sidebarDataLoaded && todayNote?.content && (
+            <p className="text-muted-foreground border-t pt-2 text-xs whitespace-pre-wrap">{todayNote.content}</p>
           )}
           <Link href={`/app/plan?day=${todayKey}`} className="text-primary block pt-1 text-xs font-medium hover:underline">
             Open today&apos;s plan →
@@ -992,7 +1011,20 @@ export default function AppHomePage() {
           </div>
         </div>
         <div className="space-y-3 px-1">
-          {recentSessions.map((session) => (
+          {!sidebarDataLoaded && (
+            <div className="space-y-3">
+              {[0, 1, 2].map((i) => (
+                <div key={i} className="flex items-start justify-between gap-2">
+                  <div className="min-w-0 flex-1 space-y-1.5">
+                    <Skeleton className="h-3.5 w-2/3" />
+                    <Skeleton className="h-3 w-1/3" />
+                  </div>
+                  <Skeleton className="h-3 w-8 shrink-0" />
+                </div>
+              ))}
+            </div>
+          )}
+          {sidebarDataLoaded && recentSessions.map((session) => (
             <button
               key={session.id}
               type="button"
@@ -1015,7 +1047,7 @@ export default function AppHomePage() {
               <span className="text-muted-foreground shrink-0 font-mono text-xs">{formatDuration(session.duration_seconds ?? 0)}</span>
             </button>
           ))}
-          {recentSessions.length === 0 && <p className="text-muted-foreground text-sm">Your completed sessions will show here.</p>}
+          {sidebarDataLoaded && recentSessions.length === 0 && <p className="text-muted-foreground text-sm">Your completed sessions will show here.</p>}
           <Link href="/app/stats" className="text-primary block pt-1 text-xs font-medium hover:underline">
             View all activity →
           </Link>

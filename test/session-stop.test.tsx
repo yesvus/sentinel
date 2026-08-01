@@ -36,6 +36,9 @@ vi.mock("@/lib/api", () => {
     tasks: {
       list: vi.fn().mockResolvedValue([]),
     },
+    notes: {
+      list: vi.fn().mockResolvedValue([]),
+    },
     sessions: {
       getActive: vi.fn().mockResolvedValue(null),
       list: vi.fn().mockResolvedValue([]),
