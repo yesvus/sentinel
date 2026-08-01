@@ -48,10 +48,24 @@ export default function SettingsPage() {
     setSavingSessionDefault(true);
     setError(null);
     try {
-      await auth.updateSessionSettings(defaultSessionType);
+      await auth.updateSessionSettings({ defaultSessionType });
       await refresh();
     } catch (err) {
       setError(err instanceof ApiError ? err.message : "Could not save session default");
+    } finally {
+      setSavingSessionDefault(false);
+    }
+  }
+
+  async function toggleTrackProductionSplit() {
+    if (!user) return;
+    setSavingSessionDefault(true);
+    setError(null);
+    try {
+      await auth.updateSessionSettings({ trackProductionSplit: !user.trackProductionSplit });
+      await refresh();
+    } catch (err) {
+      setError(err instanceof ApiError ? err.message : "Could not save session setting");
     } finally {
       setSavingSessionDefault(false);
     }
@@ -127,27 +141,49 @@ export default function SettingsPage() {
             Session default
           </CardTitle>
         </CardHeader>
-        <CardContent className="space-y-3">
-          <div>
-            <p className="text-sm font-medium">New sessions begin as</p>
-            <p className="text-muted-foreground text-sm">
-              This sets the initial position in the finish screen. You can still adjust every session.
-            </p>
+        <CardContent className="space-y-4">
+          <div className="flex flex-col gap-4 sm:flex-row sm:items-center sm:justify-between">
+            <div className="max-w-2xl space-y-1">
+              <p className="text-sm font-medium">Track learning vs. producing</p>
+              <p className="text-muted-foreground text-sm">
+                Ask for a Learning/Producing split when you finish a session. Turn this off to skip
+                that step entirely.
+              </p>
+            </div>
+            <Button
+              variant={user?.trackProductionSplit ? "default" : "outline"}
+              role="switch"
+              aria-checked={user?.trackProductionSplit ?? false}
+              onClick={toggleTrackProductionSplit}
+              disabled={savingSessionDefault}
+            >
+              {savingSessionDefault ? "Saving..." : user?.trackProductionSplit ? "Tracking on" : "Tracking off"}
+            </Button>
           </div>
-          <div className="grid max-w-sm grid-cols-2 gap-2">
-            {(["learning", "producing"] as const).map((value) => (
-              <Button
-                key={value}
-                type="button"
-                variant={user?.defaultSessionType === value ? "default" : "outline"}
-                disabled={savingSessionDefault}
-                aria-pressed={user?.defaultSessionType === value}
-                onClick={() => updateSessionDefault(value)}
-              >
-                {value === "learning" ? "Learning" : "Producing"}
-              </Button>
-            ))}
-          </div>
+          {user?.trackProductionSplit && (
+            <div className="space-y-3 border-t pt-4">
+              <div>
+                <p className="text-sm font-medium">New sessions begin as</p>
+                <p className="text-muted-foreground text-sm">
+                  This sets the initial position in the finish screen. You can still adjust every session.
+                </p>
+              </div>
+              <div className="grid max-w-sm grid-cols-2 gap-2">
+                {(["learning", "producing"] as const).map((value) => (
+                  <Button
+                    key={value}
+                    type="button"
+                    variant={user?.defaultSessionType === value ? "default" : "outline"}
+                    disabled={savingSessionDefault}
+                    aria-pressed={user?.defaultSessionType === value}
+                    onClick={() => updateSessionDefault(value)}
+                  >
+                    {value === "learning" ? "Learning" : "Producing"}
+                  </Button>
+                ))}
+              </div>
+            </div>
+          )}
         </CardContent>
       </Card>
       <Card>

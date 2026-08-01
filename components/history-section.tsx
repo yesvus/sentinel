@@ -38,6 +38,7 @@ import {
 import { sessions as sessionsApi, ApiError, StudySession, Project, Note } from "@/lib/api";
 import { ProjectIcon } from "@/lib/icons";
 import { NoteEditor } from "@/components/note-editor";
+import { useAuth } from "@/lib/auth-context";
 import { exportSessions } from "@/lib/export";
 import { sessionDurationSeconds } from "@/lib/session-stats";
 import {
@@ -131,6 +132,8 @@ export function HistorySection({
   onNoteSaved: (note: Note) => void;
   onNoteDeleted: (scope: "day" | "week", dateKey: string) => void;
 }) {
+  const { user } = useAuth();
+  const trackProductionSplit = user?.trackProductionSplit ?? true;
   const [expandedIds, setExpandedIds] = useState<Set<number>>(new Set());
   const [collapsedWeeks, setCollapsedWeeks] = useState<Set<string>>(new Set());
 
@@ -221,13 +224,14 @@ export function HistorySection({
 
     setAddBusy(true);
     try {
+      const productionPercentage = trackProductionSplit ? addProductionPercentage : null;
       if (editingId !== null) {
         await sessionsApi.update(editingId, {
           startedAt: startedAt.toISOString(),
           endedAt: endedAt?.toISOString() ?? null,
           projectId: addProjectId,
           description: addDescription || null,
-          productionPercentage: editingActive ? null : addProductionPercentage,
+          productionPercentage: editingActive ? null : productionPercentage,
         });
         onSessionsChange((list) =>
           list
@@ -244,7 +248,7 @@ export function HistorySection({
                     project_id: addProjectId,
                     project_name: project?.name ?? null,
                     project_icon: project?.icon ?? null,
-                    production_percentage: editingActive ? null : addProductionPercentage,
+                    production_percentage: editingActive ? null : productionPercentage,
                   }
                 : s
             )
@@ -266,7 +270,7 @@ export function HistorySection({
           endedAt: endedAt!.toISOString(),
           projectId: addProjectId,
           description: addDescription || null,
-          productionPercentage: addProductionPercentage,
+          productionPercentage,
         });
         onSessionsChange((list) =>
           [
@@ -279,7 +283,7 @@ export function HistorySection({
               project_id: addProjectId,
               project_name: project?.name ?? null,
               project_icon: project?.icon ?? null,
-              production_percentage: addProductionPercentage,
+              production_percentage: productionPercentage,
             },
             ...list,
           ].sort((a, b) => new Date(b.started_at).getTime() - new Date(a.started_at).getTime())
@@ -449,7 +453,7 @@ export function HistorySection({
                   placeholder="What were you working on?"
                 />
               </div>
-              {!editingActive && (
+              {!editingActive && trackProductionSplit && (
                 <div className="space-y-2">
                   <div className="flex items-center justify-between">
                     <Label htmlFor="add-production">Session allocation</Label>

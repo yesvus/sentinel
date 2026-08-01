@@ -69,6 +69,7 @@ export default function AppHomePage() {
   const [lastDuration, setLastDuration] = useState<number | null>(null);
   const [resuming, setResuming] = useState(true);
   const [stopOpen, setStopOpen] = useState(false);
+  const trackProductionSplit = user?.trackProductionSplit ?? true;
   const defaultProductionPercentage = user?.defaultSessionType === "producing" ? 100 : 0;
   const [productionPercentage, setProductionPercentage] = useState(defaultProductionPercentage);
   const intervalRef = useRef<ReturnType<typeof setInterval> | null>(null);
@@ -224,7 +225,7 @@ export default function AppHomePage() {
     setError(null);
     setBusy(true);
     try {
-      const result = await sessions.stop(sessionId, description || null, productionPercentage);
+      const result = await sessions.stop(sessionId, description || null, trackProductionSplit ? productionPercentage : null);
       setLastDuration(result.durationSeconds);
       setSessionId(null);
       setStartedAt(null);
@@ -341,48 +342,55 @@ export default function AppHomePage() {
           <DialogHeader>
             <div className="flex items-center gap-2">
               <DialogTitle>Finish session</DialogTitle>
-              <Tooltip>
-                <TooltipTrigger
-                  render={
-                    <Button
-                      type="button"
-                      size="icon-sm"
-                      variant="ghost"
-                      aria-label="About Learning and Producing"
-                    />
-                  }
-                >
-                  <Info />
-                </TooltipTrigger>
-                <TooltipContent className="max-w-72">
-                  Learning builds capability for later. Producing creates or delivers something
-                  usable now. This is your estimate, not a productivity score.
-                </TooltipContent>
-              </Tooltip>
+              {trackProductionSplit && (
+                <Tooltip>
+                  <TooltipTrigger
+                    render={
+                      <Button
+                        type="button"
+                        size="icon-sm"
+                        variant="ghost"
+                        aria-label="About Learning and Producing"
+                      />
+                    }
+                  >
+                    <Info />
+                  </TooltipTrigger>
+                  <TooltipContent className="max-w-72">
+                    Learning builds capability for later. Producing creates or delivers something
+                    usable now. This is your estimate, not a productivity score.
+                  </TooltipContent>
+                </Tooltip>
+              )}
             </div>
-            <DialogDescription>Adjust the split, then finish.</DialogDescription>
+            <DialogDescription>
+              {trackProductionSplit ? "Adjust the split, then finish." : "Finish this session."}
+            </DialogDescription>
           </DialogHeader>
-          <div className="space-y-4">
-            <div className="flex justify-between text-sm font-medium">
-              <span>Learning</span>
-              <span>Producing</span>
+          {trackProductionSplit && (
+            <div className="space-y-4">
+              <div className="flex justify-between text-sm font-medium">
+                <span>Learning</span>
+                <span>Producing</span>
+              </div>
+              <input
+                type="range"
+                min="0"
+                max="100"
+                step="10"
+                value={productionPercentage}
+                onChange={(event) => setProductionPercentage(Number(event.target.value))}
+                aria-label="Learning and Producing allocation"
+                aria-valuetext={`Learning ${100 - productionPercentage} percent, Producing ${productionPercentage} percent`}
+                className="accent-primary w-full cursor-pointer"
+              />
+              <p className="text-center text-sm font-medium" aria-live="polite">
+                Learning {100 - productionPercentage}% · Producing {productionPercentage}%
+              </p>
+              {error && <p className="text-destructive text-sm">{error}</p>}
             </div>
-            <input
-              type="range"
-              min="0"
-              max="100"
-              step="10"
-              value={productionPercentage}
-              onChange={(event) => setProductionPercentage(Number(event.target.value))}
-              aria-label="Learning and Producing allocation"
-              aria-valuetext={`Learning ${100 - productionPercentage} percent, Producing ${productionPercentage} percent`}
-              className="accent-primary w-full cursor-pointer"
-            />
-            <p className="text-center text-sm font-medium" aria-live="polite">
-              Learning {100 - productionPercentage}% · Producing {productionPercentage}%
-            </p>
-            {error && <p className="text-destructive text-sm">{error}</p>}
-          </div>
+          )}
+          {!trackProductionSplit && error && <p className="text-destructive text-sm">{error}</p>}
           <DialogFooter>
             <Button type="button" variant="ghost" onClick={() => setStopOpen(false)} disabled={busy}>
               Keep running

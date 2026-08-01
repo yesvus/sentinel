@@ -165,6 +165,7 @@ async function authRoutes(request: NextRequest, parts: string[]) {
       id, email, name: null, avatar: null, shareSessionDescriptions: false, autoStartNoise: false,
       focusAudioType: "speech-blocker",
       defaultSessionType: "learning",
+      trackProductionSplit: true,
     }, { status: 201 });
     response.cookies.set("token", await createSession(id), COOKIE_OPTIONS);
     return response;
@@ -177,7 +178,7 @@ async function authRoutes(request: NextRequest, parts: string[]) {
     const attemptKey = rateLimitKey("login", `${clientAddress(request)}:${email}`);
     if (await rateLimited(attemptKey, 5)) return error("Too many sign-in attempts. Try again later.", 429);
     const result = await db.execute({
-      sql: "SELECT id, email, password_hash, name, avatar, share_session_descriptions, auto_start_noise, focus_audio_type, default_session_type FROM users WHERE lower(email) = ?",
+      sql: "SELECT id, email, password_hash, name, avatar, share_session_descriptions, auto_start_noise, focus_audio_type, default_session_type, track_production_split FROM users WHERE lower(email) = ?",
       args: [email],
     });
     const user = result.rows[0];
@@ -192,6 +193,7 @@ async function authRoutes(request: NextRequest, parts: string[]) {
       autoStartNoise: Boolean(user.auto_start_noise),
       focusAudioType: user.focus_audio_type ?? "speech-blocker",
       defaultSessionType: user.default_session_type ?? "learning",
+      trackProductionSplit: Boolean(user.track_production_split ?? 1),
     });
     response.cookies.set("token", await createSession(Number(user.id)), COOKIE_OPTIONS);
     return response;
@@ -207,7 +209,7 @@ async function authRoutes(request: NextRequest, parts: string[]) {
   if (!userId) return unauthorized();
   if (action === "me" && request.method === "GET") {
     const result = await db.execute({
-      sql: "SELECT id, email, name, avatar, share_session_descriptions, auto_start_noise, focus_audio_type, default_session_type FROM users WHERE id = ?",
+      sql: "SELECT id, email, name, avatar, share_session_descriptions, auto_start_noise, focus_audio_type, default_session_type, track_production_split FROM users WHERE id = ?",
       args: [userId],
     });
     const user = result.rows[0];
@@ -218,6 +220,7 @@ async function authRoutes(request: NextRequest, parts: string[]) {
       autoStartNoise: Boolean(user.auto_start_noise),
       focusAudioType: user.focus_audio_type ?? "speech-blocker",
       defaultSessionType: user.default_session_type ?? "learning",
+      trackProductionSplit: Boolean(user.track_production_split ?? 1),
     });
   }
   if (action === "me" && request.method === "PATCH") {
@@ -275,14 +278,34 @@ async function authRoutes(request: NextRequest, parts: string[]) {
   }
   if (action === "session-settings" && request.method === "PATCH") {
     const data = await body(request);
-    if (data.defaultSessionType !== "learning" && data.defaultSessionType !== "producing") {
+    if (data.defaultSessionType !== undefined && data.defaultSessionType !== "learning" && data.defaultSessionType !== "producing") {
       return error("defaultSessionType must be learning or producing");
     }
+    if (data.trackProductionSplit !== undefined && typeof data.trackProductionSplit !== "boolean") {
+      return error("trackProductionSplit must be a boolean");
+    }
+    if (data.defaultSessionType === undefined && data.trackProductionSplit === undefined) {
+      return error("At least one session setting is required");
+    }
     await db.execute({
-      sql: "UPDATE users SET default_session_type = ? WHERE id = ?",
-      args: [data.defaultSessionType, userId],
+      sql: `UPDATE users
+            SET default_session_type = COALESCE(?, default_session_type),
+                track_production_split = COALESCE(?, track_production_split)
+            WHERE id = ?`,
+      args: [
+        data.defaultSessionType ?? null,
+        data.trackProductionSplit === undefined ? null : data.trackProductionSplit ? 1 : 0,
+        userId,
+      ],
     });
-    return NextResponse.json({ defaultSessionType: data.defaultSessionType });
+    const result = await db.execute({
+      sql: "SELECT default_session_type, track_production_split FROM users WHERE id = ?",
+      args: [userId],
+    });
+    return NextResponse.json({
+      defaultSessionType: result.rows[0].default_session_type,
+      trackProductionSplit: Boolean(result.rows[0].track_production_split),
+    });
   }
   if (action === "change-password" && request.method === "POST") {
     const data = await body(request);

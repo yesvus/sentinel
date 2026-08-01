@@ -175,6 +175,10 @@ async function initialize() {
     `);
   });
 
+  await migrate(5, async () => {
+    await addColumn("users", "track_production_split INTEGER NOT NULL DEFAULT 1");
+  });
+
   for (const statement of [
     "CREATE INDEX IF NOT EXISTS idx_auth_sessions_user ON auth_sessions (user_id)",
     "CREATE INDEX IF NOT EXISTS idx_auth_sessions_expiry ON auth_sessions (expires_at)",

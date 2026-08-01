@@ -17,6 +17,10 @@ vi.mock("@/lib/api", () => {
   };
 });
 
+vi.mock("@/lib/auth-context", () => ({
+  useAuth: () => ({ user: { trackProductionSplit: true }, loading: false, refresh: vi.fn() }),
+}));
+
 describe("active session editing", () => {
   beforeEach(() => update.mockClear());
 
