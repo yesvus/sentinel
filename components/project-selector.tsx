@@ -1,7 +1,7 @@
 "use client";
 
 import { useMemo, useState } from "react";
-import { ChevronsUpDown, Folder, Pin, Plus } from "lucide-react";
+import { ChevronsUpDown, Pin, Plus } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import {
   DropdownMenu,
@@ -14,7 +14,7 @@ import {
 } from "@/components/ui/dropdown-menu";
 import { Input } from "@/components/ui/input";
 import type { Project } from "@/lib/api";
-import { ProjectIcon } from "@/lib/icons";
+import { ProjectIcon, NoProjectIcon } from "@/lib/icons";
 
 export function ProjectSelector({
   projects,
@@ -64,25 +64,31 @@ export function ProjectSelector({
 
   return (
     <DropdownMenu open={open} onOpenChange={setOpen}>
-      <DropdownMenuTrigger
-        render={
-          <Button
-            type="button"
-            variant="outline"
-            role="combobox"
-            aria-expanded={open}
-            aria-label="Choose project"
-            disabled={disabled}
-            className="w-full justify-between font-normal"
-          />
-        }
-      >
-        <span className="flex min-w-0 items-center gap-2">
-          <ProjectIcon icon={selected?.icon ?? null} className="size-4 shrink-0" />
-          <span className="truncate">{selected?.path ?? "No project"}</span>
-        </span>
-        <ChevronsUpDown className="text-muted-foreground" />
-      </DropdownMenuTrigger>
+      <div className={disabled ? "cursor-not-allowed" : undefined}>
+        <DropdownMenuTrigger
+          render={
+            <Button
+              type="button"
+              variant="outline"
+              role="combobox"
+              aria-expanded={open}
+              aria-label="Choose project"
+              disabled={disabled}
+              className="w-full justify-between font-normal"
+            />
+          }
+        >
+          <span className="flex min-w-0 items-center gap-2">
+            {selected ? (
+              <ProjectIcon icon={selected.icon} className="size-4 shrink-0" />
+            ) : (
+              <NoProjectIcon className="text-muted-foreground size-4 shrink-0" />
+            )}
+            <span className="truncate">{selected?.path ?? "No project"}</span>
+          </span>
+          <ChevronsUpDown className="text-muted-foreground" />
+        </DropdownMenuTrigger>
+      </div>
       <DropdownMenuContent align="start" className="w-[min(24rem,calc(100vw-2rem))]">
         <div className="p-2">
           <Input
@@ -98,7 +104,7 @@ export function ProjectSelector({
         <DropdownMenuSeparator />
         {!search && (
           <DropdownMenuItem onClick={() => choose(null)}>
-            <Folder />
+            <NoProjectIcon />
             No project
           </DropdownMenuItem>
         )}

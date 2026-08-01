@@ -36,7 +36,7 @@ import {
   AlertDialogAction,
 } from "@/components/ui/alert-dialog";
 import { sessions as sessionsApi, ApiError, StudySession, Project, Note, Task } from "@/lib/api";
-import { ProjectIcon } from "@/lib/icons";
+import { ProjectIcon, NoProjectIcon } from "@/lib/icons";
 import { useAuth } from "@/lib/auth-context";
 import { toast } from "@/components/ui/toast";
 import { exportSessions, buildAiPrompt } from "@/lib/export";
@@ -443,7 +443,11 @@ export function HistorySection({
                         const project = projectList.find((p) => String(p.id) === value);
                         return (
                           <span className="flex items-center gap-2">
-                            <ProjectIcon icon={project?.icon ?? null} className="size-4" />
+                            {project ? (
+                              <ProjectIcon icon={project.icon} className="size-4" />
+                            ) : (
+                              <NoProjectIcon className="size-4" />
+                            )}
                             {project?.path ?? "No project"}
                           </span>
                         );
@@ -452,7 +456,7 @@ export function HistorySection({
                   </SelectTrigger>
                   <SelectContent>
                     <SelectItem value={NO_PROJECT_VALUE}>
-                      <ProjectIcon icon={null} className="size-4" />
+                      <NoProjectIcon className="size-4" />
                       No project
                     </SelectItem>
                     {projectList.filter((project) => !project.archived || project.id === addProjectId).map((project) => (
@@ -618,7 +622,11 @@ export function HistorySection({
                                           {session.ended_at ? formatTime(session.ended_at) : "now"}
                                         </span>
                                         <Badge variant={session.project_name ? "secondary" : "outline"} className="gap-1">
-                                          <ProjectIcon icon={session.project_icon} className="size-3" />
+                                          {session.project_id ? (
+                                            <ProjectIcon icon={session.project_icon} className="size-3" />
+                                          ) : (
+                                            <NoProjectIcon className="size-3" />
+                                          )}
                                           {session.project_path ?? session.project_name ?? NO_PROJECT_LABEL}
                                         </Badge>
                                         {isActive && (

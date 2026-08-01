@@ -24,6 +24,7 @@ import {
   Gamepad2,
   Sparkles,
   Folder,
+  CircleDashed,
 } from "lucide-react";
 
 export const PROJECT_ICONS = {
@@ -52,6 +53,11 @@ export function ProjectIcon({
 }) {
   const Icon = icon && icon in PROJECT_ICONS ? PROJECT_ICONS[icon as ProjectIconKey] : Folder;
   return <Icon className={className} />;
+}
+
+/** For "no project selected" specifically — distinct from a real project that just has no custom icon. */
+export function NoProjectIcon({ className }: { className?: string }) {
+  return <CircleDashed className={className} />;
 }
 
 export const AVATAR_ICONS = {
