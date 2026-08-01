@@ -540,6 +540,20 @@ async function sessionRoutes(request: NextRequest, parts: string[], userId: numb
 
   const id = Number(action);
   if (!Number.isInteger(id)) return error("Not found", 404);
+  if (parts[2] === "tasks" && request.method === "GET") {
+    const result = await db.execute({
+      sql: `
+        SELECT tasks.id, tasks.period_start, tasks.project_id, tasks.title, tasks.completed_at
+        FROM session_tasks
+        JOIN tasks ON tasks.id = session_tasks.task_id
+        JOIN sessions ON sessions.id = session_tasks.session_id
+        WHERE session_tasks.session_id = ? AND sessions.user_id = ?
+        ORDER BY tasks.id
+      `,
+      args: [id, userId],
+    });
+    return NextResponse.json(result.rows);
+  }
   if (parts[2] === "stop" && request.method === "PATCH") {
     const data = await body(request);
     const allocationError = productionPercentageError(data.productionPercentage);

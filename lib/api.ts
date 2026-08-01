@@ -186,6 +186,7 @@ export const sessions = {
     return api<SessionPage>(`/api/sessions?${query}`);
   },
   getActive: () => api<StudySession | null>("/api/sessions/active"),
+  tasks: (id: number) => api<Task[]>(`/api/sessions/${id}/tasks`),
   remove: (id: number) => api<void>(`/api/sessions/${id}`, { method: "DELETE" }),
   createManual: (details: {
     startedAt: string;
