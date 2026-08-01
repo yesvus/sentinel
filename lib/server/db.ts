@@ -224,9 +224,11 @@ async function initialize() {
   });
 
   await migrate(8, async () => {
-    // period_start was NOT NULL in the original migration 6; relax it so a task can be an
-    // unscheduled project backlog item (no date yet). session_tasks.task_id references this
-    // table, so foreign key checks must be off for the rebuild-drop-rename.
+    // Some deployments already had migration 6 create `tasks` in its original shape
+    // (scope/description columns, no project_id, period_start NOT NULL) before this table was
+    // reworked. Rebuild to the current shape regardless of which starting shape is present.
+    // session_tasks.task_id references this table, so foreign key checks must be off for the
+    // rebuild-drop-rename.
     await db.execute("PRAGMA foreign_keys = OFF");
     try {
       await db.execute("DROP TABLE IF EXISTS tasks_new");
@@ -241,9 +243,10 @@ async function initialize() {
           created_at TEXT NOT NULL DEFAULT (datetime('now'))
         )
       `);
+      const projectIdSelect = (await columnExists("tasks", "project_id")) ? "project_id" : "NULL";
       await db.execute(`
         INSERT INTO tasks_new (id, user_id, period_start, project_id, title, completed_at, created_at)
-        SELECT id, user_id, period_start, project_id, title, completed_at, created_at FROM tasks
+        SELECT id, user_id, period_start, ${projectIdSelect}, title, completed_at, created_at FROM tasks
       `);
       await db.execute(`DROP TABLE tasks`);
       await db.execute(`ALTER TABLE tasks_new RENAME TO tasks`);
