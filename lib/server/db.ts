@@ -255,6 +255,17 @@ async function initialize() {
     }
   });
 
+  await migrate(9, async () => {
+    // Some deployments already had migration 6 run (recorded as applied) before these columns
+    // were added to its body, so migrate()'s "already applied" check skipped them entirely.
+    // addColumn() is per-column idempotent, so this is safe to run regardless of which of these
+    // a given database already has.
+    await addColumn("users", "plan_reminder_hour INTEGER NOT NULL DEFAULT 19");
+    await addColumn("users", "plan_weekly_reminder_day INTEGER NOT NULL DEFAULT 0");
+    await addColumn("users", "plan_weekly_reminder_hour INTEGER NOT NULL DEFAULT 19");
+    await addColumn("users", "plan_context TEXT");
+  });
+
   for (const statement of [
     "CREATE INDEX IF NOT EXISTS idx_auth_sessions_user ON auth_sessions (user_id)",
     "CREATE INDEX IF NOT EXISTS idx_auth_sessions_expiry ON auth_sessions (expires_at)",
