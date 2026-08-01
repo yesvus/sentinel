@@ -1,7 +1,7 @@
 "use client";
 
 import { useState } from "react";
-import { CalendarDays, Clock3, Copy, Gauge, Monitor, Moon, ShieldCheck, Sun } from "lucide-react";
+import { CalendarDays, Copy, Gauge, Monitor, Moon, ShieldCheck, Sun } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { ApiError, auth, calendar } from "@/lib/api";
@@ -13,7 +13,7 @@ const WEEKDAY_NAMES = ["Sunday", "Monday", "Tuesday", "Wednesday", "Thursday", "
 
 export default function SettingsPage() {
   const { user, refresh } = useAuth();
-  const { mode, schedule, setMode, setSchedule } = useTheme();
+  const { mode, setMode } = useTheme();
   const [savingPrivacy, setSavingPrivacy] = useState(false);
   const [savingSessionDefault, setSavingSessionDefault] = useState(false);
   const [calendarToken, setCalendarToken] = useState<string | null>(null);
@@ -271,12 +271,11 @@ export default function SettingsPage() {
           </CardTitle>
         </CardHeader>
         <CardContent className="space-y-5">
-          <div className="grid gap-2 sm:grid-cols-4">
+          <div className="grid gap-2 sm:grid-cols-3">
             {([
               ["system", "System", Monitor],
               ["light", "Light", Sun],
               ["dark", "Dark", Moon],
-              ["scheduled", "Scheduled", Clock3],
             ] as const).map(([value, label, Icon]) => (
               <Button
                 key={value}
@@ -291,31 +290,8 @@ export default function SettingsPage() {
             ))}
           </div>
           <p className="text-muted-foreground text-sm">
-            System follows your device and is the default. Scheduled switches automatically using
-            your local time.
+            System follows your device.
           </p>
-          {mode === "scheduled" && (
-            <div className="grid max-w-md gap-4 sm:grid-cols-2">
-              <label className="space-y-2 text-sm font-medium">
-                <span>Dark from</span>
-                <input
-                  type="time"
-                  value={schedule.darkFrom}
-                  onChange={(event) => setSchedule({ ...schedule, darkFrom: event.target.value })}
-                  className="border-input bg-background h-9 w-full rounded-md border px-3"
-                />
-              </label>
-              <label className="space-y-2 text-sm font-medium">
-                <span>Light from</span>
-                <input
-                  type="time"
-                  value={schedule.lightFrom}
-                  onChange={(event) => setSchedule({ ...schedule, lightFrom: event.target.value })}
-                  className="border-input bg-background h-9 w-full rounded-md border px-3"
-                />
-              </label>
-            </div>
-          )}
         </CardContent>
       </Card>
     </div>

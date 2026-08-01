@@ -46,23 +46,23 @@ function storedSettings(): ThemeSettings {
   try {
     const stored = JSON.parse(localStorage.getItem(STORAGE_KEY) || "null") as Partial<ThemeSettings> | null;
     const mode =
-      stored?.mode === "light" || stored?.mode === "dark" || stored?.mode === "scheduled"
+      stored?.mode === "light" || stored?.mode === "dark" || stored?.mode === "scheduled" || stored?.mode === "system"
         ? stored.mode
-        : "system";
+        : "dark";
     const schedule =
       stored?.schedule?.darkFrom && stored.schedule.lightFrom
         ? stored.schedule as ThemeSchedule
         : DEFAULT_SCHEDULE;
     return { mode, schedule };
   } catch {
-    return { mode: "system", schedule: DEFAULT_SCHEDULE };
+    return { mode: "dark", schedule: DEFAULT_SCHEDULE };
   }
 }
 
 export function ThemeProvider({ children }: { children: React.ReactNode }) {
-  const [mode, setModeState] = useState<ThemeMode>("system");
+  const [mode, setModeState] = useState<ThemeMode>("dark");
   const [schedule, setScheduleState] = useState<ThemeSchedule>(DEFAULT_SCHEDULE);
-  const [theme, setTheme] = useState<Theme>("light");
+  const [theme, setTheme] = useState<Theme>("dark");
 
   const apply = useCallback((nextMode: ThemeMode, nextSchedule: ThemeSchedule) => {
     const nextTheme = resolveTheme(nextMode, nextSchedule);
