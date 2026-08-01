@@ -33,7 +33,7 @@ export function FriendsControl() {
   const [activity, setActivity] = useState<FriendActivity[]>([]);
 
   const load = useCallback(() => {
-    social.activity().then(setActivity).catch(() => {});
+    social.activity().then((page) => setActivity(page.items)).catch(() => {});
   }, []);
 
   useEffect(() => {

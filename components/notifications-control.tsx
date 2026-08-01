@@ -1,7 +1,7 @@
 "use client";
 
 import { useCallback, useEffect, useRef, useState } from "react";
-import { Bell, Zap } from "lucide-react";
+import { Bell, X } from "lucide-react";
 import { social, SocialNotification } from "@/lib/api";
 import { Avatar } from "@/lib/icons";
 import { Button } from "@/components/ui/button";
@@ -114,6 +114,16 @@ export function NotificationsControl({ userId }: { userId: number }) {
     await social.readNotifications().catch(() => void load());
   }
 
+  async function dismiss(id: number) {
+    setNotifications((current) => current.filter((notification) => notification.id !== id));
+    await social.dismissNotification(id).catch(() => void load());
+  }
+
+  async function clearAll() {
+    setNotifications([]);
+    await social.clearNotifications().catch(() => void load());
+  }
+
   return (
     <DropdownMenu onOpenChange={markRead}>
       <DropdownMenuTrigger
@@ -135,12 +145,29 @@ export function NotificationsControl({ userId }: { userId: number }) {
       </DropdownMenuTrigger>
       <DropdownMenuContent side="bottom" align="end" sideOffset={8} className="w-80">
         <DropdownMenuGroup>
-          <DropdownMenuLabel>Notifications</DropdownMenuLabel>
+          <div className="flex items-center justify-between gap-2 px-1.5 py-1">
+            <DropdownMenuLabel className="p-0">Notifications</DropdownMenuLabel>
+            {notifications.length > 0 && (
+              <Button
+                type="button"
+                size="sm"
+                variant="ghost"
+                className="text-muted-foreground h-auto px-1.5 py-0.5 text-xs"
+                onClick={clearAll}
+              >
+                Clear all
+              </Button>
+            )}
+          </div>
           {notifications.length === 0 && (
             <DropdownMenuItem disabled>No notifications yet.</DropdownMenuItem>
           )}
           {notifications.slice(0, 10).map((notification) => (
-            <DropdownMenuItem key={notification.id} className="items-start gap-3 py-2">
+            <DropdownMenuItem
+              key={notification.id}
+              closeOnClick={false}
+              className="items-start gap-3 py-2"
+            >
               <Avatar avatar={notification.actor.avatar} className="size-8 shrink-0 rounded-full" />
               <span className="min-w-0 flex-1">
                 <span className="block text-sm">
@@ -150,7 +177,19 @@ export function NotificationsControl({ userId }: { userId: number }) {
                   {timeLabel(notification.createdAt)}
                 </span>
               </span>
-              <Zap className="text-muted-foreground" />
+              <Button
+                type="button"
+                size="icon-sm"
+                variant="ghost"
+                className="text-muted-foreground shrink-0"
+                aria-label="Dismiss notification"
+                onClick={(event) => {
+                  event.stopPropagation();
+                  dismiss(notification.id);
+                }}
+              >
+                <X className="size-3.5" />
+              </Button>
             </DropdownMenuItem>
           ))}
         </DropdownMenuGroup>

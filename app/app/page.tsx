@@ -1,9 +1,10 @@
 "use client";
 
 import { useEffect, useRef, useState } from "react";
-import { Info, Play, Square } from "lucide-react";
+import { Info, Pencil, Play, Square } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
+import { Label } from "@/components/ui/label";
 import { Textarea } from "@/components/ui/textarea";
 import { Card, CardContent } from "@/components/ui/card";
 import { sessions, projects as projectsApi, ApiError, Project, StudySession } from "@/lib/api";
@@ -12,6 +13,7 @@ import { NOISE_SESSION_EVENT } from "@/lib/noise-player";
 import { ProjectIconPicker } from "@/components/project-icon-picker";
 import { ProjectSelector } from "@/components/project-selector";
 import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip";
+import { pad } from "@/lib/date";
 import {
   Dialog,
   DialogContent,
@@ -34,6 +36,18 @@ function formatElapsed(ms: number) {
   const minutes = Math.floor((totalSeconds % 3600) / 60);
   const seconds = totalSeconds % 60;
   return [hours, minutes, seconds].map((n) => String(n).padStart(2, "0")).join(":");
+}
+
+function toTimeInput(date: Date) {
+  return `${pad(date.getHours())}:${pad(date.getMinutes())}`;
+}
+
+/** Combines a "HH:mm" time with the calendar date of `base`, so overnight sessions keep their original day. */
+function combineDateAndTime(base: number, time: string) {
+  const [hours, minutes] = time.split(":").map(Number);
+  const date = new Date(base);
+  date.setHours(hours, minutes, 0, 0);
+  return date.getTime();
 }
 
 function greeting() {
@@ -69,6 +83,10 @@ export default function AppHomePage() {
   const [lastDuration, setLastDuration] = useState<number | null>(null);
   const [resuming, setResuming] = useState(true);
   const [stopOpen, setStopOpen] = useState(false);
+  const [editStartOpen, setEditStartOpen] = useState(false);
+  const [editStartTime, setEditStartTime] = useState("");
+  const [editStartError, setEditStartError] = useState<string | null>(null);
+  const [editStartBusy, setEditStartBusy] = useState(false);
   const trackProductionSplit = user?.trackProductionSplit ?? true;
   const defaultProductionPercentage = user?.defaultSessionType === "producing" ? 100 : 0;
   const [productionPercentage, setProductionPercentage] = useState(defaultProductionPercentage);
@@ -242,6 +260,40 @@ export default function AppHomePage() {
     }
   }
 
+  function openEditStart() {
+    if (startedAt === null) return;
+    setEditStartTime(toTimeInput(new Date(startedAt)));
+    setEditStartError(null);
+    setEditStartOpen(true);
+  }
+
+  async function handleEditStart() {
+    if (sessionId === null || startedAt === null) return;
+    setEditStartError(null);
+    const nextStartedAt = combineDateAndTime(startedAt, editStartTime);
+    if (nextStartedAt > Date.now()) {
+      setEditStartError("Start time can't be in the future");
+      return;
+    }
+    setEditStartBusy(true);
+    try {
+      await sessions.update(sessionId, { startedAt: new Date(nextStartedAt).toISOString() });
+      setStartedAt(nextStartedAt);
+      setElapsedMs(Math.max(0, Date.now() - nextStartedAt));
+      broadcast({
+        type: "updated",
+        projectId,
+        description: description || null,
+        startedAt: new Date(nextStartedAt).toISOString(),
+      });
+      setEditStartOpen(false);
+    } catch (err) {
+      setEditStartError(err instanceof ApiError ? err.message : "Something went wrong");
+    } finally {
+      setEditStartBusy(false);
+    }
+  }
+
   async function handleCreateProject() {
     if (!newProjectName.trim()) return;
 
@@ -303,9 +355,23 @@ export default function AppHomePage() {
       </div>
 
       <div className="flex flex-col items-center gap-5">
-        <p className="font-mono text-7xl font-medium tracking-tight tabular-nums">
-          {formatElapsed(elapsedMs)}
-        </p>
+        <div className="relative">
+          <p className="font-mono text-7xl font-medium tracking-tight tabular-nums">
+            {formatElapsed(elapsedMs)}
+          </p>
+          {isRunning && (
+            <Button
+              type="button"
+              size="icon-sm"
+              variant="ghost"
+              className="text-muted-foreground absolute top-1 -right-9"
+              aria-label="Edit start time"
+              onClick={openEditStart}
+            >
+              <Pencil className="size-4" />
+            </Button>
+          )}
+        </div>
 
         <Button
           size="icon"
@@ -336,6 +402,60 @@ export default function AppHomePage() {
           </p>
         )}
       </div>
+
+      <Dialog open={editStartOpen} onOpenChange={(open) => !editStartBusy && setEditStartOpen(open)}>
+        <DialogContent className="max-w-sm">
+          <DialogHeader>
+            <div className="flex items-center gap-2">
+              <DialogTitle>Edit start time</DialogTitle>
+              <Tooltip>
+                <TooltipTrigger
+                  render={
+                    <Button
+                      type="button"
+                      size="icon-sm"
+                      variant="ghost"
+                      aria-label="About editing start time"
+                    />
+                  }
+                >
+                  <Info />
+                </TooltipTrigger>
+                <TooltipContent className="max-w-72">
+                  Use this when you forgot to start the timer, or started it partway through your
+                  work. It&apos;s an estimate — the elapsed time updates to match.
+                </TooltipContent>
+              </Tooltip>
+            </div>
+            <DialogDescription>Adjust when this session actually began.</DialogDescription>
+          </DialogHeader>
+          <div className="space-y-4">
+            <div className="space-y-2">
+              <Label htmlFor="edit-start-time">Start time</Label>
+              <Input
+                id="edit-start-time"
+                type="time"
+                value={editStartTime}
+                onChange={(e) => setEditStartTime(e.target.value)}
+              />
+            </div>
+            {editStartTime && startedAt !== null && (
+              <p className="text-center text-sm font-medium" aria-live="polite">
+                New elapsed time: {formatElapsed(Math.max(0, Date.now() - combineDateAndTime(startedAt, editStartTime)))}
+              </p>
+            )}
+            {editStartError && <p className="text-destructive text-sm">{editStartError}</p>}
+          </div>
+          <DialogFooter>
+            <Button type="button" variant="ghost" onClick={() => setEditStartOpen(false)} disabled={editStartBusy}>
+              Cancel
+            </Button>
+            <Button type="button" onClick={handleEditStart} disabled={editStartBusy}>
+              {editStartBusy ? "Saving..." : "Save"}
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
 
       <Dialog open={stopOpen} onOpenChange={(open) => !busy && setStopOpen(open)}>
         <DialogContent className="max-w-sm">

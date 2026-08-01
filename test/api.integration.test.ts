@@ -423,14 +423,14 @@ describe("Next API", () => {
     });
 
     const hidden = await request("GET", "social/activity", { cookie: alice });
-    expect(hidden.body[0].description).toBeNull();
+    expect(hidden.body.items[0].description).toBeNull();
 
     await request("PATCH", "auth/privacy", {
       cookie: bob,
       body: { shareSessionDescriptions: true },
     });
     const shared = await request("GET", "social/activity", { cookie: alice });
-    expect(shared.body[0].description).toBe("Private draft");
+    expect(shared.body.items[0].description).toBe("Private draft");
   });
 
   it("delivers persistent nudges only between confirmed friends", async () => {
@@ -469,5 +469,79 @@ describe("Next API", () => {
 
     expect((await request("PATCH", "social/notifications", { cookie: bob })).response.status).toBe(204);
     expect((await request("GET", "social/notifications", { cookie: bob })).body[0].readAt).not.toBeNull();
+  });
+
+  it("lets a user dismiss individual notifications and clear the rest", async () => {
+    const alice = await register("clear-alice@example.test");
+    const bob = await register("clear-bob@example.test");
+    const sent = await request("POST", "social/requests", {
+      cookie: alice,
+      body: { email: "clear-bob@example.test" },
+    });
+    await request("PATCH", `social/requests/${sent.body.friendshipId}`, {
+      cookie: bob,
+      body: { action: "accept" },
+    });
+    const connection = (await request("GET", "social/connections", { cookie: alice }))
+      .body.find((item: { user: { email: string } }) => item.user.email === "clear-bob@example.test");
+
+    const first = await request("POST", `social/nudges/${connection.user.id}`, { cookie: alice });
+    await new Promise((resolve) => setTimeout(resolve, 30));
+
+    const cannotDismissOthers = await request("DELETE", `social/notifications/${first.body.id}`, { cookie: alice });
+    expect(cannotDismissOthers.response.status).toBe(404);
+
+    expect((await request("DELETE", `social/notifications/${first.body.id}`, { cookie: bob })).response.status).toBe(204);
+    expect((await request("GET", "social/notifications", { cookie: bob })).body).toEqual([]);
+
+    await request("POST", `social/nudges/${connection.user.id}`, { cookie: alice });
+    expect((await request("GET", "social/notifications", { cookie: bob })).body).toHaveLength(1);
+    expect((await request("DELETE", "social/notifications", { cookie: bob })).response.status).toBe(204);
+    expect((await request("GET", "social/notifications", { cookie: bob })).body).toEqual([]);
+  });
+
+  it("paginates friend activity with a stable cursor, keeping active sessions first", async () => {
+    const alice = await register("activity-page-alice@example.test");
+    const bob = await register("activity-page-bob@example.test");
+    const sent = await request("POST", "social/requests", {
+      cookie: alice,
+      body: { email: "activity-page-bob@example.test" },
+    });
+    await request("PATCH", `social/requests/${sent.body.friendshipId}`, {
+      cookie: bob,
+      body: { action: "accept" },
+    });
+
+    for (let index = 1; index <= 4; index += 1) {
+      await request("POST", "sessions", {
+        cookie: bob,
+        body: {
+          startedAt: "2026-07-30T08:00:00.000Z",
+          endedAt: `2026-07-30T08:0${index}:00.000Z`,
+          description: `Session ${index}`,
+        },
+      });
+    }
+    await request("POST", "sessions/start", { cookie: bob, body: {} });
+
+    const seen: number[] = [];
+    let cursor: string | null = null;
+    do {
+      const page: { response: Response; body: { items: { id: number; ended_at: string | null }[]; nextCursor: string | null } } = await request(
+        "GET",
+        `social/activity?limit=2${cursor ? `&cursor=${encodeURIComponent(cursor)}` : ""}`,
+        { cookie: alice },
+      );
+      expect(page.response.status).toBe(200);
+      expect(page.body.items.length).toBeLessThanOrEqual(2);
+      seen.push(...page.body.items.map((item) => item.id));
+      cursor = page.body.nextCursor;
+    } while (cursor);
+
+    expect(seen).toHaveLength(5);
+    expect(new Set(seen).size).toBe(5);
+
+    const firstPage = await request("GET", "social/activity?limit=1", { cookie: alice });
+    expect(firstPage.body.items[0].ended_at).toBeNull();
   });
 });

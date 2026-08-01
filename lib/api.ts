@@ -276,6 +276,8 @@ export type FriendActivity = {
   user_avatar: string | null;
 };
 
+export type FriendActivityPage = { items: FriendActivity[]; nextCursor: string | null };
+
 export type SocialNotification = {
   id: number;
   type: "nudge";
@@ -298,10 +300,18 @@ export const social = {
     }),
   remove: (friendshipId: number) =>
     api<void>(`/api/social/connections/${friendshipId}`, { method: "DELETE" }),
-  activity: () => api<FriendActivity[]>("/api/social/activity"),
+  activity: (cursor?: string | null, limit = 20) => {
+    const query = new URLSearchParams({ limit: String(limit) });
+    if (cursor) query.set("cursor", cursor);
+    return api<FriendActivityPage>(`/api/social/activity?${query}`);
+  },
   nudge: (userId: number) =>
     api<{ id: number }>(`/api/social/nudges/${userId}`, { method: "POST" }),
   notifications: () => api<SocialNotification[]>("/api/social/notifications"),
   readNotifications: () =>
     api<void>("/api/social/notifications", { method: "PATCH" }),
+  dismissNotification: (id: number) =>
+    api<void>(`/api/social/notifications/${id}`, { method: "DELETE" }),
+  clearNotifications: () =>
+    api<void>("/api/social/notifications", { method: "DELETE" }),
 };

@@ -38,7 +38,7 @@ const friend = {
 describe("Friends page", () => {
   beforeEach(() => {
     connections.mockReset().mockResolvedValue([friend]);
-    activity.mockReset().mockResolvedValue([]);
+    activity.mockReset().mockResolvedValue({ items: [], nextCursor: null });
     remove.mockReset().mockResolvedValue(undefined);
   });
 

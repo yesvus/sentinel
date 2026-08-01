@@ -9,6 +9,7 @@ import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
 import { toast } from "@/components/ui/toast";
+import { dayKey, formatDayLabel, formatTime, startOfDay } from "@/lib/date";
 import {
   AlertDialog,
   AlertDialogAction,
@@ -32,9 +33,32 @@ function formatDuration(seconds: number | null, startedAt: string) {
   return hours ? `${hours}h ${minutes}m` : `${Math.max(1, minutes)}m`;
 }
 
+type ActivityDayGroup = { key: string; date: Date; items: FriendActivity[] };
+
+/** Activity arrives newest-first; grouping by first-seen key preserves that order for each day. */
+function groupActivityByDay(items: FriendActivity[]): ActivityDayGroup[] {
+  const groups: ActivityDayGroup[] = [];
+  const index = new Map<string, ActivityDayGroup>();
+  for (const item of items) {
+    const started = new Date(item.started_at);
+    const key = dayKey(started);
+    let group = index.get(key);
+    if (!group) {
+      group = { key, date: startOfDay(started), items: [] };
+      index.set(key, group);
+      groups.push(group);
+    }
+    group.items.push(item);
+  }
+  return groups;
+}
+
 export default function FriendsPage() {
   const [connections, setConnections] = useState<Connection[]>([]);
   const [activity, setActivity] = useState<FriendActivity[]>([]);
+  const [activityCursor, setActivityCursor] = useState<string | null>(null);
+  const [loadingMoreActivity, setLoadingMoreActivity] = useState(false);
+  const [activityLoadError, setActivityLoadError] = useState<string | null>(null);
   const [email, setEmail] = useState("");
   const [loading, setLoading] = useState(true);
   const [workingId, setWorkingId] = useState<number | null>(null);
@@ -43,18 +67,37 @@ export default function FriendsPage() {
 
   const load = useCallback(async () => {
     try {
-      const [nextConnections, nextActivity] = await Promise.all([
+      const [nextConnections, activityPage] = await Promise.all([
         social.connections(),
         social.activity(),
       ]);
       setConnections(nextConnections);
-      setActivity(nextActivity);
+      setActivity(activityPage.items);
+      setActivityCursor(activityPage.nextCursor);
     } catch (err) {
       setError(err instanceof ApiError ? err.message : "Could not load friends");
     } finally {
       setLoading(false);
     }
   }, []);
+
+  async function loadMoreActivity() {
+    if (!activityCursor || loadingMoreActivity) return;
+    setLoadingMoreActivity(true);
+    setActivityLoadError(null);
+    try {
+      const page = await social.activity(activityCursor);
+      setActivity((current) => {
+        const existingIds = new Set(current.map((item) => item.id));
+        return [...current, ...page.items.filter((item) => !existingIds.has(item.id))];
+      });
+      setActivityCursor(page.nextCursor);
+    } catch {
+      setActivityLoadError("Could not load more activity.");
+    } finally {
+      setLoadingMoreActivity(false);
+    }
+  }
 
   useEffect(() => {
     const initialTimer = window.setTimeout(load, 0);
@@ -245,31 +288,50 @@ export default function FriendsPage() {
               <p className="text-muted-foreground mt-1 text-sm">Add a friend to see what they are working on.</p>
             </div>
           )}
-          <ul className="divide-y">
-            {activity.map((item) => (
-              <li key={item.id} className="flex gap-3 py-4 first:pt-0 last:pb-0">
-                <Avatar avatar={item.user_avatar} className="size-10 rounded-full" />
-                <div className="min-w-0 flex-1">
-                  <div className="flex flex-wrap items-center gap-x-2 gap-y-1">
-                    <p className="font-medium">{displayName(item.user_name, item.user_email)}</p>
-                    {!item.ended_at && (
-                      <span className="bg-primary/10 text-primary rounded-full px-2 py-0.5 text-xs">Working now</span>
-                    )}
-                  </div>
-                  <div className="text-muted-foreground mt-1 flex flex-wrap items-center gap-2 text-sm">
-                    <ProjectIcon icon={item.project_icon} className="size-4" />
-                    <span>{item.project_name || "No project"}</span>
-                    <span aria-hidden>·</span>
-                    <Clock3 className="size-3.5" />
-                    <span>{formatDuration(item.duration_seconds, item.started_at)}</span>
-                    <span aria-hidden>·</span>
-                    <time dateTime={item.started_at}>{new Date(item.started_at).toLocaleString([], { dateStyle: "medium", timeStyle: "short" })}</time>
-                  </div>
-                  {item.description && <p className="mt-2 text-sm">{item.description}</p>}
-                </div>
-              </li>
+          <div className="space-y-5">
+            {groupActivityByDay(activity).map((group) => (
+              <div key={group.key}>
+                <p className="text-muted-foreground mb-2 text-xs font-medium tracking-wide uppercase">
+                  {formatDayLabel(group.date)}
+                </p>
+                <ul className="divide-y">
+                  {group.items.map((item) => (
+                    <li key={item.id} className="flex gap-3 py-4 first:pt-0 last:pb-0">
+                      <Avatar avatar={item.user_avatar} className="size-10 rounded-full" />
+                      <div className="min-w-0 flex-1">
+                        <div className="flex flex-wrap items-center gap-x-2 gap-y-1">
+                          <p className="font-medium">{displayName(item.user_name, item.user_email)}</p>
+                          {!item.ended_at && (
+                            <span className="bg-primary/10 text-primary rounded-full px-2 py-0.5 text-xs">Working now</span>
+                          )}
+                        </div>
+                        <div className="text-muted-foreground mt-1 flex flex-wrap items-center gap-2 text-sm">
+                          <ProjectIcon icon={item.project_icon} className="size-4" />
+                          <span>{item.project_name || "No project"}</span>
+                          <span aria-hidden>·</span>
+                          <Clock3 className="size-3.5" />
+                          <span>{formatDuration(item.duration_seconds, item.started_at)}</span>
+                          <span aria-hidden>·</span>
+                          <time dateTime={item.started_at}>{formatTime(item.started_at)}</time>
+                        </div>
+                        {item.description && <p className="mt-2 text-sm">{item.description}</p>}
+                      </div>
+                    </li>
+                  ))}
+                </ul>
+              </div>
             ))}
-          </ul>
+          </div>
+          {(activityCursor || activityLoadError) && (
+            <div className="mt-6 flex flex-col items-center gap-2 border-t pt-4">
+              {activityLoadError && <p className="text-destructive text-sm">{activityLoadError}</p>}
+              {activityCursor && (
+                <Button type="button" variant="outline" onClick={loadMoreActivity} disabled={loadingMoreActivity}>
+                  {loadingMoreActivity ? "Loading..." : activityLoadError ? "Try again" : "Load more"}
+                </Button>
+              )}
+            </div>
+          )}
         </CardContent>
       </Card>
     </div>
