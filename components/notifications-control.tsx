@@ -14,9 +14,29 @@ import {
   DropdownMenuSeparator,
   DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu";
-import { toast } from "@/components/ui/toast";
+import { toast, TOAST_HISTORY_EVENT, ToastHistoryEntry } from "@/components/ui/toast";
 
 const POLL_INTERVAL_MS = 5_000;
+const MAX_TOAST_HISTORY = 15;
+const TOAST_HISTORY_STORAGE_KEY = "sentinel-toast-history";
+
+function loadStoredToastHistory(): ToastHistoryEntry[] {
+  try {
+    const stored = JSON.parse(localStorage.getItem(TOAST_HISTORY_STORAGE_KEY) ?? "[]");
+    return Array.isArray(stored) ? stored : [];
+  } catch {
+    return [];
+  }
+}
+
+function toastTimeLabel(createdAt: number) {
+  const seconds = Math.max(0, Math.floor((Date.now() - createdAt) / 1000));
+  if (seconds < 60) return "Just now";
+  const minutes = Math.floor(seconds / 60);
+  if (minutes < 60) return `${minutes}m ago`;
+  const hours = Math.floor(minutes / 60);
+  return `${hours}h ago`;
+}
 
 function actorName(notification: SocialNotification) {
   return notification.actor.name?.trim() || notification.actor.email;
@@ -59,9 +79,32 @@ function timeLabel(value: string) {
 
 export function NotificationsControl({ userId }: { userId: number }) {
   const [notifications, setNotifications] = useState<SocialNotification[]>([]);
+  const [toastHistory, setToastHistory] = useState<ToastHistoryEntry[]>([]);
+  const [clearingNudges, setClearingNudges] = useState(false);
+  const [clearingToasts, setClearingToasts] = useState(false);
   const initialized = useRef(false);
   const knownIds = useRef(new Set<number>());
   const soundKey = `sentinel-last-nudge-sound:${userId}`;
+
+  useEffect(() => {
+    const timer = window.setTimeout(() => setToastHistory(loadStoredToastHistory()), 0);
+    return () => window.clearTimeout(timer);
+  }, []);
+
+  useEffect(() => {
+    function handleToast(event: Event) {
+      const entry = (event as CustomEvent<ToastHistoryEntry>).detail;
+      // Nudge toasts already show up in the Notifications group above — don't duplicate them here.
+      if (entry.id.startsWith("nudge-")) return;
+      setToastHistory((current) => {
+        const next = [entry, ...current].slice(0, MAX_TOAST_HISTORY);
+        localStorage.setItem(TOAST_HISTORY_STORAGE_KEY, JSON.stringify(next));
+        return next;
+      });
+    }
+    window.addEventListener(TOAST_HISTORY_EVENT, handleToast);
+    return () => window.removeEventListener(TOAST_HISTORY_EVENT, handleToast);
+  }, []);
 
   const load = useCallback(async () => {
     const next = await social.notifications();
@@ -120,8 +163,19 @@ export function NotificationsControl({ userId }: { userId: number }) {
   }
 
   async function clearAll() {
+    setClearingNudges(true);
+    await new Promise((resolve) => window.setTimeout(resolve, 180));
     setNotifications([]);
+    setClearingNudges(false);
     await social.clearNotifications().catch(() => void load());
+  }
+
+  async function clearToastHistory() {
+    setClearingToasts(true);
+    await new Promise((resolve) => window.setTimeout(resolve, 180));
+    setToastHistory([]);
+    localStorage.removeItem(TOAST_HISTORY_STORAGE_KEY);
+    setClearingToasts(false);
   }
 
   return (
@@ -166,7 +220,7 @@ export function NotificationsControl({ userId }: { userId: number }) {
             <DropdownMenuItem
               key={notification.id}
               closeOnClick={false}
-              className="items-start gap-3 py-2"
+              className={`items-start gap-3 py-2 transition-opacity duration-150 ${clearingNudges ? "opacity-0" : "opacity-100"}`}
             >
               <Avatar avatar={notification.actor.avatar} className="size-8 shrink-0 rounded-full" />
               <span className="min-w-0 flex-1">
@@ -193,12 +247,40 @@ export function NotificationsControl({ userId }: { userId: number }) {
             </DropdownMenuItem>
           ))}
         </DropdownMenuGroup>
-        <DropdownMenuSeparator />
-        <DropdownMenuGroup>
-          <DropdownMenuLabel className="text-muted-foreground font-normal">
-            Nudges are gentle reminders from friends.
-          </DropdownMenuLabel>
-        </DropdownMenuGroup>
+        {toastHistory.length > 0 && (
+          <>
+            <DropdownMenuSeparator />
+            <DropdownMenuGroup>
+              <div className="flex items-center justify-between gap-2 px-1.5 py-1">
+                <DropdownMenuLabel className="p-0">Recent activity</DropdownMenuLabel>
+                <Button
+                  type="button"
+                  size="sm"
+                  variant="ghost"
+                  className="text-muted-foreground h-auto px-1.5 py-0.5 text-xs"
+                  onClick={clearToastHistory}
+                >
+                  Clear
+                </Button>
+              </div>
+              {toastHistory.map((entry) => (
+                <DropdownMenuItem
+                  key={entry.id}
+                  closeOnClick={false}
+                  className={`items-start gap-3 py-2 transition-opacity duration-150 ${clearingToasts ? "opacity-0" : "opacity-100"}`}
+                >
+                  <span className="min-w-0 flex-1">
+                    {entry.title && <span className="block text-sm font-medium">{entry.title}</span>}
+                    {entry.description && (
+                      <span className="text-muted-foreground block text-xs">{entry.description}</span>
+                    )}
+                    <span className="text-muted-foreground/70 block text-xs">{toastTimeLabel(entry.createdAt)}</span>
+                  </span>
+                </DropdownMenuItem>
+              ))}
+            </DropdownMenuGroup>
+          </>
+        )}
       </DropdownMenuContent>
     </DropdownMenu>
   );
