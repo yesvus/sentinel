@@ -82,7 +82,7 @@ export function NoteFocusCard({
       </Card>
 
       <Dialog open={open} onOpenChange={setOpen}>
-        <DialogContent className="max-h-[85vh] max-w-2xl overflow-y-auto">
+        <DialogContent className="max-w-2xl">
           <DialogHeader>
             <div className="flex items-center justify-between gap-2 pr-8">
               <DialogTitle>{dialogTitle}</DialogTitle>
