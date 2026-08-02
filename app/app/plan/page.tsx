@@ -2,7 +2,7 @@
 
 import { useEffect, useState } from "react";
 import { useRouter, useSearchParams } from "next/navigation";
-import { ChevronLeft, ChevronRight, Clock3, Copy, History, Square, SquareCheck } from "lucide-react";
+import { Clock3, Copy, History, Square, SquareCheck } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import {
   Breadcrumb,
@@ -10,6 +10,7 @@ import {
   BreadcrumbList,
   BreadcrumbPage,
 } from "@/components/ui/breadcrumb";
+import { DateRangeNavigator } from "@/components/date-range-navigator";
 import { Skeleton } from "@/components/ui/skeleton";
 import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip";
 import {
@@ -25,10 +26,11 @@ import {
 } from "@/lib/api";
 import { NoteFocusCard } from "@/components/note-focus-card";
 import { PlanningPeriodStats } from "@/components/planning-period-stats";
+import { StreakSummaryCard } from "@/components/streak-summary-card";
 import { LinkifiedText } from "@/components/linkified-text";
 import { toast } from "@/components/ui/toast";
 import { buildWeeklyAiPrompt } from "@/lib/export";
-import { weekStatsFor, sessionDurationSeconds } from "@/lib/session-stats";
+import { activityStreak, longestActivityStreak, weekStatsFor, sessionDurationSeconds } from "@/lib/session-stats";
 import { useAuth } from "@/lib/auth-context";
 import { PageHeaderActions } from "@/lib/page-header-actions-context";
 import { dayKey, addDays, startOfWeek, weekKey, formatDuration, formatWeekRangeLabel, parseDateKey } from "@/lib/date";
@@ -97,31 +99,30 @@ export default function PlanPage() {
   const previousWeekKey = weekKey(previousWeekStart);
   const previousWeekSessions = sessionList.filter((session) => weekKey(new Date(session.started_at)) === previousWeekKey);
   const selectedWeekNote = noteList.find((n) => n.scope === "week" && n.date_key === selectedWeekKey);
+  const currentStreak = activityStreak(sessionList, nowDate);
+  const longestStreak = longestActivityStreak(sessionList);
 
   const weekNavigation = (
-    <PageHeaderActions>
-      <div className="animate-in fade-in slide-in-from-left-1 flex min-w-0 items-center gap-1 duration-300">
-        <Button
-          variant="outline"
-          size="sm"
-          className="hidden rounded-full px-5 sm:inline-flex"
-          onClick={() => setWeekOffset(0)}
+    <>
+      <PageHeaderActions>
+        <DateRangeNavigator
+          today={{ onClick: () => setWeekOffset(0) }}
+          todayDisabled={weekOffset === 0}
+          previous={{ onClick: () => setWeekOffset((offset) => offset - 1) }}
+          previousLabel="Previous week"
+          next={{ onClick: () => setWeekOffset((offset) => offset + 1) }}
+          nextLabel="Next week"
         >
-          Today
-        </Button>
-        <Button variant="ghost" size="icon-sm" aria-label="Previous week" onClick={() => setWeekOffset((offset) => offset - 1)}>
-          <ChevronLeft />
-        </Button>
-        <Button variant="ghost" size="icon-sm" aria-label="Next week" onClick={() => setWeekOffset((offset) => offset + 1)}>
-          <ChevronRight />
-        </Button>
-        <Breadcrumb className="hidden pl-1 lg:block">
-          <BreadcrumbList className="flex-nowrap">
-            <BreadcrumbItem>
-              <BreadcrumbPage className="whitespace-nowrap">{selectedWeekLabel}</BreadcrumbPage>
-            </BreadcrumbItem>
-          </BreadcrumbList>
-        </Breadcrumb>
+          <Breadcrumb className="hidden pl-1 lg:block">
+            <BreadcrumbList className="flex-nowrap">
+              <BreadcrumbItem>
+                <BreadcrumbPage className="whitespace-nowrap">{selectedWeekLabel}</BreadcrumbPage>
+              </BreadcrumbItem>
+            </BreadcrumbList>
+          </Breadcrumb>
+        </DateRangeNavigator>
+      </PageHeaderActions>
+      <PageHeaderActions align="right">
         <Button
           variant="ghost"
           size="icon-sm"
@@ -131,8 +132,8 @@ export default function PlanPage() {
         >
           <History />
         </Button>
-      </div>
-    </PageHeaderActions>
+      </PageHeaderActions>
+    </>
   );
 
   const tomorrowTasks = taskList.filter((t) => t.period_start === tomorrowKey);
@@ -165,8 +166,8 @@ export default function PlanPage() {
       <>
         {weekNavigation}
         <div className="mx-auto w-full max-w-6xl space-y-4">
-        <div className="grid grid-cols-1 items-start gap-4 md:grid-cols-2">
-          {[0, 1].map((i) => (
+        <div className="grid grid-cols-1 items-start gap-4 md:grid-cols-3">
+          {[0, 1, 2].map((i) => (
             <div key={i} className="space-y-2 rounded-lg border p-4">
               <Skeleton className="h-5 w-32" />
               <Skeleton className="h-4 w-full" />
@@ -199,7 +200,7 @@ export default function PlanPage() {
           className="border-primary/30 bg-primary/5 hover:bg-primary/10 flex w-full items-center gap-2 rounded-md border px-4 py-3 text-left text-sm"
         >
           <Clock3 className="text-primary size-4 shrink-0" />
-          It&apos;s after {String(reminderHour).padStart(2, "0")}:00 — want to plan tomorrow?
+          It&apos;s after {String(reminderHour).padStart(2, "0")}:00 — open tomorrow in Calendar?
         </button>
       )}
       {showWeeklyReminder && (
@@ -209,11 +210,11 @@ export default function PlanPage() {
           className="border-primary/30 bg-primary/5 hover:bg-primary/10 flex w-full items-center gap-2 rounded-md border px-4 py-3 text-left text-sm"
         >
           <Clock3 className="text-primary size-4 shrink-0" />
-          It&apos;s time for weekly planning — want to wrap up this week and plan the next one?
+          It&apos;s time for a weekly review — want to wrap up this week and set up the next one?
         </button>
       )}
 
-      <section className="grid items-stretch gap-4 lg:grid-cols-[minmax(0,0.9fr)_minmax(0,2fr)]" aria-label="Weekly planning and statistics">
+      <section className="grid items-stretch gap-4 lg:grid-cols-[minmax(0,0.85fr)_minmax(0,1.35fr)_minmax(11rem,0.6fr)]" aria-label="Weekly calendar and statistics">
         <NoteFocusCard
           icon={null}
           title="Week goals"
@@ -241,8 +242,8 @@ export default function PlanPage() {
           emptyText="No goals set for this week yet — click to add some."
           placeholder="What are you aiming for this week? Vague is fine — e.g. finish chapters 1-4 of Probability. This is also where you wrap up how the week went."
           dialogTitle={`Week of ${formatWeekRangeLabel(selectedWeekStart)}`}
-          dialogDescription="Plan ahead, or wrap up how the week went — same note either way."
-          cardClassName="h-72"
+          dialogDescription="Set goals ahead, or wrap up how the week went — same note either way."
+          cardClassName="h-76"
           collapsible={false}
           onSaved={handleNoteSaved}
           onDeleted={() => handleNoteDeleted("week", selectedWeekKey)}
@@ -254,6 +255,7 @@ export default function PlanPage() {
           now={now}
           date={selectedWeekStart}
         />
+        <StreakSummaryCard current={currentStreak} longest={longestStreak} />
       </section>
 
       <div className="grid grid-cols-7 items-start gap-2">

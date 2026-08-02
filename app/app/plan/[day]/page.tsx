@@ -3,9 +3,10 @@
 import Link from "next/link";
 import { useEffect, useMemo, useState } from "react";
 import { useParams } from "next/navigation";
-import { ChevronLeft, ChevronRight, Clock3, Copy, History, Inbox } from "lucide-react";
+import { Clock3, Copy, History, Inbox } from "lucide-react";
 import { AlwaysOpenNote } from "@/components/always-open-note";
 import { DailyTaskPlanner } from "@/components/daily-task-planner";
+import { DateRangeNavigator } from "@/components/date-range-navigator";
 import { HelpTooltip } from "@/components/help-tooltip";
 import { LinkifiedText } from "@/components/linkified-text";
 import { SessionEditorDialog } from "@/components/session-editor-dialog";
@@ -105,7 +106,7 @@ export default function DayPlanningPage() {
           setSessionTasks(Object.fromEntries(sessionTaskEntries));
         })
         .catch((error) => {
-          setLoadError(error instanceof ApiError ? error.message : "Could not load this planning day.");
+          setLoadError(error instanceof ApiError ? error.message : "Could not load this calendar day.");
         })
         .finally(() => setLoading(false));
     }, 0);
@@ -145,51 +146,35 @@ export default function DayPlanningPage() {
     year: "numeric",
   });
   const dayNavigation = validDay ? (
-    <PageHeaderActions>
-      <div className="animate-in fade-in slide-in-from-left-1 flex min-w-0 items-center gap-1 duration-300">
-        <Button
-          variant="outline"
-          size="sm"
-          className="hidden rounded-full px-5 sm:inline-flex"
-          render={<Link href={`/app/calendar/${todayKey}`} />}
-          nativeButton={false}
+    <>
+      <PageHeaderActions>
+        <DateRangeNavigator
+          today={{ href: `/app/calendar/${todayKey}` }}
+          todayDisabled={isToday}
+          previous={{ href: `/app/calendar/${previousDayKey}` }}
+          previousLabel="Previous day"
+          next={{ href: `/app/calendar/${nextDayKey}` }}
+          nextLabel="Next day"
         >
-          Today
-        </Button>
-        <Button
-          variant="ghost"
-          size="icon-sm"
-          aria-label="Previous day"
-          render={<Link href={`/app/calendar/${previousDayKey}`} />}
-          nativeButton={false}
-        >
-          <ChevronLeft />
-        </Button>
-        <Button
-          variant="ghost"
-          size="icon-sm"
-          aria-label="Next day"
-          render={<Link href={`/app/calendar/${nextDayKey}`} />}
-          nativeButton={false}
-        >
-          <ChevronRight />
-        </Button>
-        <Breadcrumb className="hidden min-w-0 pl-1 md:block">
-          <BreadcrumbList className="flex-nowrap gap-1">
-            <BreadcrumbItem className="hidden xl:inline-flex">
-              <BreadcrumbLink
-                className="max-w-44 truncate whitespace-nowrap"
-                render={<Link href={weekHref} />}
-              >
-                {formatWeekRangeLabel(selectedWeekStart)}
-              </BreadcrumbLink>
-            </BreadcrumbItem>
-            <BreadcrumbSeparator className="hidden xl:block" />
-            <BreadcrumbItem>
-              <BreadcrumbPage className="whitespace-nowrap">{dayBreadcrumbLabel}</BreadcrumbPage>
-            </BreadcrumbItem>
-          </BreadcrumbList>
-        </Breadcrumb>
+          <Breadcrumb className="hidden min-w-0 pl-1 md:block">
+            <BreadcrumbList className="flex-nowrap gap-1">
+              <BreadcrumbItem className="hidden xl:inline-flex">
+                <BreadcrumbLink
+                  className="max-w-44 truncate whitespace-nowrap"
+                  render={<Link href={weekHref} />}
+                >
+                  {formatWeekRangeLabel(selectedWeekStart)}
+                </BreadcrumbLink>
+              </BreadcrumbItem>
+              <BreadcrumbSeparator className="hidden xl:block" />
+              <BreadcrumbItem>
+                <BreadcrumbPage className="whitespace-nowrap">{dayBreadcrumbLabel}</BreadcrumbPage>
+              </BreadcrumbItem>
+            </BreadcrumbList>
+          </Breadcrumb>
+        </DateRangeNavigator>
+      </PageHeaderActions>
+      <PageHeaderActions align="right">
         <Button
           variant="ghost"
           size="icon-sm"
@@ -200,8 +185,8 @@ export default function DayPlanningPage() {
         >
           <History />
         </Button>
-      </div>
-    </PageHeaderActions>
+      </PageHeaderActions>
+    </>
   ) : null;
 
   function handleTaskCreated(task: Task) {
@@ -270,8 +255,8 @@ export default function DayPlanningPage() {
       <Empty className="animate-in fade-in zoom-in-95 duration-300 mx-auto min-h-96 w-full max-w-3xl border">
         <EmptyHeader>
           <EmptyMedia variant="icon"><Inbox /></EmptyMedia>
-          <EmptyTitle>This planning day does not exist</EmptyTitle>
-          <EmptyDescription>Choose a day from the weekly plan to open its tasks, notes, and sessions.</EmptyDescription>
+          <EmptyTitle>This calendar day does not exist</EmptyTitle>
+          <EmptyDescription>Choose a day from the weekly calendar to open its tasks, notes, and sessions.</EmptyDescription>
         </EmptyHeader>
         <Button render={<Link href="/app/calendar" />} nativeButton={false}>Back to Calendar</Button>
       </Empty>
@@ -341,7 +326,7 @@ export default function DayPlanningPage() {
         <Empty className="min-h-72 border">
           <EmptyHeader>
             <EmptyMedia variant="icon"><Clock3 /></EmptyMedia>
-            <EmptyTitle>Could not load this planning day</EmptyTitle>
+            <EmptyTitle>Could not load this calendar day</EmptyTitle>
             <EmptyDescription>{loadError}</EmptyDescription>
           </EmptyHeader>
         </Empty>
@@ -396,7 +381,7 @@ export default function DayPlanningPage() {
             <CardHeader>
               <CardTitle className="flex items-center gap-1">
                 Sessions
-                <HelpTooltip>A chronological record of the work behind this plan.</HelpTooltip>
+                <HelpTooltip>A chronological record of the work behind this day.</HelpTooltip>
               </CardTitle>
               {totalSessionSeconds > 0 && (
                 <CardAction><Badge variant="secondary">{formatDuration(totalSessionSeconds)}</Badge></CardAction>
