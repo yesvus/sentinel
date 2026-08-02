@@ -2,7 +2,7 @@
 
 import Link from "next/link";
 import { usePathname, useRouter } from "next/navigation";
-import { Home, BarChart2, User, Settings, LogOut, ChevronsUpDown, Moon, Sun, FolderKanban, Monitor, Check, Users, ListTodo, Inbox } from "lucide-react";
+import { Home, User, Settings, LogOut, ChevronsUpDown, Moon, Sun, FolderKanban, Monitor, Check, Users, CalendarDays, Inbox } from "lucide-react";
 import {
   Sidebar,
   SidebarContent,
@@ -31,9 +31,8 @@ import {
 
 export const NAV_ITEMS = [
   { title: "Home", url: "/app", icon: Home },
-  { title: "Plan", url: "/app/plan", icon: ListTodo },
+  { title: "Calendar", url: "/app/calendar", icon: CalendarDays },
   { title: "Tasks", url: "/app/tasks", icon: Inbox },
-  { title: "Stats", url: "/app/stats", icon: BarChart2 },
   { title: "Projects", url: "/app/projects", icon: FolderKanban },
   { title: "Friends", url: "/app/friends", icon: Users },
 ];

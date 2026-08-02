@@ -3,9 +3,14 @@
 import Link from "next/link";
 import { useEffect, useMemo, useState } from "react";
 import { useParams } from "next/navigation";
-import { CheckCircle2, ChevronLeft, ChevronRight, Clock3, Copy, Inbox } from "lucide-react";
+import { ChevronLeft, ChevronRight, Clock3, Copy, History, Inbox } from "lucide-react";
 import { AlwaysOpenNote } from "@/components/always-open-note";
 import { DailyTaskPlanner } from "@/components/daily-task-planner";
+import { HelpTooltip } from "@/components/help-tooltip";
+import { LinkifiedText } from "@/components/linkified-text";
+import { SessionEditorDialog } from "@/components/session-editor-dialog";
+import { PlanningPeriodStats } from "@/components/planning-period-stats";
+import { TaskEditorPopover } from "@/components/task-editor-popover";
 import { Badge } from "@/components/ui/badge";
 import {
   Breadcrumb,
@@ -16,7 +21,7 @@ import {
   BreadcrumbSeparator,
 } from "@/components/ui/breadcrumb";
 import { Button } from "@/components/ui/button";
-import { Card, CardAction, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
+import { Card, CardAction, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Empty, EmptyDescription, EmptyHeader, EmptyMedia, EmptyTitle } from "@/components/ui/empty";
 import { Skeleton } from "@/components/ui/skeleton";
 import { toast } from "@/components/ui/toast";
@@ -74,11 +79,13 @@ export default function DayPlanningPage() {
       setLoadError(null);
       const date = parseDateKey(selectedDayKey);
       const weekStart = startOfWeek(date);
+      const previousDay = addDays(date, -1);
+      const rangeStart = previousDay < weekStart ? previousDay : weekStart;
       const nextDay = addDays(date, 1);
       Promise.all([
         tasksApi.list(),
         notesApi.list(),
-        sessionsApi.list({ from: weekStart.toISOString(), to: nextDay.toISOString() }),
+        sessionsApi.list({ from: rangeStart.toISOString(), to: nextDay.toISOString() }),
         projectsApi.list(),
       ])
         .then(async ([tasks, notes, sessions, projects]) => {
@@ -106,6 +113,7 @@ export default function DayPlanningPage() {
   }, [selectedDayKey, validDay]);
 
   const dayTasks = taskList.filter((task) => task.period_start === selectedDayKey);
+  const plannedTasks = dayTasks.filter((task) => task.completed_at === null);
   const backlogTasks = taskList.filter((task) => task.period_start === null);
   const dayNote = noteList.find((note) => note.scope === "day" && note.date_key === selectedDayKey);
   const selectedWeekKey = weekKey(selectedDate);
@@ -121,11 +129,14 @@ export default function DayPlanningPage() {
     (total, session) => total + sessionDurationSeconds(session, now),
     0,
   );
-  const openTaskCount = dayTasks.filter((task) => task.completed_at === null).length;
+  const openTaskCount = plannedTasks.length;
+  const previousDayKey = dayKey(addDays(selectedDate, -1));
+  const previousDaySessions = sessionList.filter(
+    (session) => dayKey(new Date(session.started_at)) === previousDayKey,
+  );
   const todayKey = dayKey(new Date());
   const isToday = selectedDayKey === todayKey;
-  const weekHref = `/app/plan?week=${selectedWeekKey}`;
-  const previousDayKey = dayKey(addDays(selectedDate, -1));
+  const weekHref = `/app/calendar?week=${selectedWeekKey}`;
   const nextDayKey = dayKey(addDays(selectedDate, 1));
   const dayBreadcrumbLabel = selectedDate.toLocaleDateString(undefined, {
     weekday: "short",
@@ -140,7 +151,7 @@ export default function DayPlanningPage() {
           variant="outline"
           size="sm"
           className="hidden rounded-full px-5 sm:inline-flex"
-          render={<Link href={`/app/plan/${todayKey}`} />}
+          render={<Link href={`/app/calendar/${todayKey}`} />}
           nativeButton={false}
         >
           Today
@@ -149,7 +160,7 @@ export default function DayPlanningPage() {
           variant="ghost"
           size="icon-sm"
           aria-label="Previous day"
-          render={<Link href={`/app/plan/${previousDayKey}`} />}
+          render={<Link href={`/app/calendar/${previousDayKey}`} />}
           nativeButton={false}
         >
           <ChevronLeft />
@@ -158,7 +169,7 @@ export default function DayPlanningPage() {
           variant="ghost"
           size="icon-sm"
           aria-label="Next day"
-          render={<Link href={`/app/plan/${nextDayKey}`} />}
+          render={<Link href={`/app/calendar/${nextDayKey}`} />}
           nativeButton={false}
         >
           <ChevronRight />
@@ -179,6 +190,16 @@ export default function DayPlanningPage() {
             </BreadcrumbItem>
           </BreadcrumbList>
         </Breadcrumb>
+        <Button
+          variant="ghost"
+          size="icon-sm"
+          aria-label="Open session history"
+          title="Session history"
+          render={<Link href="/app/calendar/history" />}
+          nativeButton={false}
+        >
+          <History />
+        </Button>
       </div>
     </PageHeaderActions>
   ) : null;
@@ -189,10 +210,22 @@ export default function DayPlanningPage() {
 
   function handleTaskUpdated(task: Task) {
     setTaskList((current) => current.map((item) => item.id === task.id ? task : item));
+    setSessionTasks((current) => Object.fromEntries(
+      Object.entries(current).map(([sessionId, tasks]) => [
+        sessionId,
+        tasks.map((item) => item.id === task.id ? task : item),
+      ]),
+    ));
   }
 
   function handleTaskDeleted(id: number) {
     setTaskList((current) => current.filter((task) => task.id !== id));
+  }
+
+  function handleSessionUpdated(updated: StudySession) {
+    setSessionList((current) => current
+      .map((session) => session.id === updated.id ? updated : session)
+      .sort((a, b) => a.started_at.localeCompare(b.started_at)));
   }
 
   function handleProjectCreated(project: Project) {
@@ -240,7 +273,7 @@ export default function DayPlanningPage() {
           <EmptyTitle>This planning day does not exist</EmptyTitle>
           <EmptyDescription>Choose a day from the weekly plan to open its tasks, notes, and sessions.</EmptyDescription>
         </EmptyHeader>
-        <Button render={<Link href="/app/plan" />} nativeButton={false}>Back to plan</Button>
+        <Button render={<Link href="/app/calendar" />} nativeButton={false}>Back to Calendar</Button>
       </Empty>
     );
   }
@@ -249,7 +282,7 @@ export default function DayPlanningPage() {
     return (
       <>
         {dayNavigation}
-        <div className="animate-in fade-in duration-300 mx-auto flex w-full max-w-6xl flex-col gap-6">
+        <div className="animate-in fade-in mx-auto flex w-full max-w-6xl flex-col gap-6 duration-300">
         <div className="flex items-end justify-between gap-4">
           <div className="flex flex-col gap-2">
             <Skeleton className="h-8 w-64 max-w-full" />
@@ -257,12 +290,15 @@ export default function DayPlanningPage() {
           </div>
           <Skeleton className="h-8 w-32" />
         </div>
-        <div className="grid items-start gap-4 lg:grid-cols-[minmax(0,1fr)_minmax(22rem,0.8fr)]">
+        <div className="grid items-start gap-4 lg:grid-cols-[minmax(0,1fr)_minmax(22rem,0.8fr)] xl:grid-cols-[minmax(0,1.1fr)_minmax(20rem,0.8fr)_minmax(16rem,0.55fr)]">
           <div className="flex flex-col gap-4">
             <Skeleton className="h-72 w-full" />
             <Skeleton className="h-44 w-full" />
           </div>
           <Skeleton className="h-96 w-full" />
+          <div className="grid gap-4 lg:col-span-2 xl:col-span-1">
+            <Skeleton className="h-52 w-full" />
+          </div>
         </div>
         </div>
       </>
@@ -272,7 +308,7 @@ export default function DayPlanningPage() {
   return (
     <>
       {dayNavigation}
-      <div className="animate-in fade-in duration-500 fill-mode-both mx-auto flex w-full max-w-6xl flex-col gap-6">
+      <div className="animate-in fade-in mx-auto flex w-full max-w-6xl flex-col gap-6 duration-500 fill-mode-both">
       <div className="flex flex-col items-start justify-between gap-4 sm:flex-row sm:items-end">
         <div className="flex flex-col gap-2">
           <div className="flex flex-wrap items-center gap-2">
@@ -282,7 +318,7 @@ export default function DayPlanningPage() {
             {isToday && <Badge>Today</Badge>}
           </div>
           <div className="text-muted-foreground flex flex-wrap items-center gap-2 text-sm">
-            <span>{dayTasks.length} {dayTasks.length === 1 ? "task" : "tasks"}</span>
+            <span>{plannedTasks.length} {plannedTasks.length === 1 ? "task" : "tasks"} left</span>
             <span aria-hidden="true">·</span>
             <span>{daySessions.length} {daySessions.length === 1 ? "session" : "sessions"}</span>
             {totalSessionSeconds > 0 && (
@@ -310,18 +346,20 @@ export default function DayPlanningPage() {
           </EmptyHeader>
         </Empty>
       ) : (
-        <div className="grid items-start gap-4 lg:grid-cols-[minmax(0,1fr)_minmax(22rem,0.8fr)]">
+        <div className="grid items-start gap-4 lg:grid-cols-[minmax(0,1fr)_minmax(22rem,0.8fr)] xl:grid-cols-[minmax(0,1.1fr)_minmax(20rem,0.8fr)_minmax(16rem,0.55fr)]">
           <div className="flex min-w-0 flex-col gap-4">
             <Card>
               <CardHeader>
-                <CardTitle>Planned tasks</CardTitle>
-                <CardDescription>Schedule work, mark progress, or return unfinished tasks to Backlog.</CardDescription>
+                <CardTitle className="flex items-center gap-1">
+                  Planned tasks
+                  <HelpTooltip>Schedule work, mark progress, or return unfinished tasks to Backlog.</HelpTooltip>
+                </CardTitle>
                 <CardAction><Badge variant="outline">{openTaskCount} open</Badge></CardAction>
               </CardHeader>
               <CardContent>
                 <DailyTaskPlanner
                   periodStart={selectedDayKey}
-                  tasks={dayTasks}
+                  tasks={plannedTasks}
                   projects={projectList}
                   backlogTasks={backlogTasks}
                   onCreated={handleTaskCreated}
@@ -334,8 +372,10 @@ export default function DayPlanningPage() {
 
             <Card>
               <CardHeader>
-                <CardTitle>Day notes</CardTitle>
-                <CardDescription>Capture changes, decisions, and what should carry forward.</CardDescription>
+                <CardTitle className="flex items-center gap-1">
+                  Day notes
+                  <HelpTooltip>Capture changes, decisions, and what should carry forward.</HelpTooltip>
+                </CardTitle>
               </CardHeader>
               <CardContent>
                 <AlwaysOpenNote
@@ -354,8 +394,10 @@ export default function DayPlanningPage() {
 
           <Card className="min-w-0">
             <CardHeader>
-              <CardTitle>Sessions</CardTitle>
-              <CardDescription>A chronological record of the work behind this plan.</CardDescription>
+              <CardTitle className="flex items-center gap-1">
+                Sessions
+                <HelpTooltip>A chronological record of the work behind this plan.</HelpTooltip>
+              </CardTitle>
               {totalSessionSeconds > 0 && (
                 <CardAction><Badge variant="secondary">{formatDuration(totalSessionSeconds)}</Badge></CardAction>
               )}
@@ -380,7 +422,7 @@ export default function DayPlanningPage() {
                     return (
                       <li
                         key={session.id}
-                        className="animate-in fade-in slide-in-from-bottom-1 grid grid-cols-[4.5rem_0.75rem_minmax(0,1fr)] gap-3 pb-6 duration-300 fill-mode-both last:pb-0"
+                        className="group/session animate-in fade-in slide-in-from-bottom-1 grid grid-cols-[4.5rem_0.75rem_minmax(0,1fr)] gap-3 pb-6 duration-300 fill-mode-both last:pb-0"
                         style={{ animationDelay: `${Math.min(index * 60, 240)}ms` }}
                       >
                         <div className="text-muted-foreground flex flex-col gap-0.5 font-mono text-xs">
@@ -393,33 +435,61 @@ export default function DayPlanningPage() {
                             <span className="bg-border absolute top-4 bottom-[-1.5rem] w-px" aria-hidden="true" />
                           )}
                         </div>
-                        <div className="flex min-w-0 flex-col gap-2">
-                          <p className={session.description?.trim()
+                        <div className="relative flex min-w-0 flex-col gap-2 pr-8">
+                          <div className="absolute -top-1 right-0 opacity-100 transition-opacity duration-150 sm:opacity-0 sm:group-hover/session:opacity-100 sm:group-focus-within/session:opacity-100">
+                            <SessionEditorDialog
+                              session={session}
+                              tasks={completedSessionTasks}
+                              availableTasks={taskList.filter((task) => task.completed_at !== null || task.period_start === null)}
+                              onUpdated={handleSessionUpdated}
+                              onTaskUpdated={handleTaskUpdated}
+                              onTasksChanged={(sessionId, tasks) => setSessionTasks((current) => ({ ...current, [sessionId]: tasks }))}
+                              onTaskCreated={(sessionId, task) => {
+                                handleTaskCreated(task);
+                                setSessionTasks((current) => ({
+                                  ...current,
+                                  [sessionId]: [...(current[sessionId] ?? []).filter((item) => item.id !== task.id), task],
+                                }));
+                              }}
+                            />
+                          </div>
+                          <LinkifiedText
+                            text={session.description?.trim() || "No description recorded for this session."}
+                            as="p"
+                            className={session.description?.trim()
                             ? "text-sm leading-relaxed whitespace-pre-wrap"
                             : "text-muted-foreground text-sm italic"}
-                          >
-                            {session.description?.trim() || "No description recorded for this session."}
-                          </p>
+                          />
                           {completedSessionTasks.length > 0 && (
                             <div className="flex flex-col gap-1.5">
                               <p className="text-muted-foreground text-xs font-medium">Completed in this session</p>
                               <div className="flex flex-wrap gap-1.5">
                                 {completedSessionTasks.map((task) => (
-                                  <Badge key={task.id} variant="secondary">
-                                    <CheckCircle2 />
-                                    {task.title}
-                                  </Badge>
+                                  <TaskEditorPopover
+                                    key={task.id}
+                                    task={task}
+                                    onUpdated={handleTaskUpdated}
+                                    trigger="badge"
+                                  />
                                 ))}
                               </div>
                             </div>
                           )}
                           <div className="flex flex-wrap items-center gap-1.5">
-                            <Badge variant="outline">
-                              {session.project_id ? <ProjectIcon icon={session.project_icon} /> : <NoProjectIcon />}
-                              <span className="max-w-48 truncate" title={session.project_path ?? session.project_name ?? "No project"}>
-                                {session.project_path ?? session.project_name ?? "No project"}
-                              </span>
-                            </Badge>
+                            {session.project_id ? (
+                              <Badge
+                                variant="outline"
+                                render={<Link href={`/app/projects/${session.project_id}`} />}
+                                className="max-w-full"
+                              >
+                                <ProjectIcon icon={session.project_icon} />
+                                <span className="max-w-48 truncate" title={session.project_path ?? session.project_name ?? "Project"}>
+                                  {session.project_path ?? session.project_name ?? "Project"}
+                                </span>
+                              </Badge>
+                            ) : (
+                              <Badge variant="outline"><NoProjectIcon />No project</Badge>
+                            )}
                             <Badge variant="secondary">{running ? "Running" : formatDuration(duration)}</Badge>
                           </div>
                         </div>
@@ -430,6 +500,16 @@ export default function DayPlanningPage() {
               )}
             </CardContent>
           </Card>
+
+          <aside className="grid min-w-0 gap-4 lg:col-span-2 xl:col-span-1" aria-label="Daily statistics">
+            <PlanningPeriodStats
+              period="day"
+              sessions={daySessions}
+              previousSessions={previousDaySessions}
+              now={now}
+              date={selectedDate}
+            />
+          </aside>
         </div>
       )}
       </div>

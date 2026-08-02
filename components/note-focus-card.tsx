@@ -23,6 +23,8 @@ export function NoteFocusCard({
   dialogDescription,
   dialogHeaderActions,
   noteClassName,
+  cardClassName,
+  collapsible = true,
   onSaved,
   onDeleted,
 }: {
@@ -39,6 +41,8 @@ export function NoteFocusCard({
   dialogDescription: string;
   dialogHeaderActions?: ReactNode;
   noteClassName?: string;
+  cardClassName?: string;
+  collapsible?: boolean;
   onSaved: (note: Note) => void;
   onDeleted: () => void;
 }) {
@@ -47,7 +51,7 @@ export function NoteFocusCard({
 
   return (
     <>
-      <Card>
+      <Card className={cardClassName}>
         <CardHeader className="flex flex-wrap items-center justify-between gap-2">
           <CardTitle className="flex flex-wrap items-center gap-2">
             {icon}
@@ -56,18 +60,20 @@ export function NoteFocusCard({
           </CardTitle>
           <div className="flex items-center gap-1">
             {headerActions}
-            <Button
-              variant="ghost"
-              size="icon-sm"
-              aria-label={collapsed ? "Expand" : "Collapse"}
-              onClick={() => setCollapsed((c) => !c)}
-            >
-              {collapsed ? <ChevronDown className="size-4" /> : <ChevronUp className="size-4" />}
-            </Button>
+            {collapsible && (
+              <Button
+                variant="ghost"
+                size="icon-sm"
+                aria-label={collapsed ? "Expand" : "Collapse"}
+                onClick={() => setCollapsed((c) => !c)}
+              >
+                {collapsed ? <ChevronDown className="size-4" /> : <ChevronUp className="size-4" />}
+              </Button>
+            )}
           </div>
         </CardHeader>
-        {!collapsed && (
-          <CardContent>
+        {(!collapsible || !collapsed) && (
+          <CardContent className="min-h-0 flex-1 overflow-y-auto">
             <button
               type="button"
               onClick={() => setOpen(true)}

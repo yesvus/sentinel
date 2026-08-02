@@ -27,6 +27,13 @@ const securityHeaders = [
 
 const nextConfig: NextConfig = {
   poweredByHeader: false,
+  async redirects() {
+    return [
+      { source: "/app/plan", destination: "/app/calendar", permanent: true },
+      { source: "/app/plan/:day", destination: "/app/calendar/:day", permanent: true },
+      { source: "/app/stats", destination: "/app/calendar/history", permanent: true },
+    ];
+  },
   async headers() {
     return [{ source: "/(.*)", headers: securityHeaders }];
   },

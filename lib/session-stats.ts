@@ -6,7 +6,10 @@ const NO_PROJECT_LABEL = "No project";
 /** Live duration for an in-progress session, otherwise its stored duration. */
 export function sessionDurationSeconds(session: StudySession, now: number) {
   return session.ended_at === null
-    ? Math.max(0, Math.floor((now - new Date(session.started_at).getTime()) / 1000))
+    ? Math.max(0, Math.floor(
+        ((session.paused_at ? new Date(session.paused_at).getTime() : now) - new Date(session.started_at).getTime()) / 1000
+        - (session.paused_seconds ?? 0),
+      ))
     : (session.duration_seconds ?? 0);
 }
 
@@ -56,14 +59,12 @@ export type ProjectTotal = { key: string; name: string; icon: string | null; sec
 export function projectTotals(sessionList: StudySession[], now: number): ProjectTotal[] {
   const totals = new Map<string, ProjectTotal>();
   for (const session of sessionList) {
-    const key = session.root_project_id != null
-      ? String(session.root_project_id)
-      : session.project_id !== null ? String(session.project_id) : "none";
+    const key = session.project_id !== null ? String(session.project_id) : "none";
     const existing = totals.get(key);
     totals.set(key, {
       key,
-      name: session.root_project_name ?? session.project_name ?? NO_PROJECT_LABEL,
-      icon: session.root_project_icon ?? session.project_icon,
+      name: session.project_name ?? NO_PROJECT_LABEL,
+      icon: session.project_icon,
       seconds: (existing?.seconds ?? 0) + sessionDurationSeconds(session, now),
     });
   }

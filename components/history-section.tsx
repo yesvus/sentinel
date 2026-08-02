@@ -3,6 +3,7 @@
 import { useState, FormEvent } from "react";
 import { History as HistoryIcon, Trash2, Plus, Pencil, Download, Copy, ChevronDown, ChevronRight } from "lucide-react";
 import { Badge } from "@/components/ui/badge";
+import { LinkifiedText } from "@/components/linkified-text";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
@@ -42,6 +43,7 @@ import { toast } from "@/components/ui/toast";
 import { exportSessions, buildAiPrompt } from "@/lib/export";
 import { partialWeekStats } from "@/lib/session-stats";
 import { sessionDurationSeconds } from "@/lib/session-stats";
+import { orderProjectsAsTree } from "@/lib/project-tree";
 import {
   dayKey,
   weekKey,
@@ -448,7 +450,7 @@ export function HistorySection({
                             ) : (
                               <NoProjectIcon className="size-4" />
                             )}
-                            {project?.path ?? "No project"}
+                            {project?.name ?? "No project"}
                           </span>
                         );
                       }}
@@ -459,10 +461,11 @@ export function HistorySection({
                       <NoProjectIcon className="size-4" />
                       No project
                     </SelectItem>
-                    {projectList.filter((project) => !project.archived || project.id === addProjectId).map((project) => (
+                    {orderProjectsAsTree(projectList.filter((project) => !project.archived || project.id === addProjectId)).map(({ project, treeDepth }) => (
                       <SelectItem key={project.id} value={String(project.id)}>
+                        {treeDepth > 0 && <span className="text-border" aria-hidden="true">└</span>}
                         <ProjectIcon icon={project.icon} className="size-4" />
-                        {project.path}
+                        {project.name}
                       </SelectItem>
                     ))}
                   </SelectContent>
@@ -643,11 +646,11 @@ export function HistorySection({
                                       </div>
                                       {session.description && (
                                         <div>
-                                          <p
+                                          <LinkifiedText
+                                            text={session.description}
+                                            as="p"
                                             className={`text-muted-foreground text-sm whitespace-pre-wrap ${isExpanded ? "" : "line-clamp-2"}`}
-                                          >
-                                            {session.description}
-                                          </p>
+                                          />
                                           {isLong && (
                                             <button
                                               type="button"

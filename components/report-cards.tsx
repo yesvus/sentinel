@@ -1,6 +1,6 @@
 "use client";
 
-import { CalendarDays, CalendarRange } from "lucide-react";
+import { CalendarRange } from "lucide-react";
 import { Card, CardHeader, CardTitle, CardContent } from "@/components/ui/card";
 import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip";
 import { StudySession, Note } from "@/lib/api";
@@ -48,15 +48,9 @@ export function ReportCards({
   onNoteDeleted: (scope: "day" | "week", dateKey: string) => void;
 }) {
   const today = new Date(now);
-  const yesterday = addDays(today, -1);
   const todayKey = dayKey(today);
-  const yesterdayKey = dayKey(yesterday);
 
   const totalsByDay = dailyTotals(sessionList, now);
-  const todaySeconds = totalsByDay.get(todayKey) ?? 0;
-  const yesterdaySeconds = totalsByDay.get(yesterdayKey) ?? 0;
-  const todayComparison = periodComparison(todaySeconds, yesterdaySeconds);
-  const todaySessionCount = sessionList.filter((s) => dayKey(new Date(s.started_at)) === todayKey).length;
 
   const currentWeekStart = startOfWeek(today);
   const currentWeekKey = weekKey(today);
@@ -90,40 +84,10 @@ export function ReportCards({
     ? Math.round(weekAllocation.producing / weekAllocation.total * 100)
     : 0;
 
-  const todayNote = notes.find((n) => n.scope === "day" && n.date_key === todayKey);
   const weekNote = notes.find((n) => n.scope === "week" && n.date_key === currentWeekKey);
 
   return (
-    <div className="grid gap-8 md:grid-cols-2">
-      <Card>
-        <CardHeader>
-          <CardTitle className="flex items-center gap-2">
-            <CalendarDays className="text-muted-foreground size-4" />
-            Today
-          </CardTitle>
-        </CardHeader>
-        <CardContent className="space-y-3">
-          <div>
-            <p className="text-2xl font-semibold">{formatDuration(todaySeconds)}</p>
-            <ComparisonLine diff={todayComparison.diff} percent={todayComparison.percent} previousLabel="yesterday" />
-          </div>
-          <p className="text-muted-foreground text-sm">
-            {todaySessionCount === 0
-              ? "No sessions yet today."
-              : `${todaySessionCount} session${todaySessionCount === 1 ? "" : "s"} today.`}
-          </p>
-          <NoteEditor
-            scope="day"
-            dateKey={todayKey}
-            note={todayNote}
-            label="today"
-            onSaved={onNoteSaved}
-            onDeleted={() => onNoteDeleted("day", todayKey)}
-          />
-        </CardContent>
-      </Card>
-
-      <Card>
+      <Card className="w-full">
         <CardHeader>
           <CardTitle className="flex items-center gap-2">
             <CalendarRange className="text-muted-foreground size-4" />
@@ -173,8 +137,8 @@ export function ReportCards({
               <span>Producing {producingPercent}% · {formatDuration(weekAllocation.producing)}</span>
             </div>
             <div className="bg-muted flex h-3 overflow-hidden rounded-full" role="img" aria-label="This week Learning and Producing allocation">
-              <span style={{ width: `${learningPercent}%`, backgroundColor: "#0e7490" }} />
-              <span style={{ width: `${producingPercent}%`, backgroundColor: "#f59e0b" }} />
+              <span style={{ width: `${learningPercent}%`, backgroundColor: "var(--data-learning)" }} />
+              <span style={{ width: `${producingPercent}%`, backgroundColor: "var(--data-producing)" }} />
             </div>
           </div>
 
@@ -188,7 +152,5 @@ export function ReportCards({
           />
         </CardContent>
       </Card>
-
-    </div>
   );
 }

@@ -25,10 +25,10 @@ export type AllocationPoint = {
 };
 
 const config = {
-  learning: { label: "Learning", color: "#0e7490" },
-  producing: { label: "Producing", color: "#f59e0b" },
-  learningPercent: { label: "Learning", color: "#0e7490" },
-  producingPercent: { label: "Producing", color: "#f59e0b" },
+  learning: { label: "Learning", color: "var(--data-learning)" },
+  producing: { label: "Producing", color: "var(--data-producing)" },
+  learningPercent: { label: "Learning", color: "var(--data-learning)" },
+  producingPercent: { label: "Producing", color: "var(--data-producing)" },
 } satisfies ChartConfig;
 
 export function LearningProducingChart({

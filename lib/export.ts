@@ -141,7 +141,8 @@ function taskSection(taskList: Task[], projectList: Project[]) {
       const status = task.completed_at ? "DONE" : "NOT DONE";
       const project = projectList.find((p) => p.id === task.project_id);
       const projectLabel = project ? ` (${project.path})` : "";
-      return `[T${i + 1}] ${status} — ${task.title}${projectLabel}`;
+      const description = task.description ? ` · ${task.description}` : "";
+      return `[T${i + 1}] ${status} — ${task.title}${projectLabel}${description}`;
     })
     .join("\n");
 }
@@ -262,7 +263,7 @@ This structured format, the word limit, and the banned words apply only to this 
 respond afterward — with follow-up questions, more context, a correction, or something entirely
 off-topic — drop the format and respond naturally, like a normal conversation.`;
 
-/** Builds the daily AI-review prompt (paste into an AI chat). `date` is the day being reviewed — "today" from the Plan tab, or any past day from History. `now` covers a still-running session. */
+/** Builds the daily AI-review prompt (paste into an AI chat). `date` is the day being reviewed — "today" from Calendar, or any past day from History. `now` covers a still-running session. */
 export function buildAiPrompt({
   userContext,
   date,

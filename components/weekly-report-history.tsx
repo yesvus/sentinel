@@ -91,8 +91,8 @@ export function WeeklyReportHistory() {
                 <span>Producing {report.totalSeconds ? Math.round(report.producingSeconds / report.totalSeconds * 100) : 0}% · {formatDuration(report.producingSeconds)}</span>
               </div>
               <div className="bg-muted flex h-3 overflow-hidden rounded-full" role="img" aria-label="Weekly Learning and Producing allocation">
-                <span style={{ width: `${report.totalSeconds ? report.learningSeconds / report.totalSeconds * 100 : 0}%`, backgroundColor: "#0e7490" }} />
-                <span style={{ width: `${report.totalSeconds ? report.producingSeconds / report.totalSeconds * 100 : 0}%`, backgroundColor: "#f59e0b" }} />
+                <span style={{ width: `${report.totalSeconds ? report.learningSeconds / report.totalSeconds * 100 : 0}%`, backgroundColor: "var(--data-learning)" }} />
+                <span style={{ width: `${report.totalSeconds ? report.producingSeconds / report.totalSeconds * 100 : 0}%`, backgroundColor: "var(--data-producing)" }} />
               </div>
             </div>
             <p className="text-muted-foreground text-sm">

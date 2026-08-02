@@ -1,6 +1,7 @@
 "use client";
 
 import { useEffect, useState } from "react";
+import Link from "next/link";
 import { useRouter, usePathname } from "next/navigation";
 import { SidebarProvider, SidebarTrigger } from "@/components/ui/sidebar";
 import { AppSidebar, NAV_ITEMS } from "@/components/app-sidebar";
@@ -64,7 +65,8 @@ export function AppShell({
   const currentPage = NAV_ITEMS.find((item) => item.url === pathname);
   const pageTitle =
     currentPage?.title ??
-    (pathname.startsWith("/app/plan/") ? "Plan" : undefined) ??
+    (pathname.startsWith("/app/calendar/") ? "Calendar" : undefined) ??
+    (pathname.startsWith("/app/projects/") ? "Projects" : undefined) ??
     ({
       "/app/friends": "Friends",
       "/app/profile": "Profile",
@@ -80,10 +82,19 @@ export function AppShell({
             <main className="flex h-svh min-w-0 flex-1 flex-col overflow-hidden">
               <header className="bg-sidebar z-20 flex h-14 shrink-0 items-center gap-2 border-b px-3 sm:gap-3 sm:px-4">
                 <SidebarTrigger />
-                <SessionTimerIndicator />
-                <h1 className="shrink-0 text-sm font-medium">{pageTitle}</h1>
+                {pathname.startsWith("/app/projects/") || pathname.startsWith("/app/calendar/") ? (
+                  <Link
+                    href={pathname.startsWith("/app/projects/") ? "/app/projects" : "/app/calendar"}
+                    className="shrink-0 text-sm font-medium transition-colors duration-150 hover:text-primary"
+                  >
+                    {pageTitle}
+                  </Link>
+                ) : (
+                  <h1 className="shrink-0 text-sm font-medium">{pageTitle}</h1>
+                )}
                 <PageHeaderActionsSlot />
                 <div className="min-w-0 flex-1" />
+                <SessionTimerIndicator />
                 <Separator orientation="vertical" className="mx-1" />
                 <div className="bg-muted/40 flex shrink-0 items-center gap-0.5 rounded-lg px-0.5">
                   <FriendsControl />
