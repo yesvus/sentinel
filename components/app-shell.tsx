@@ -14,7 +14,7 @@ import { FriendsControl } from "@/components/friends-control";
 import { NotificationsControl } from "@/components/notifications-control";
 import { SessionTimerIndicator } from "@/components/session-timer-indicator";
 import { Toaster } from "@/components/ui/toast";
-import { PageHeaderActionsProvider, PageHeaderActionsSlot } from "@/lib/page-header-actions-context";
+import { PageHeaderActionsProvider, PageHeaderActionsSlot, PageHeaderRightActionsSlot } from "@/lib/page-header-actions-context";
 import { Separator } from "@/components/ui/separator";
 
 function Splash() {
@@ -94,6 +94,7 @@ export function AppShell({
                 )}
                 <PageHeaderActionsSlot />
                 <div className="min-w-0 flex-1" />
+                <PageHeaderRightActionsSlot />
                 <SessionTimerIndicator />
                 <Separator orientation="vertical" className="mx-1" />
                 <div className="bg-muted/40 flex shrink-0 items-center gap-0.5 rounded-lg px-0.5">
