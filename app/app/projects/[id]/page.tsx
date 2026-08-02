@@ -32,15 +32,18 @@ import {
 import { Button } from "@/components/ui/button";
 import { Card, CardAction, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { Field, FieldLabel } from "@/components/ui/field";
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Skeleton } from "@/components/ui/skeleton";
 import { Separator } from "@/components/ui/separator";
 import { Textarea } from "@/components/ui/textarea";
 import { ApiError, Project, StudySession, Task, projects as projectsApi, sessions as sessionsApi, tasks as tasksApi } from "@/lib/api";
 import { formatDuration } from "@/lib/date";
 import { ProjectIcon } from "@/lib/icons";
-import { orderProjectsAsTree, projectBranchIds } from "@/lib/project-tree";
+import { canPlaceProject, orderProjectsAsTree, projectBranchIds } from "@/lib/project-tree";
 import { sessionDurationSeconds } from "@/lib/session-stats";
 import { PageHeaderActions } from "@/lib/page-header-actions-context";
+
+const TOP_LEVEL_VALUE = "__top-level__";
 
 export default function ProjectDetailPage() {
   const params = useParams<{ id: string }>();
@@ -87,6 +90,11 @@ export default function ProjectDetailPage() {
     }
     return items;
   }, [byId, project]);
+  const parentCandidates = project
+    ? orderProjectsAsTree(projectList.filter((item) => !item.archived)).filter(
+        ({ project: candidate }) => canPlaceProject(projectList.filter((item) => !item.archived), project, candidate.id),
+      )
+    : [];
   const backlogTasks = taskList.filter((task) => task.project_id === projectId && task.period_start === null);
   const descendantIds = project ? projectBranchIds(projectList, project.id) : new Set<number>();
   descendantIds.delete(projectId);
@@ -169,6 +177,23 @@ export default function ProjectDetailPage() {
       setEditingField(null);
     } catch (caught) {
       setError(caught instanceof ApiError ? caught.message : "Could not save this project.");
+    } finally {
+      setSaving(false);
+    }
+  }
+
+  async function updateParent(newParentId: number | null) {
+    if (!project || newParentId === project.parentId) return;
+    setSaving(true);
+    setError(null);
+    try {
+      const position = projectList.filter(
+        (item) => item.id !== project.id && item.parentId === newParentId && item.pinned === project.pinned,
+      ).length;
+      await projectsApi.move(project.id, newParentId, position);
+      setProjectList(await projectsApi.list());
+    } catch (caught) {
+      setError(caught instanceof ApiError ? caught.message : "Could not move this project.");
     } finally {
       setSaving(false);
     }
@@ -322,6 +347,40 @@ export default function ProjectDetailPage() {
         </CardHeader>
         <CardContent>
           <div className="flex flex-col gap-5">
+            <Field>
+              <FieldLabel htmlFor="project-parent">Parent project</FieldLabel>
+              <Select
+                value={project.parentId !== null ? String(project.parentId) : TOP_LEVEL_VALUE}
+                onValueChange={(value) => void updateParent(value === TOP_LEVEL_VALUE ? null : Number(value))}
+                disabled={project.archived || saving}
+              >
+                <SelectTrigger id="project-parent" className="w-full">
+                  <SelectValue>
+                    {(value: string) => {
+                      if (value === TOP_LEVEL_VALUE) return "Top level";
+                      const parent = byId.get(Number(value));
+                      return parent ? (
+                        <span className="flex items-center gap-2">
+                          <ProjectIcon icon={parent.icon} className="size-4" />
+                          {parent.name}
+                        </span>
+                      ) : "Top level";
+                    }}
+                  </SelectValue>
+                </SelectTrigger>
+                <SelectContent>
+                  <SelectItem value={TOP_LEVEL_VALUE}>Top level</SelectItem>
+                  {parentCandidates.map(({ project: candidate, treeDepth }) => (
+                    <SelectItem key={candidate.id} value={String(candidate.id)}>
+                      {treeDepth > 0 && <span className="text-border" aria-hidden="true">└</span>}
+                      <ProjectIcon icon={candidate.icon} className="size-4" />
+                      {candidate.name}
+                    </SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
+            </Field>
+            <Separator />
             <Field>
               <FieldLabel htmlFor="project-description">Description</FieldLabel>
               {editingField === "description" && !project.archived ? (
