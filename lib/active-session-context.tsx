@@ -2,7 +2,7 @@
 
 import { createContext, useCallback, useContext, useEffect, useRef, useState } from "react";
 import { toast } from "@/components/ui/toast";
-import { ApiError, sessions, type SessionUpdateResult, type StudySession } from "@/lib/api";
+import { ApiError, clearApiCache, sessions, type SessionUpdateResult, type StudySession } from "@/lib/api";
 import { useAuth } from "@/lib/auth-context";
 import { formatDuration } from "@/lib/date";
 import { NOISE_SESSION_EVENT } from "@/lib/noise-player";
@@ -23,12 +23,14 @@ type ActiveSessionContextValue = {
   activeSession: StudySession | null;
   elapsedMs: number;
   now: number;
+  sessionRevision: number;
   loading: boolean;
   reconciling: boolean;
   reconcile: () => Promise<StudySession | null>;
   notifySessionChanged: () => Promise<StudySession | null>;
   startSession: (details: StartDetails) => Promise<StudySession>;
   updateSession: (id: number, details: UpdateDetails) => Promise<SessionUpdateResult>;
+  createManualSession: (details: Parameters<typeof sessions.createManual>[0]) => ReturnType<typeof sessions.createManual>;
   deleteSession: (id: number) => Promise<void>;
   stopSession: (id: number, description?: string | null, productionPercentage?: number | null) => ReturnType<typeof sessions.stop>;
   pauseSession: (id: number) => ReturnType<typeof sessions.pause>;
@@ -52,11 +54,13 @@ export function ActiveSessionProvider({ children }: { children: React.ReactNode 
   const [activeSession, setActiveSession] = useState<StudySession | null>(null);
   const [elapsedMs, setElapsedMs] = useState(0);
   const [now, setNow] = useState(() => Date.now());
+  const [sessionRevision, setSessionRevision] = useState(0);
   const [loading, setLoading] = useState(true);
   const [reconciling, setReconciling] = useState(false);
   const channelRef = useRef<BroadcastChannel | null>(null);
   const requestRef = useRef(0);
   const activeRef = useRef<StudySession | null>(null);
+  const hasReconciledRef = useRef(false);
 
   const applyActive = useCallback((session: StudySession | null) => {
     setNow(Date.now());
@@ -65,13 +69,19 @@ export function ActiveSessionProvider({ children }: { children: React.ReactNode 
     setElapsedMs(elapsedFor(session));
   }, []);
 
-  const reconcile = useCallback(async () => {
+  const runReconcile = useCallback(async (signalDetectedChange: boolean) => {
     const request = ++requestRef.current;
     setReconciling(true);
     try {
       const session = await sessions.getActive();
       if (request !== requestRef.current) return activeRef.current;
+      const changed = hasReconciledRef.current && JSON.stringify(session) !== JSON.stringify(activeRef.current);
       applyActive(session);
+      hasReconciledRef.current = true;
+      if (changed && signalDetectedChange) {
+        clearApiCache();
+        setSessionRevision((revision) => revision + 1);
+      }
       return session;
     } finally {
       if (request === requestRef.current) {
@@ -81,18 +91,42 @@ export function ActiveSessionProvider({ children }: { children: React.ReactNode 
     }
   }, [applyActive]);
 
+  const reconcile = useCallback(() => runReconcile(true), [runReconcile]);
+
+  const invalidateReconciliation = useCallback(() => {
+    // A GET started before the mutation must not be allowed to apply afterward.
+    requestRef.current += 1;
+    setReconciling(false);
+    setLoading(false);
+  }, []);
+
+  const applyMutation = useCallback((session: StudySession | null) => {
+    invalidateReconciliation();
+    applyActive(session);
+    hasReconciledRef.current = true;
+    setSessionRevision((revision) => revision + 1);
+  }, [applyActive, invalidateReconciliation]);
+
   const post = useCallback((message: SessionBroadcastMessage) => {
     channelRef.current?.postMessage(message);
   }, []);
 
   const notifySessionChanged = useCallback(async () => {
     const previous = activeRef.current;
-    const next = await reconcile();
+    clearApiCache();
+    const next = await runReconcile(false);
+    setSessionRevision((revision) => revision + 1);
     post({ type: "changed" });
     if (previous && !next) localNoise("stopped");
     if (!previous && next) localNoise("started");
     return next;
-  }, [post, reconcile]);
+  }, [post, runReconcile]);
+
+  const reconcileAllSessionData = useCallback(() => {
+    clearApiCache();
+    setSessionRevision((revision) => revision + 1);
+    return runReconcile(false);
+  }, [runReconcile]);
 
   useEffect(() => {
     const timer = window.setTimeout(() => reconcile().catch(() => setLoading(false)), 0);
@@ -104,7 +138,9 @@ export function ActiveSessionProvider({ children }: { children: React.ReactNode 
     channelRef.current = channel;
     const handleMessage = (event: MessageEvent<SessionBroadcastMessage>) => {
       const previous = activeRef.current;
-      reconcile()
+      clearApiCache();
+      setSessionRevision((revision) => revision + 1);
+      runReconcile(false)
         .then((next) => {
           if (event.data.type !== "changed") return;
           if (previous && !next) localNoise("stopped");
@@ -118,14 +154,14 @@ export function ActiveSessionProvider({ children }: { children: React.ReactNode 
       channel.close();
       channelRef.current = null;
     };
-  }, [reconcile]);
+  }, [runReconcile]);
 
   useEffect(() => {
     const handleVisibility = () => {
-      if (document.visibilityState === "visible") reconcile().catch(() => {});
+      if (document.visibilityState === "visible") reconcileAllSessionData().catch(() => {});
     };
     const handleReconcile = () => {
-      reconcile().catch(() => {});
+      reconcileAllSessionData().catch(() => {});
     };
     window.addEventListener("focus", handleReconcile);
     window.addEventListener("online", handleReconcile);
@@ -135,7 +171,7 @@ export function ActiveSessionProvider({ children }: { children: React.ReactNode 
       window.removeEventListener("online", handleReconcile);
       document.removeEventListener("visibilitychange", handleVisibility);
     };
-  }, [reconcile]);
+  }, [reconcileAllSessionData]);
 
   useEffect(() => {
     if (!activeSession) return;
@@ -158,7 +194,7 @@ export function ActiveSessionProvider({ children }: { children: React.ReactNode 
           return;
         }
         const durationSeconds = result.durationSeconds ?? Math.floor(elapsedFor(activeSession) / 1000);
-        applyActive(null);
+        applyMutation(null);
         post({ type: "stopped" });
         localNoise("stopped");
         toast.add({
@@ -171,7 +207,7 @@ export function ActiveSessionProvider({ children }: { children: React.ReactNode 
       }
     }, Math.min(Math.max(0, deadline - Date.now()) + 50, 2_147_483_647));
     return () => window.clearTimeout(timer);
-  }, [activeSession, applyActive, post, reconcile, user?.sessionPauseTimeoutMinutes]);
+  }, [activeSession, applyMutation, post, reconcile, user?.sessionPauseTimeoutMinutes]);
 
   async function startSession(details: StartDetails) {
     try {
@@ -188,7 +224,7 @@ export function ActiveSessionProvider({ children }: { children: React.ReactNode 
         paused_at: null,
         paused_seconds: 0,
       };
-      applyActive(provisional);
+      applyMutation(provisional);
       post({ type: "started" });
       localNoise("started");
       reconcile().catch(() => {});
@@ -197,7 +233,7 @@ export function ActiveSessionProvider({ children }: { children: React.ReactNode 
       if (error instanceof ApiError && error.status === 409) {
         const conflict = (error.body as { session?: StudySession | null } | undefined)?.session;
         if (conflict) {
-          applyActive(conflict);
+          applyMutation(conflict);
           return conflict;
         }
       }
@@ -208,10 +244,18 @@ export function ActiveSessionProvider({ children }: { children: React.ReactNode 
   async function updateSession(id: number, details: UpdateDetails) {
     const previous = activeRef.current;
     const result = await sessions.update(id, details);
-    applyActive(result.activeSession);
+    applyMutation(result.activeSession);
     post({ type: "changed" });
     if (previous && !result.activeSession) localNoise("stopped");
     if (!previous && result.activeSession) localNoise("started");
+    return result;
+  }
+
+  async function createManualSession(details: Parameters<typeof sessions.createManual>[0]) {
+    const result = await sessions.createManual(details);
+    invalidateReconciliation();
+    setSessionRevision((revision) => revision + 1);
+    post({ type: "changed" });
     return result;
   }
 
@@ -219,8 +263,11 @@ export function ActiveSessionProvider({ children }: { children: React.ReactNode 
     const deletingActive = activeRef.current?.id === id;
     await sessions.remove(id);
     if (deletingActive) {
-      applyActive(null);
+      applyMutation(null);
       localNoise("stopped");
+    } else {
+      invalidateReconciliation();
+      setSessionRevision((revision) => revision + 1);
     }
     post({ type: "changed" });
   }
@@ -228,7 +275,7 @@ export function ActiveSessionProvider({ children }: { children: React.ReactNode 
   async function stopSession(id: number, description?: string | null, productionPercentage?: number | null) {
     try {
       const result = await sessions.stop(id, description, productionPercentage);
-      applyActive(null);
+      applyMutation(null);
       post({ type: "stopped" });
       localNoise("stopped");
       return result;
@@ -241,7 +288,12 @@ export function ActiveSessionProvider({ children }: { children: React.ReactNode 
   async function pauseSession(id: number) {
     try {
       const result = await sessions.pause(id);
-      if (activeSession?.id === id) applyActive({ ...activeSession, paused_at: result.pausedAt, paused_seconds: result.pausedSeconds });
+      const current = activeRef.current;
+      if (current?.id === id) applyMutation({ ...current, paused_at: result.pausedAt, paused_seconds: result.pausedSeconds });
+      else {
+        invalidateReconciliation();
+        setSessionRevision((revision) => revision + 1);
+      }
       post({ type: "paused" });
       localNoise("paused");
       return result;
@@ -254,7 +306,12 @@ export function ActiveSessionProvider({ children }: { children: React.ReactNode 
   async function resumeSession(id: number) {
     try {
       const result = await sessions.resume(id);
-      if (activeSession?.id === id) applyActive({ ...activeSession, paused_at: null, paused_seconds: result.pausedSeconds });
+      const current = activeRef.current;
+      if (current?.id === id) applyMutation({ ...current, paused_at: null, paused_seconds: result.pausedSeconds });
+      else {
+        invalidateReconciliation();
+        setSessionRevision((revision) => revision + 1);
+      }
       post({ type: "resumed" });
       localNoise("resumed");
       return result;
@@ -266,7 +323,7 @@ export function ActiveSessionProvider({ children }: { children: React.ReactNode 
 
   return (
     <ActiveSessionContext.Provider
-      value={{ activeSession, elapsedMs, now, loading, reconciling, reconcile, notifySessionChanged, startSession, updateSession, deleteSession, stopSession, pauseSession, resumeSession }}
+      value={{ activeSession, elapsedMs, now, sessionRevision, loading, reconciling, reconcile, notifySessionChanged, startSession, updateSession, createManualSession, deleteSession, stopSession, pauseSession, resumeSession }}
     >
       {children}
     </ActiveSessionContext.Provider>

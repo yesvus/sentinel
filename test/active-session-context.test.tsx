@@ -4,24 +4,28 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { ActiveSessionProvider, useActiveSession } from "@/lib/active-session-context";
 import type { StudySession } from "@/lib/api";
 
-const { getActive, expirePause, start, update, remove, stop, pause, resume, toastAdd } = vi.hoisted(() => ({
+const { getActive, expirePause, start, createManual, update, remove, stop, pause, resume, clearApiCache, toastAdd } = vi.hoisted(() => ({
   getActive: vi.fn(),
   expirePause: vi.fn(),
   start: vi.fn(),
+  createManual: vi.fn(),
   update: vi.fn(),
   remove: vi.fn(),
   stop: vi.fn(),
   pause: vi.fn(),
   resume: vi.fn(),
+  clearApiCache: vi.fn(),
   toastAdd: vi.fn(),
 }));
 
 vi.mock("@/lib/api", () => ({
   ApiError: class ApiError extends Error {},
+  clearApiCache,
   sessions: {
     getActive,
     expirePause,
     start,
+    createManual,
     update,
     remove,
     stop,
@@ -63,13 +67,14 @@ class ControlledBroadcastChannel {
 
 function Probe({ onContext }: { onContext?: (context: ReturnType<typeof useActiveSession>) => void }) {
   const context = useActiveSession();
-  const { activeSession, elapsedMs, loading } = context;
+  const { activeSession, elapsedMs, loading, sessionRevision } = context;
   useEffect(() => onContext?.(context), [context, onContext]);
   return (
     <div>
       <span data-testid="loading">{String(loading)}</span>
       <span data-testid="session">{activeSession?.id ?? "none"}</span>
       <span data-testid="elapsed">{elapsedMs}</span>
+      <span data-testid="revision">{sessionRevision}</span>
     </div>
   );
 }
@@ -97,11 +102,13 @@ describe("ActiveSessionProvider", () => {
     getActive.mockReset();
     expirePause.mockReset();
     start.mockReset();
+    createManual.mockReset();
     update.mockReset();
     remove.mockReset();
     stop.mockReset();
     pause.mockReset();
     resume.mockReset();
+    clearApiCache.mockReset();
     toastAdd.mockReset();
   });
 
@@ -126,6 +133,71 @@ describe("ActiveSessionProvider", () => {
 
     await waitFor(() => expect(screen.getByTestId("session")).toHaveTextContent("42"));
     expect(getActive).toHaveBeenCalledTimes(2);
+    expect(clearApiCache).toHaveBeenCalledOnce();
+    expect(screen.getByTestId("revision")).toHaveTextContent("1");
+  });
+
+  it("does not allow an in-flight reconcile to overwrite an authoritative mutation", async () => {
+    let mutationContext: ReturnType<typeof useActiveSession> | undefined;
+    let resolveReconcile!: (value: StudySession | null) => void;
+    const staleReconcile = new Promise<StudySession | null>((resolve) => { resolveReconcile = resolve; });
+    const stale = session();
+    const updated = session({ id: 7, description: "Authoritative" });
+    getActive.mockResolvedValueOnce(null).mockReturnValueOnce(staleReconcile);
+    update.mockResolvedValue({
+      id: 7,
+      startedAt: updated.started_at,
+      endedAt: null,
+      durationSeconds: null,
+      description: updated.description,
+      projectId: null,
+      productionPercentage: null,
+      activeSession: updated,
+    });
+
+    render(<ActiveSessionProvider><Probe onContext={(context) => { mutationContext = context; }} /></ActiveSessionProvider>);
+    await waitFor(() => expect(screen.getByTestId("loading")).toHaveTextContent("false"));
+    if (!mutationContext) throw new Error("Provider context was not captured");
+
+    let reconcilePromise!: Promise<StudySession | null>;
+    act(() => { reconcilePromise = mutationContext!.reconcile(); });
+    await act(async () => { await mutationContext!.updateSession(7, { description: "Authoritative" }); });
+    expect(screen.getByTestId("session")).toHaveTextContent("7");
+    expect(screen.getByTestId("revision")).toHaveTextContent("1");
+
+    await act(async () => {
+      resolveReconcile(stale);
+      await reconcilePromise;
+    });
+    expect(screen.getByTestId("session")).toHaveTextContent("7");
+  });
+
+  it("invalidates session lists for manual creation and cross-device focus catch-up", async () => {
+    let mutationContext: ReturnType<typeof useActiveSession> | undefined;
+    getActive.mockResolvedValue(null);
+    createManual.mockResolvedValue({
+      id: 9,
+      startedAt: "2026-08-01T10:00:00.000Z",
+      endedAt: "2026-08-01T11:00:00.000Z",
+      durationSeconds: 3600,
+    });
+
+    render(<ActiveSessionProvider><Probe onContext={(context) => { mutationContext = context; }} /></ActiveSessionProvider>);
+    await waitFor(() => expect(screen.getByTestId("loading")).toHaveTextContent("false"));
+    if (!mutationContext) throw new Error("Provider context was not captured");
+
+    await act(async () => {
+      await mutationContext!.createManualSession({
+        startedAt: "2026-08-01T10:00:00.000Z",
+        endedAt: "2026-08-01T11:00:00.000Z",
+      });
+    });
+    expect(screen.getByTestId("revision")).toHaveTextContent("1");
+    expect(ControlledBroadcastChannel.instances[0].postMessage).toHaveBeenCalledWith({ type: "changed" });
+
+    await act(async () => { window.dispatchEvent(new Event("focus")); });
+    await waitFor(() => expect(screen.getByTestId("revision")).toHaveTextContent("2"));
+    expect(clearApiCache).toHaveBeenCalled();
   });
 
   it("propagates start, update, pause, resume, and stop mutations", async () => {

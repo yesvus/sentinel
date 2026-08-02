@@ -29,6 +29,7 @@ import {
   tasks as tasksApi,
 } from "@/lib/api";
 import { useAuth } from "@/lib/auth-context";
+import { useActiveSession } from "@/lib/active-session-context";
 import {
   addDays,
   dayKey,
@@ -38,6 +39,7 @@ import {
 } from "@/lib/date";
 import { buildAiPrompt } from "@/lib/export";
 import { partialWeekStats, sessionDurationSeconds } from "@/lib/session-stats";
+import { mergeActiveSession } from "@/lib/session-list";
 import {
   removeTask as removeTaskFromList,
   removeTaskFromSessions,
@@ -53,9 +55,10 @@ function isValidDayKey(value: string) {
 
 export default function DayPlanningPage() {
   const params = useParams<{ day: string }>();
+  const { activeSession, now, sessionRevision } = useActiveSession();
   const selectedDayKey = params.day;
   const validDay = isValidDayKey(selectedDayKey);
-  const selectedDate = validDay ? parseDateKey(selectedDayKey) : new Date();
+  const selectedDate = validDay ? parseDateKey(selectedDayKey) : new Date(now);
   const { user } = useAuth();
   const [taskList, setTaskList] = useState<Task[]>([]);
   const [noteList, setNoteList] = useState<Note[]>([]);
@@ -65,10 +68,10 @@ export default function DayPlanningPage() {
   const [sessionTaskErrors, setSessionTaskErrors] = useState<Record<number, string>>({});
   const [loading, setLoading] = useState(validDay);
   const [loadError, setLoadError] = useState<string | null>(null);
-  const [now] = useState(() => Date.now());
 
   useEffect(() => {
     if (!validDay) return;
+    let cancelled = false;
     const timer = window.setTimeout(() => {
       setLoading(true);
       setLoadError(null);
@@ -84,7 +87,7 @@ export default function DayPlanningPage() {
         notesApi.list(),
         sessionsApi.list({ from: rangeStart.toISOString(), to: nextDay.toISOString() }),
         projectsApi.list(),
-      ])
+        ])
         .then(async ([tasks, notes, sessions, projects]) => {
           const sessionsForDay = sessions.filter(
             (session) => dayKey(new Date(session.started_at)) === selectedDayKey,
@@ -101,6 +104,7 @@ export default function DayPlanningPage() {
               }
             }),
           );
+          if (cancelled) return;
           setTaskList(tasks);
           setNoteList(notes);
           setSessionList(sessions);
@@ -111,12 +115,26 @@ export default function DayPlanningPage() {
             result.error ? [[result.sessionId, result.error]] : [])));
         })
         .catch((error) => {
+          if (cancelled) return;
           setLoadError(error instanceof ApiError ? error.message : "Could not load this calendar day.");
         })
-        .finally(() => setLoading(false));
+        .finally(() => { if (!cancelled) setLoading(false); });
     }, 0);
-    return () => window.clearTimeout(timer);
-  }, [selectedDayKey, validDay]);
+    return () => {
+      cancelled = true;
+      window.clearTimeout(timer);
+    };
+  }, [selectedDayKey, sessionRevision, validDay]);
+
+  const previousRangeDay = addDays(selectedDate, -1);
+  const weekRangeStart = startOfWeek(selectedDate);
+  const rangeStart = previousRangeDay < weekRangeStart ? previousRangeDay : weekRangeStart;
+  const rangeEnd = addDays(selectedDate, 1);
+  const canonicalSessions = mergeActiveSession(
+    sessionList,
+    activeSession,
+    (session) => new Date(session.started_at) >= rangeStart && new Date(session.started_at) < rangeEnd,
+  );
 
   const dayTasks = taskList.filter((task) => task.period_start === selectedDayKey);
   const plannedTasks = dayTasks.filter((task) => task.completed_at === null);
@@ -126,10 +144,10 @@ export default function DayPlanningPage() {
   const selectedWeekStart = startOfWeek(selectedDate);
   const weekNote = noteList.find((note) => note.scope === "week" && note.date_key === selectedWeekKey);
   const daySessions = useMemo(
-    () => sessionList
+    () => canonicalSessions
       .filter((session) => dayKey(new Date(session.started_at)) === selectedDayKey)
       .sort((a, b) => a.started_at.localeCompare(b.started_at)),
-    [selectedDayKey, sessionList],
+    [canonicalSessions, selectedDayKey],
   );
   const totalSessionSeconds = daySessions.reduce(
     (total, session) => total + sessionDurationSeconds(session, now),
@@ -137,10 +155,10 @@ export default function DayPlanningPage() {
   );
   const openTaskCount = plannedTasks.length;
   const previousDayKey = dayKey(addDays(selectedDate, -1));
-  const previousDaySessions = sessionList.filter(
+  const previousDaySessions = canonicalSessions.filter(
     (session) => dayKey(new Date(session.started_at)) === previousDayKey,
   );
-  const todayKey = dayKey(new Date());
+  const todayKey = dayKey(new Date(now));
   const isToday = selectedDayKey === todayKey;
   const weekHref = `/app/calendar?week=${selectedWeekKey}`;
   const nextDayKey = dayKey(addDays(selectedDate, 1));
@@ -220,7 +238,7 @@ export default function DayPlanningPage() {
       dayTasks,
       projectList,
       weekGoalsText: weekNote?.content ?? null,
-      weekSoFar: partialWeekStats(sessionList, selectedWeekStart, selectedDayKey, now),
+      weekSoFar: partialWeekStats(canonicalSessions, selectedWeekStart, selectedDayKey, now),
       dayNote,
       now,
     });

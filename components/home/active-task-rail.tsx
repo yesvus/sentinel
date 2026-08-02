@@ -1,4 +1,5 @@
-import { ListTodo, Trash2 } from "lucide-react";
+import { ListTodo, RotateCw, Trash2 } from "lucide-react";
+import type { SessionTasksLoadStatus } from "@/hooks/use-home-tasks";
 import type { Project, Task } from "@/lib/api";
 import { cn } from "@/lib/utils";
 import { LinkifiedText } from "@/components/linkified-text";
@@ -17,6 +18,8 @@ type ActiveTaskRailProps = {
   backlogSuggestions: Task[];
   recentTaskIds: number[];
   deletingTaskIds: number[];
+  loadStatus: SessionTasksLoadStatus;
+  onRetry: () => void;
   onTaskCreated: (task: Task) => void;
   onTaskUpdated: (task: Task) => void;
   onToggleTask: (task: Task) => void;
@@ -33,6 +36,8 @@ export function ActiveTaskRail({
   backlogSuggestions,
   recentTaskIds,
   deletingTaskIds,
+  loadStatus,
+  onRetry,
   onTaskCreated,
   onTaskUpdated,
   onToggleTask,
@@ -41,14 +46,14 @@ export function ActiveTaskRail({
   return (
     <aside className={cn(
       "animate-in fade-in slide-in-from-left-2 animation-duration-500 fill-mode-both order-2 flex h-[min(32rem,calc(100vh-8rem))] min-h-0 flex-col space-y-3 overflow-hidden motion-reduce:transition-none lg:order-1 lg:h-full lg:max-h-[32rem]",
-      tasks.length === 0 && "justify-center",
+      (loadStatus !== "loaded" || tasks.length === 0) && "justify-center",
     )}>
       <div className="flex items-center justify-between px-1">
         <div className="text-muted-foreground flex items-center gap-1.5 text-xs font-medium tracking-wide uppercase">
           <ListTodo className="size-3.5" /> Tasks
           {tasks.length > 0 && <span className="font-mono">{tasks.length}</span>}
         </div>
-        <TaskCreatorPopover
+        {loadStatus === "loaded" && <TaskCreatorPopover
           periodStart={todayKey}
           projects={projects}
           defaultProjectId={projectId}
@@ -56,11 +61,21 @@ export function ActiveTaskRail({
           todaySuggestions={todaySuggestions}
           backlogSuggestions={backlogSuggestions}
           onCreated={onTaskCreated}
-        />
+        />}
       </div>
       <div className={cn("min-h-0", tasks.length > 0 && "flex-1")}>
         <LongContentFade wrapperClassName="h-full" fadeColor="from-background" className="flex h-full flex-col gap-1 overflow-y-auto px-1">
-          {tasks.length > 0 ? tasks.map((task) => (
+          {loadStatus === "loading" ? (
+            <div className="animate-in fade-in flex flex-1 items-center justify-center px-2 py-6 text-center duration-200" role="status">
+              <p className="text-muted-foreground text-sm">Loading session tasks...</p>
+            </div>
+          ) : loadStatus === "error" ? (
+            <div className="animate-in fade-in flex flex-1 flex-col items-center justify-center gap-3 px-2 py-6 text-center duration-200" role="alert">
+              <p className="text-sm font-medium">Could not load session tasks.</p>
+              <p className="text-muted-foreground max-w-52 text-xs">Task membership is unknown until the session can be loaded.</p>
+              <Button type="button" variant="outline" size="sm" onClick={onRetry}><RotateCw data-icon="inline-start" />Retry</Button>
+            </div>
+          ) : tasks.length > 0 ? tasks.map((task) => (
             <div
               key={task.id}
               className={cn(

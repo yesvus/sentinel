@@ -1,6 +1,6 @@
 import { FormEvent, useState } from "react";
 import type { Project, StudySession } from "@/lib/api";
-import { ApiError, sessions as sessionsApi } from "@/lib/api";
+import { ApiError } from "@/lib/api";
 import { dateInputValue, timeInputValue } from "@/lib/date";
 import { sessionFormDates, validateSessionFormDates } from "@/lib/session-form";
 import { orderProjectsAsTree } from "@/lib/project-tree";
@@ -35,7 +35,7 @@ export function HistorySessionDialog({
   onClose: () => void;
   onSaved: (updater: (list: StudySession[]) => StudySession[]) => void;
 }) {
-  const { updateSession } = useActiveSession();
+  const { createManualSession, updateSession } = useActiveSession();
   const [initial] = useState(() => {
     const now = new Date();
     return {
@@ -95,7 +95,7 @@ export function HistorySessionDialog({
             .sort((a, b) => new Date(b.started_at).getTime() - new Date(a.started_at).getTime()),
         );
       } else {
-        const created = await sessionsApi.createManual({
+        const created = await createManualSession({
           startedAt: startedAt.toISOString(),
           endedAt: endedAt!.toISOString(),
           projectId,

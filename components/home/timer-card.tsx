@@ -3,6 +3,7 @@ import type { Project } from "@/lib/api";
 import { NoProjectIcon, ProjectIcon } from "@/lib/icons";
 import { cn } from "@/lib/utils";
 import { ProjectSelector } from "@/components/project-selector";
+import { ProjectCreatorPopover } from "@/components/project-creator-popover";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent } from "@/components/ui/card";
 import { Textarea } from "@/components/ui/textarea";
@@ -21,6 +22,7 @@ type TimerCardProps = {
   error: string | null;
   stopOpen: boolean;
   onProjectChange: (projectId: number | null) => void;
+  onProjectCreated: (project: Project) => void;
   onDescriptionChange: (description: string) => void;
   onStart: () => void;
   onPauseToggle: () => void;
@@ -50,6 +52,7 @@ export function TimerCard({
   error,
   stopOpen,
   onProjectChange,
+  onProjectCreated,
   onDescriptionChange,
   onStart,
   onPauseToggle,
@@ -60,8 +63,11 @@ export function TimerCard({
     <Card className="w-full max-w-sm">
       <CardContent className="space-y-4">
         {!isRunning && (
-          <div className="animate-in fade-in slide-in-from-top-1 space-y-1.5 pt-4 duration-300">
-            <ProjectSelector projects={projects} value={projectId} onChange={onProjectChange} disabled={refreshingActive} />
+          <div className="animate-in fade-in slide-in-from-top-1 flex items-center gap-2 pt-4 duration-300">
+            <div className="min-w-0 flex-1">
+              <ProjectSelector projects={projects} value={projectId} onChange={onProjectChange} disabled={refreshingActive} />
+            </div>
+            <ProjectCreatorPopover compact disabled={refreshingActive} onCreated={onProjectCreated} />
           </div>
         )}
         <div className="flex flex-col items-center gap-5 border-b pt-4 pb-4">

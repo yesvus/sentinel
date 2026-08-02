@@ -29,7 +29,7 @@ export default function AppHomePage() {
   const { user } = useAuth();
   const active = useActiveSession();
   const { isMobile, setOpen, setOpenMobile } = useSidebar();
-  const data = useHomeData();
+  const data = useHomeData(active.activeSession, active.sessionRevision);
   const trackProductionSplit = user?.trackProductionSplit ?? true;
   const defaultProductionPercentage = user?.defaultSessionType === "producing" ? 100 : 0;
   const session = useHomeSession({
@@ -93,7 +93,7 @@ export default function AppHomePage() {
           backlogSuggestions={model.backlogSuggestions}
           onProjectSelect={tasks.selectProject}
           onTaskSelect={tasks.selectTask}
-          onTaskCreated={tasks.taskCreated}
+          onTaskCreated={tasks.todayTaskCreated}
         />
       )}
       {session.isRunning && session.sessionId !== null && (
@@ -107,7 +107,9 @@ export default function AppHomePage() {
           backlogSuggestions={model.backlogSuggestions}
           recentTaskIds={tasks.recentTaskIds}
           deletingTaskIds={tasks.deletingTaskIds}
-          onTaskCreated={tasks.taskCreated}
+          loadStatus={tasks.sessionTasksLoadStatus}
+          onRetry={tasks.retrySessionTasks}
+          onTaskCreated={tasks.activeTaskCreated}
           onTaskUpdated={tasks.taskUpdated}
           onToggleTask={(task) => void tasks.toggleTask(task)}
           onDeleteTask={(task) => void tasks.deleteTask(task)}
@@ -140,7 +142,7 @@ export default function AppHomePage() {
           onProductionPercentageChange={session.setProductionPercentage}
           onFinish={() => void stopSession()}
         />
-        <SessionDetailDialog session={data.viewingSession} tasks={data.viewingSessionTasks} onClose={() => data.setViewingSession(null)} />
+        <SessionDetailDialog session={data.viewingSession} tasks={data.viewingSessionTasks} tasksStatus={data.viewingSessionTasksStatus} onRetryTasks={data.retryViewingSessionTasks} onClose={() => data.setViewingSession(null)} />
         <TimerCard
           isRunning={session.isRunning}
           isPaused={session.isPaused}
@@ -155,6 +157,10 @@ export default function AppHomePage() {
           error={session.error}
           stopOpen={session.stopOpen}
           onProjectChange={(projectId) => tasks.selectProject(projectId)}
+          onProjectCreated={(project) => {
+            data.addProject(project);
+            tasks.selectProject(project.id);
+          }}
           onDescriptionChange={(description) => void session.changeDetails({ description })}
           onStart={() => void startSession()}
           onPauseToggle={() => void session.togglePause()}

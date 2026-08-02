@@ -76,6 +76,13 @@ export function SessionEditorDialog({
     setOpen(nextOpen);
   }
 
+  function handleTaskUpdated(task: Task) {
+    if (task.completed_at === null && task.period_start === null) {
+      setSelectedTaskIds((current) => current.filter((id) => id !== task.id));
+    }
+    onTaskUpdated(task);
+  }
+
   async function saveSession(event: FormEvent) {
     event.preventDefault();
     setError(null);
@@ -162,7 +169,7 @@ export function SessionEditorDialog({
             onOngoingChange={setOngoing}
             onDescriptionChange={setDescription}
             onSelectionChange={setSelectedTaskIds}
-            onTaskUpdated={onTaskUpdated}
+            onTaskUpdated={handleTaskUpdated}
             onTaskCreated={(task) => onTaskCreated(session.id, task)}
             onError={setError}
           />

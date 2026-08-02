@@ -1,7 +1,11 @@
-import { useCallback, useEffect, useState } from "react";
+import { useCallback, useEffect, useMemo, useState } from "react";
 import { notes, projects, sessions, tasks, type Note, type Project, type StudySession, type Task } from "@/lib/api";
+import { dayKey } from "@/lib/date";
+import { mergeActiveSession } from "@/lib/session-list";
 
-export function useHomeData() {
+export type HomeDataLoadStatus = "idle" | "loading" | "loaded" | "error";
+
+export function useHomeData(activeSession: StudySession | null = null, sessionRevision = 0) {
   const [projectList, setProjectList] = useState<Project[]>([]);
   const [taskList, setTaskList] = useState<Task[]>([]);
   const [noteList, setNoteList] = useState<Note[]>([]);
@@ -9,7 +13,13 @@ export function useHomeData() {
   const [recentSessions, setRecentSessions] = useState<StudySession[]>([]);
   const [sidebarDataLoaded, setSidebarDataLoaded] = useState(false);
   const [viewingSession, setViewingSession] = useState<StudySession | null>(null);
-  const [viewingSessionTasks, setViewingSessionTasks] = useState<Task[]>([]);
+  const [viewingSessionTasksResult, setViewingSessionTasksResult] = useState<{
+    sessionId: number;
+    retry: number;
+    tasks: Task[];
+    status: "loaded" | "error";
+  } | null>(null);
+  const [viewingSessionTasksRetry, setViewingSessionTasksRetry] = useState(0);
 
   const loadSidebars = useCallback(() => {
     const today = new Date();
@@ -32,28 +42,65 @@ export function useHomeData() {
   }, [loadSidebars]);
 
   useEffect(() => {
+    if (sessionRevision === 0) return;
+    void loadSidebars();
+  }, [loadSidebars, sessionRevision]);
+
+  useEffect(() => {
     if (!viewingSession) return;
     let cancelled = false;
+    const sessionId = viewingSession.id;
+    const retry = viewingSessionTasksRetry;
     sessions.tasks(viewingSession.id).then((result) => {
-      if (!cancelled) setViewingSessionTasks(result);
-    }).catch(() => {});
+      if (!cancelled) {
+        setViewingSessionTasksResult({ sessionId, retry, tasks: result, status: "loaded" });
+      }
+    }).catch(() => {
+      if (!cancelled) setViewingSessionTasksResult({ sessionId, retry, tasks: [], status: "error" });
+    });
     return () => {
       cancelled = true;
-      setViewingSessionTasks([]);
     };
-  }, [viewingSession]);
+  }, [viewingSession, viewingSessionTasksRetry]);
+
+  const currentViewingSessionTasksResult = viewingSession &&
+    viewingSessionTasksResult?.sessionId === viewingSession.id &&
+    viewingSessionTasksResult.retry === viewingSessionTasksRetry
+    ? viewingSessionTasksResult
+    : null;
+  const viewingSessionTasks = currentViewingSessionTasksResult?.tasks ?? [];
+  const viewingSessionTasksStatus: HomeDataLoadStatus = !viewingSession
+    ? "idle"
+    : currentViewingSessionTasksResult?.status ?? "loading";
+
+  const mergedTodaySessions = useMemo(() => {
+    const today = dayKey(new Date());
+    return mergeActiveSession(
+      todaySessions,
+      activeSession,
+      (session) => dayKey(new Date(session.started_at)) === today,
+    );
+  }, [activeSession, todaySessions]);
+
+  const addProject = useCallback((project: Project) => {
+    setProjectList((list) => [...list.filter((item) => item.id !== project.id), project]
+      .sort((a, b) => a.path.localeCompare(b.path)));
+  }, []);
 
   return {
     projectList,
     taskList,
     setTaskList,
     noteList,
-    todaySessions,
+    todaySessions: mergedTodaySessions,
     recentSessions,
     sidebarDataLoaded,
     viewingSession,
     viewingSessionTasks,
+    viewingSessionTasksStatus,
     setViewingSession,
+    retryViewingSessionTasks: () => setViewingSessionTasksRetry((retry) => retry + 1),
+    addProject,
     loadSidebars,
   };
 }

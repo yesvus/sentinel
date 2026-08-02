@@ -22,10 +22,11 @@ import {
 import { useAuth } from "@/lib/auth-context";
 import { useActiveSession } from "@/lib/active-session-context";
 import { Avatar, AVATAR_ICONS, AvatarIconKey } from "@/lib/icons";
+import { mergeActiveSession } from "@/lib/session-list";
 
 export default function ProfilePage() {
   const { user, refresh } = useAuth();
-  const { activeSession, now } = useActiveSession();
+  const { activeSession, now, sessionRevision } = useActiveSession();
   const [name, setName] = useState(user?.name ?? "");
   const [avatar, setAvatar] = useState<string | null>(user?.avatar ?? null);
   const [savingProfile, setSavingProfile] = useState(false);
@@ -43,23 +44,28 @@ export default function ProfilePage() {
   const [activitySessions, setActivitySessions] = useState<StudySession[]>([]);
   const [longTermNote, setLongTermNote] = useState<Note | undefined>();
   const [insightsLoading, setInsightsLoading] = useState(true);
+  const activityFrom = new Date(now);
+  activityFrom.setHours(0, 0, 0, 0);
+  activityFrom.setDate(activityFrom.getDate() - 97);
+  const activityFromIso = activityFrom.toISOString();
 
   useEffect(() => {
-    const from = new Date();
-    from.setHours(0, 0, 0, 0);
-    from.setDate(from.getDate() - 97);
-    Promise.all([sessionsApi.list({ from: from.toISOString() }), notesApi.list()])
+    let cancelled = false;
+    Promise.all([sessionsApi.list({ from: activityFromIso }), notesApi.list()])
       .then(([sessionList, noteList]) => {
+        if (cancelled) return;
         setActivitySessions(sessionList);
         setLongTermNote(noteList.find((note) => note.scope === "long-term" && note.date_key === LONG_TERM_NOTE_KEY));
       })
-      .finally(() => setInsightsLoading(false));
-  }, []);
+      .finally(() => { if (!cancelled) setInsightsLoading(false); });
+    return () => { cancelled = true; };
+  }, [activityFromIso, sessionRevision]);
 
-  const canonicalActivitySessions = [
-    ...(activeSession ? [activeSession] : []),
-    ...activitySessions.filter((session) => session.ended_at !== null && session.id !== activeSession?.id),
-  ];
+  const canonicalActivitySessions = mergeActiveSession(
+    activitySessions,
+    activeSession,
+    (session) => new Date(session.started_at) >= activityFrom,
+  );
 
   async function handleSaveProfile(e: FormEvent) {
     e.preventDefault();

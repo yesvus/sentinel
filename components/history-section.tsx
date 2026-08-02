@@ -57,7 +57,12 @@ export function HistorySection({
       await deleteSessionMutation(id);
       onSessionsChange((list) => list.filter((session) => session.id !== id));
     } catch {
-      // Leave the session in place when the best-effort delete fails.
+      toast.add({
+        id: `delete-session-${id}`,
+        type: "error",
+        title: "Could not delete session",
+        description: "The session was not removed. Try again.",
+      });
     }
   }
 

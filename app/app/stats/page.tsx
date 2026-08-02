@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { Card, CardHeader, CardContent } from "@/components/ui/card";
 import { Skeleton } from "@/components/ui/skeleton";
 import { sessions as sessionsApi, projects as projectsApi, notes as notesApi, tasks as tasksApi, StudySession, Project, Note, Task } from "@/lib/api";
@@ -14,13 +14,14 @@ import { WeeklyReportHistory } from "@/components/weekly-report-history";
 import { Button } from "@/components/ui/button";
 import { orderProjectsAsTree, projectTreeText } from "@/lib/project-tree";
 import { useActiveSession } from "@/lib/active-session-context";
+import { mergeActiveSession, refreshSessionPage } from "@/lib/session-list";
 
 const WEEKS = 14;
 const DAYS = WEEKS * 7;
 type Day = { key: string; date: Date; seconds: number };
 
-function buildLastNDays(totalsByDay: Map<string, number>, n: number): Day[] {
-  const today = new Date();
+function buildLastNDays(totalsByDay: Map<string, number>, n: number, now: number): Day[] {
+  const today = new Date(now);
   today.setHours(0, 0, 0, 0);
 
   const days: Day[] = [];
@@ -33,19 +34,8 @@ function buildLastNDays(totalsByDay: Map<string, number>, n: number): Day[] {
   return days;
 }
 
-function mergeActiveSession(
-  sessionList: StudySession[],
-  activeSession: StudySession | null,
-  include: (session: StudySession) => boolean = () => true,
-) {
-  const withoutStaleActive = sessionList.filter((session) => session.ended_at !== null);
-  if (!activeSession || !include(activeSession)) return withoutStaleActive;
-  return [activeSession, ...withoutStaleActive.filter((session) => session.id !== activeSession.id)]
-    .sort((a, b) => new Date(b.started_at).getTime() - new Date(a.started_at).getTime());
-}
-
 export default function StatsPage() {
-  const { activeSession, now } = useActiveSession();
+  const { activeSession, now, sessionRevision } = useActiveSession();
   const [sessionList, setSessionList] = useState<StudySession[]>([]);
   const [historySessions, setHistorySessions] = useState<StudySession[]>([]);
   const [historyCursor, setHistoryCursor] = useState<string | null>(null);
@@ -56,25 +46,36 @@ export default function StatsPage() {
   const [taskList, setTaskList] = useState<Task[]>([]);
   const [loading, setLoading] = useState(true);
   const [selectedProject, setSelectedProject] = useState("all");
+  const historyCountRef = useRef(30);
   const [rangeStart] = useState(() => {
-    const start = new Date();
+    const start = new Date(now);
     start.setHours(0, 0, 0, 0);
     start.setDate(start.getDate() - DAYS + 1);
     return start;
   });
 
   useEffect(() => {
-    Promise.all([sessionsApi.list({ from: rangeStart.toISOString() }), sessionsApi.page()])
+    let cancelled = false;
+    Promise.all([
+      sessionsApi.list({ from: rangeStart.toISOString() }),
+      refreshSessionPage(historyCountRef.current),
+    ])
       .then(([allSessions, firstPage]) => {
+        if (cancelled) return;
         setSessionList(allSessions);
         setHistorySessions(firstPage.items);
         setHistoryCursor(firstPage.nextCursor);
+        historyCountRef.current = Math.max(30, firstPage.items.length);
       })
-      .finally(() => setLoading(false));
+      .finally(() => { if (!cancelled) setLoading(false); });
+    return () => { cancelled = true; };
+  }, [rangeStart, sessionRevision]);
+
+  useEffect(() => {
     projectsApi.list().then(setProjectList).catch(() => {});
     notesApi.list().then(setNoteList).catch(() => {});
     tasksApi.list().then(setTaskList).catch(() => {});
-  }, [rangeStart]);
+  }, []);
 
   function handleNoteSaved(note: Note) {
     setNoteList((list) => {
@@ -109,6 +110,7 @@ export default function StatsPage() {
         const existingIds = new Set(current.map((session) => session.id));
         return [...current, ...page.items.filter((session) => !existingIds.has(session.id))];
       });
+      historyCountRef.current += page.items.length;
       setHistoryCursor(page.nextCursor);
     } catch {
       setHistoryLoadError("Could not load more history.");
@@ -132,7 +134,7 @@ export default function StatsPage() {
     : mergedHistorySessions.filter((session) => String(session.project_id ?? "none") === selectedProject);
   const allocationByDay = dailyAllocationTotals(filteredSessions, now);
 
-  const rangeDays = buildLastNDays(new Map(), DAYS);
+  const rangeDays = buildLastNDays(new Map(), DAYS, now);
   const toAllocationPoints = (days: Day[]) => days.map((day) => {
     const allocation = allocationByDay.get(day.key) ?? {
       learning: 0, producing: 0, unclassified: 0, total: 0,

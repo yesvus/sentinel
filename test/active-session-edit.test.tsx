@@ -4,9 +4,11 @@ import { HistorySection } from "@/components/history-section";
 import { SessionEditorDialog } from "@/components/session-editor-dialog";
 import type { StudySession, Task } from "@/lib/api";
 
-const { updateSession, deleteSession } = vi.hoisted(() => ({
+const { updateSession, deleteSession, updateTask, toastAdd } = vi.hoisted(() => ({
   updateSession: vi.fn().mockResolvedValue({}),
   deleteSession: vi.fn().mockResolvedValue(undefined),
+  updateTask: vi.fn(),
+  toastAdd: vi.fn(),
 }));
 
 vi.mock("@/lib/api", () => {
@@ -16,8 +18,15 @@ vi.mock("@/lib/api", () => {
     sessions: {
       createManual: vi.fn(),
     },
+    tasks: {
+      update: updateTask,
+    },
   };
 });
+
+vi.mock("@/components/ui/toast", () => ({
+  toast: { add: toastAdd },
+}));
 
 vi.mock("@/lib/auth-context", () => ({
   useAuth: () => ({ user: { trackProductionSplit: true }, loading: false, refresh: vi.fn() }),
@@ -31,6 +40,8 @@ describe("active session editing", () => {
   beforeEach(() => {
     updateSession.mockClear();
     deleteSession.mockClear();
+    updateTask.mockReset();
+    toastAdd.mockReset();
   });
 
   it("shows an ongoing session with a disabled end time", async () => {
@@ -153,6 +164,102 @@ describe("active session editing", () => {
     await waitFor(() => expect(deleteSession).toHaveBeenCalledWith(44));
     expect(onSessionsChange).toHaveBeenCalledOnce();
     expect(onSessionsChange.mock.calls[0][0]([active])).toEqual([]);
+  });
+
+  it("keeps a failed deletion visible and reports the failure", async () => {
+    const active: StudySession = {
+      id: 46,
+      started_at: new Date().toISOString(),
+      ended_at: null,
+      duration_seconds: null,
+      description: "Keep this session",
+      project_id: null,
+      project_name: null,
+      project_icon: null,
+    };
+    const onSessionsChange = vi.fn();
+    deleteSession.mockRejectedValueOnce(new Error("offline"));
+
+    render(
+      <HistorySection
+        sessions={[active]}
+        projects={[]}
+        notes={[]}
+        tasks={[]}
+        now={Date.now()}
+        hasMore={false}
+        loadingMore={false}
+        loadMoreError={null}
+        onLoadMore={vi.fn()}
+        onSessionsChange={onSessionsChange}
+      />
+    );
+
+    fireEvent.click(screen.getByRole("button", { name: "Delete session" }));
+    fireEvent.click(await screen.findByRole("button", { name: "Delete" }));
+
+    await waitFor(() => expect(toastAdd).toHaveBeenCalledWith(expect.objectContaining({
+      type: "error",
+      title: "Could not delete session",
+    })));
+    expect(onSessionsChange).not.toHaveBeenCalled();
+    expect(screen.getByText("Keep this session")).toBeInTheDocument();
+  });
+
+  it("removes an undone attached task from the subsequent save payload", async () => {
+    const now = Date.now();
+    const completed: StudySession = {
+      id: 47,
+      started_at: new Date(now - 60 * 60 * 1000).toISOString(),
+      ended_at: new Date(now - 30 * 60 * 1000).toISOString(),
+      duration_seconds: 1800,
+      description: "Completed work",
+      project_id: null,
+      project_name: null,
+      project_icon: null,
+    };
+    const attachedTask: Task = {
+      id: 8,
+      period_start: "2026-08-02",
+      project_id: null,
+      title: "Attached task",
+      description: null,
+      completed_at: "2026-08-02T10:00:00.000Z",
+    };
+    const undoneTask: Task = {
+      ...attachedTask,
+      period_start: null,
+      completed_at: null,
+    };
+    updateTask.mockResolvedValueOnce(undoneTask);
+
+    render(
+      <SessionEditorDialog
+        session={completed}
+        tasks={[attachedTask]}
+        availableTasks={[attachedTask]}
+        onUpdated={vi.fn()}
+        onTaskUpdated={vi.fn()}
+        onTasksChanged={vi.fn()}
+        onTaskCreated={vi.fn()}
+      />
+    );
+
+    fireEvent.click(screen.getByRole("button", { name: /Edit session starting at/ }));
+    fireEvent.click(await screen.findByRole("button", { name: "Edit Attached task" }));
+    fireEvent.click(await screen.findByRole("button", { name: "Mark undone" }));
+    fireEvent.click(await screen.findByRole("button", { name: "Move to Backlog" }));
+
+    await waitFor(() => expect(updateTask).toHaveBeenCalledWith(attachedTask.id, {
+      completed: false,
+      periodStart: null,
+    }));
+    await waitFor(() => expect(screen.getByText("No completed tasks attached.")).toBeInTheDocument());
+    fireEvent.click(screen.getByRole("button", { name: "Save changes" }));
+
+    await waitFor(() => expect(updateSession).toHaveBeenCalledWith(47, expect.objectContaining({
+      taskIds: [],
+    })));
   });
 
   it("keeps task synchronization results from the provider-owned update", async () => {

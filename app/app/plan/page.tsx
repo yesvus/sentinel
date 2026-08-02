@@ -32,38 +32,48 @@ import { toast } from "@/components/ui/toast";
 import { buildWeeklyAiPrompt } from "@/lib/export";
 import { activityStreak, longestActivityStreak, weekStatsFor, sessionDurationSeconds } from "@/lib/session-stats";
 import { useAuth } from "@/lib/auth-context";
+import { useActiveSession } from "@/lib/active-session-context";
 import { PageHeaderActions } from "@/lib/page-header-actions-context";
 import { dayKey, addDays, startOfWeek, weekKey, formatDuration, formatWeekRangeLabel, parseDateKey } from "@/lib/date";
+import { mergeActiveSession } from "@/lib/session-list";
 
-function initialWeekOffset(value: string | null) {
+function initialWeekOffset(value: string | null, now: number) {
   if (!value || !/^\d{4}-\d{2}-\d{2}$/.test(value)) return 0;
   const target = startOfWeek(parseDateKey(value));
-  const current = startOfWeek(new Date());
+  const current = startOfWeek(new Date(now));
   return Math.round((target.getTime() - current.getTime()) / (7 * 86_400_000));
 }
 
 export default function PlanPage() {
   const { user } = useAuth();
+  const { activeSession, now, sessionRevision } = useActiveSession();
   const router = useRouter();
   const searchParams = useSearchParams();
-  const [weekOffset, setWeekOffset] = useState(() => initialWeekOffset(searchParams.get("week")));
+  const [weekOffset, setWeekOffset] = useState(() => initialWeekOffset(searchParams.get("week"), now));
   const [taskList, setTaskList] = useState<Task[]>([]);
   const [noteList, setNoteList] = useState<Note[]>([]);
   const [sessionList, setSessionList] = useState<StudySession[]>([]);
   const [projectList, setProjectList] = useState<Project[]>([]);
   const [loading, setLoading] = useState(true);
-  const [now] = useState(() => Date.now());
+  const [sessionsLoading, setSessionsLoading] = useState(true);
 
   useEffect(() => {
-    Promise.all([tasksApi.list(), notesApi.list(), sessionsApi.list(), projectsApi.list()])
-      .then(([t, n, s, p]) => {
+    Promise.all([tasksApi.list(), notesApi.list(), projectsApi.list()])
+      .then(([t, n, p]) => {
         setTaskList(t);
         setNoteList(n);
-        setSessionList(s);
         setProjectList(p);
       })
       .finally(() => setLoading(false));
   }, []);
+
+  useEffect(() => {
+    let cancelled = false;
+    sessionsApi.list()
+      .then((sessions) => { if (!cancelled) setSessionList(sessions); })
+      .finally(() => { if (!cancelled) setSessionsLoading(false); });
+    return () => { cancelled = true; };
+  }, [sessionRevision]);
 
   useEffect(() => {
     const legacyDay = searchParams.get("day");
@@ -85,7 +95,8 @@ export default function PlanPage() {
     toast.add({ id, type: "success", title: "AI prompt copied to clipboard" });
   }
 
-  const nowDate = new Date();
+  const canonicalSessions = mergeActiveSession(sessionList, activeSession);
+  const nowDate = new Date(now);
   const todayKey = dayKey(nowDate);
   const tomorrowKey = dayKey(addDays(nowDate, 1));
   const weekStart = startOfWeek(nowDate);
@@ -94,13 +105,13 @@ export default function PlanPage() {
   const selectedWeekKey = dayKey(selectedWeekStart);
   const selectedWeekLabel = formatWeekRangeLabel(selectedWeekStart);
   const selectedWeekDays = Array.from({ length: 7 }, (_, i) => addDays(selectedWeekStart, i));
-  const selectedWeekSessions = sessionList.filter((session) => weekKey(new Date(session.started_at)) === selectedWeekKey);
+  const selectedWeekSessions = canonicalSessions.filter((session) => weekKey(new Date(session.started_at)) === selectedWeekKey);
   const previousWeekStart = addDays(selectedWeekStart, -7);
   const previousWeekKey = weekKey(previousWeekStart);
-  const previousWeekSessions = sessionList.filter((session) => weekKey(new Date(session.started_at)) === previousWeekKey);
+  const previousWeekSessions = canonicalSessions.filter((session) => weekKey(new Date(session.started_at)) === previousWeekKey);
   const selectedWeekNote = noteList.find((n) => n.scope === "week" && n.date_key === selectedWeekKey);
-  const currentStreak = activityStreak(sessionList, nowDate);
-  const longestStreak = longestActivityStreak(sessionList);
+  const currentStreak = activityStreak(canonicalSessions, nowDate);
+  const longestStreak = longestActivityStreak(canonicalSessions);
 
   const weekNavigation = (
     <>
@@ -149,8 +160,8 @@ export default function PlanPage() {
     nowDate.getDay() === weeklyReminderDay && nowDate.getHours() >= weeklyReminderHour && !nextWeekNote?.content;
 
   function copySelectedWeeklyPrompt() {
-    const currentWeek = weekStatsFor(sessionList, selectedWeekStart, now);
-    const previousWeeks = [4, 3, 2, 1].map((n) => weekStatsFor(sessionList, addDays(selectedWeekStart, -7 * n), now));
+    const currentWeek = weekStatsFor(canonicalSessions, selectedWeekStart, now);
+    const previousWeeks = [4, 3, 2, 1].map((n) => weekStatsFor(canonicalSessions, addDays(selectedWeekStart, -7 * n), now));
     const prompt = buildWeeklyAiPrompt({
       userContext: user?.planContext ?? null,
       longTermGoalsText: longTermNote?.content ?? null,
@@ -161,7 +172,7 @@ export default function PlanPage() {
     copyPrompt("plan-weekly-prompt", prompt);
   }
 
-  if (loading) {
+  if (loading || sessionsLoading) {
     return (
       <>
         {weekNavigation}
@@ -264,7 +275,7 @@ export default function PlanPage() {
           const isToday = key === todayKey;
           const dayTasksForDate = taskList.filter((t) => t.period_start === key);
           const dayNoteForDate = noteList.find((n) => n.scope === "day" && n.date_key === key);
-          const trackedSeconds = sessionList
+          const trackedSeconds = canonicalSessions
             .filter((s) => dayKey(new Date(s.started_at)) === key)
             .reduce((sum, s) => sum + sessionDurationSeconds(s, now), 0);
 

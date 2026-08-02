@@ -15,16 +15,18 @@ import { buildProjectDetailModel } from "@/lib/project-detail-model";
 import { PageHeaderActions } from "@/lib/page-header-actions-context";
 import { removeTask as removeTaskFromList, upsertTask } from "@/lib/task-collections";
 import { taskMutations } from "@/lib/task-mutations";
+import { useActiveSession } from "@/lib/active-session-context";
+import { mergeActiveSession } from "@/lib/session-list";
 
 export default function ProjectDetailPage() {
   const params = useParams<{ id: string }>();
   const router = useRouter();
   const projectId = Number(params.id);
+  const { activeSession, now, sessionRevision } = useActiveSession();
   const [projectList, setProjectList] = useState<Project[]>([]);
   const [taskList, setTaskList] = useState<Task[]>([]);
   const [sessionList, setSessionList] = useState<StudySession[]>([]);
   const [loading, setLoading] = useState(true);
-  const [now] = useState(() => Date.now());
   const [editingField, setEditingField] = useState<ProjectTextField | null>(null);
   const [name, setName] = useState("");
   const [description, setDescription] = useState("");
@@ -37,22 +39,29 @@ export default function ProjectDetailPage() {
   const [error, setError] = useState<string | null>(null);
 
   useEffect(() => {
+    let cancelled = false;
     const timer = window.setTimeout(() => {
       Promise.all([projectsApi.list(), tasksApi.list(), sessionsApi.list()])
         .then(([projects, tasks, sessions]) => {
+          if (cancelled) return;
           setProjectList(projects);
           setTaskList(tasks);
           setSessionList(sessions);
         })
-        .catch(() => setError("Could not load this project."))
-        .finally(() => setLoading(false));
+        .catch(() => { if (!cancelled) setError("Could not load this project."); })
+        .finally(() => { if (!cancelled) setLoading(false); });
     }, 0);
-    return () => window.clearTimeout(timer);
-  }, []);
+    return () => {
+      cancelled = true;
+      window.clearTimeout(timer);
+    };
+  }, [sessionRevision]);
+
+  const canonicalSessions = mergeActiveSession(sessionList, activeSession);
 
   const model = useMemo(
-    () => buildProjectDetailModel(projectId, projectList, taskList, sessionList, now),
-    [projectId, projectList, taskList, sessionList, now],
+    () => buildProjectDetailModel(projectId, projectList, taskList, canonicalSessions, now),
+    [projectId, projectList, taskList, canonicalSessions, now],
   );
   const { project } = model;
 

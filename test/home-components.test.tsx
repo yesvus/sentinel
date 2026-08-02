@@ -2,9 +2,10 @@ import { fireEvent, render, screen } from "@testing-library/react";
 import { describe, expect, it, vi } from "vitest";
 import { ActiveTaskRail } from "@/components/home/active-task-rail";
 import { FinishSessionDialog } from "@/components/home/finish-session-dialog";
+import { SessionDetailDialog } from "@/components/home/session-detail-dialog";
 import { TimerCard } from "@/components/home/timer-card";
 import { TodayRail } from "@/components/home/today-rail";
-import type { Project, Task } from "@/lib/api";
+import type { Project, StudySession, Task } from "@/lib/api";
 
 vi.mock("@/components/task-creator-popover", () => ({
   TaskCreatorPopover: ({ onCreated }: { onCreated: (task: Task) => void }) => (
@@ -15,6 +16,12 @@ vi.mock("@/components/task-creator-popover", () => ({
 vi.mock("@/components/task-editor-popover", () => ({
   TaskEditorPopover: ({ task, onUpdated }: { task: Task; onUpdated: (task: Task) => void }) => (
     <button type="button" aria-label={`Edit ${task.title}`} onClick={() => onUpdated({ ...task, title: "Updated task" })}>Edit</button>
+  ),
+}));
+
+vi.mock("@/components/project-creator-popover", () => ({
+  ProjectCreatorPopover: ({ onCreated }: { onCreated: (project: Project) => void }) => (
+    <button type="button" aria-label="New project" onClick={() => onCreated(createdProject)}>New project</button>
   ),
 }));
 
@@ -50,6 +57,7 @@ const completedTask: Task = {
 };
 
 const createdTask: Task = { ...openTask, id: 12, title: "Created task" };
+const createdProject: Project = { ...project, id: 2, name: "New project", path: "New project" };
 
 describe("TodayRail", () => {
   it("selects work and exposes project and create commands", () => {
@@ -98,6 +106,8 @@ describe("ActiveTaskRail", () => {
     backlogSuggestions: [],
     recentTaskIds: [],
     deletingTaskIds: [],
+    loadStatus: "loaded" as const,
+    onRetry: vi.fn(),
     onTaskCreated: vi.fn(),
     onTaskUpdated: vi.fn(),
     onToggleTask: vi.fn(),
@@ -120,11 +130,21 @@ describe("ActiveTaskRail", () => {
     fireEvent.click(screen.getByRole("button", { name: "Delete Review Home" }));
     expect(commonProps.onDeleteTask).toHaveBeenCalledWith(openTask);
   });
+
+  it("shows retryable unknown state without membership controls when loading fails", () => {
+    render(<ActiveTaskRail {...commonProps} tasks={[]} loadStatus="error" />);
+    expect(screen.getByRole("alert")).toHaveTextContent("Task membership is unknown");
+    expect(screen.queryByRole("button", { name: "Add task" })).not.toBeInTheDocument();
+    expect(screen.queryByText("Select tasks to work on first")).not.toBeInTheDocument();
+    fireEvent.click(screen.getByRole("button", { name: "Retry" }));
+    expect(commonProps.onRetry).toHaveBeenCalledOnce();
+  });
 });
 
 describe("TimerCard", () => {
   const callbacks = {
     onProjectChange: vi.fn(),
+    onProjectCreated: vi.fn(),
     onDescriptionChange: vi.fn(),
     onStart: vi.fn(),
     onPauseToggle: vi.fn(),
@@ -154,6 +174,8 @@ describe("TimerCard", () => {
     expect(callbacks.onDescriptionChange).toHaveBeenCalledWith("Deep work");
     fireEvent.click(screen.getByRole("button", { name: "Start session" }));
     expect(callbacks.onStart).toHaveBeenCalledOnce();
+    fireEvent.click(screen.getByRole("button", { name: "New project" }));
+    expect(callbacks.onProjectCreated).toHaveBeenCalledWith(createdProject);
   });
 
   it("exposes pause, stop, and edit controls while running", () => {
@@ -181,6 +203,36 @@ describe("TimerCard", () => {
     expect(callbacks.onPauseToggle).toHaveBeenCalledOnce();
     expect(callbacks.onRequestStop).toHaveBeenCalledOnce();
     expect(callbacks.onEditStart).toHaveBeenCalledOnce();
+  });
+});
+
+describe("SessionDetailDialog", () => {
+  const detailSession: StudySession = {
+    id: 22,
+    started_at: "2026-08-02T09:00:00.000Z",
+    ended_at: "2026-08-02T10:00:00.000Z",
+    duration_seconds: 3600,
+    description: null,
+    project_id: project.id,
+    project_name: project.name,
+    project_icon: null,
+  };
+
+  it("shows a visible retry action when detail tasks are unknown", () => {
+    const onRetryTasks = vi.fn();
+    render(
+      <SessionDetailDialog
+        session={detailSession}
+        tasks={[]}
+        tasksStatus="error"
+        onRetryTasks={onRetryTasks}
+        onClose={vi.fn()}
+      />,
+    );
+
+    expect(screen.getByRole("alert")).toHaveTextContent("Could not load this session's tasks");
+    fireEvent.click(screen.getByRole("button", { name: "Retry" }));
+    expect(onRetryTasks).toHaveBeenCalledOnce();
   });
 });
 
