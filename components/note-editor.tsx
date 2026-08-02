@@ -3,6 +3,7 @@
 import { useState } from "react";
 import { NotebookPen, Pencil, Trash2 } from "lucide-react";
 import { Button } from "@/components/ui/button";
+import { LinkifiedText } from "@/components/linkified-text";
 import { Textarea } from "@/components/ui/textarea";
 import { notes as notesApi, ApiError, Note } from "@/lib/api";
 
@@ -100,18 +101,21 @@ export function NoteEditor({
 
   if (note) {
     return (
-      <button
-        type="button"
-        onClick={(e) => {
-          e.stopPropagation();
-          startEdit();
-        }}
-        className="group text-muted-foreground hover:bg-muted/50 flex w-full items-start gap-1.5 rounded-md px-1.5 py-1 text-left text-sm"
-      >
+      <div className="group text-muted-foreground hover:bg-muted/50 flex w-full items-start gap-1.5 rounded-md px-1.5 py-1 text-sm transition-colors duration-150">
         <NotebookPen className="mt-0.5 size-3.5 shrink-0" />
-        <span className="whitespace-pre-wrap">{note.content}</span>
-        <Pencil className="mt-0.5 size-3 shrink-0 opacity-0 group-hover:opacity-100" />
-      </button>
+        <LinkifiedText text={note.content} className="min-w-0 flex-1" />
+        <Button
+          type="button"
+          variant="ghost"
+          size="icon-xs"
+          className="shrink-0 opacity-0 transition-opacity duration-150 group-hover:opacity-100 group-focus-within:opacity-100"
+          aria-label="Edit note"
+          title="Edit note"
+          onClick={(event) => { event.stopPropagation(); startEdit(); }}
+        >
+          <Pencil />
+        </Button>
+      </div>
     );
   }
 
