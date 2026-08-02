@@ -5,6 +5,7 @@ import { Bell, X } from "lucide-react";
 import { social, SocialNotification } from "@/lib/api";
 import { Avatar } from "@/lib/icons";
 import { Button } from "@/components/ui/button";
+import { LinkifiedText } from "@/components/linkified-text";
 import {
   DropdownMenu,
   DropdownMenuContent,
@@ -271,9 +272,11 @@ export function NotificationsControl({ userId }: { userId: number }) {
                 >
                   <span className="min-w-0 flex-1">
                     {entry.title && <span className="block text-sm font-medium">{entry.title}</span>}
-                    {entry.description && (
+                    {typeof entry.description === "string" ? (
+                      <LinkifiedText text={entry.description} className="text-muted-foreground block text-xs" />
+                    ) : entry.description ? (
                       <span className="text-muted-foreground block text-xs">{entry.description}</span>
-                    )}
+                    ) : null}
                     <span className="text-muted-foreground/70 block text-xs">{toastTimeLabel(entry.createdAt)}</span>
                   </span>
                 </DropdownMenuItem>

@@ -5,6 +5,7 @@ import { Check, Clock3, UserPlus, Users, X, Zap } from "lucide-react";
 import { ApiError, Connection, FriendActivity, social } from "@/lib/api";
 import { Avatar } from "@/lib/icons";
 import { ProjectIcon } from "@/lib/icons";
+import { LinkifiedText } from "@/components/linkified-text";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
@@ -27,8 +28,11 @@ function displayName(name: string | null, email: string) {
   return name?.trim() || email;
 }
 
-function formatDuration(seconds: number | null, startedAt: string) {
-  const total = seconds ?? Math.max(0, Math.floor((Date.now() - new Date(startedAt).getTime()) / 1000));
+function formatDuration(item: FriendActivity) {
+  const total = item.duration_seconds ?? Math.max(0, Math.floor(
+    ((item.paused_at ? new Date(item.paused_at).getTime() : Date.now()) - new Date(item.started_at).getTime()) / 1000
+    - (item.paused_seconds ?? 0),
+  ));
   const hours = Math.floor(total / 3600);
   const minutes = Math.floor((total % 3600) / 60);
   return hours ? `${hours}h ${minutes}m` : `${Math.max(1, minutes)}m`;
@@ -330,7 +334,9 @@ export default function FriendsPage() {
                         <div className="flex flex-wrap items-center gap-x-2 gap-y-1">
                           <p className="font-medium">{displayName(item.user_name, item.user_email)}</p>
                           {!item.ended_at && (
-                            <span className="bg-primary/10 text-primary rounded-full px-2 py-0.5 text-xs">Working now</span>
+                            <span className="bg-primary/10 text-primary rounded-full px-2 py-0.5 text-xs">
+                              {item.paused_at ? "Paused" : "Working now"}
+                            </span>
                           )}
                         </div>
                         <div className="text-muted-foreground mt-1 flex flex-wrap items-center gap-2 text-sm">
@@ -338,11 +344,11 @@ export default function FriendsPage() {
                           <span>{item.project_name || "No project"}</span>
                           <span aria-hidden>·</span>
                           <Clock3 className="size-3.5" />
-                          <span>{formatDuration(item.duration_seconds, item.started_at)}</span>
+                          <span>{formatDuration(item)}</span>
                           <span aria-hidden>·</span>
                           <time dateTime={item.started_at}>{formatTime(item.started_at)}</time>
                         </div>
-                        {item.description && <p className="mt-2 text-sm">{item.description}</p>}
+                        {item.description && <LinkifiedText text={item.description} as="p" className="mt-2 text-sm" />}
                       </div>
                     </li>
                   ))}

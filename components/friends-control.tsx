@@ -23,7 +23,10 @@ function name(item: FriendActivity) {
 function duration(item: FriendActivity) {
   const seconds =
     item.duration_seconds ??
-    Math.max(0, Math.floor((Date.now() - new Date(item.started_at).getTime()) / 1000));
+    Math.max(0, Math.floor(
+      ((item.paused_at ? new Date(item.paused_at).getTime() : Date.now()) - new Date(item.started_at).getTime()) / 1000
+      - (item.paused_seconds ?? 0),
+    ));
   const hours = Math.floor(seconds / 3600);
   const minutes = Math.floor((seconds % 3600) / 60);
   return hours ? `${hours}h ${minutes}m` : `${Math.max(1, minutes)}m`;
