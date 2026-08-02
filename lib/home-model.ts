@@ -65,10 +65,3 @@ export function buildHomeModel({
     ),
   };
 }
-
-export function combineDateAndTime(base: number, time: string) {
-  const [hours, minutes] = time.split(":").map(Number);
-  const date = new Date(base);
-  date.setHours(hours, minutes, 0, 0);
-  return date.getTime();
-}

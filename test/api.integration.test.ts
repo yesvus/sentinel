@@ -402,9 +402,29 @@ describe("Next API", () => {
     });
     const attached = await request("PATCH", `tasks/${task.body.id}`, {
       cookie,
-      body: { sessionId: session.body.id },
+      body: { sessionId: session.body.id, title: "Must not change", periodStart: "2026-08-02" },
     });
     expect(attached.response.status).toBe(400);
+    expect((await request("GET", "tasks", { cookie })).body[0]).toMatchObject({
+      id: task.body.id, title: "Too late", period_start: null,
+    });
+  });
+
+  it("rejects an unknown attachment session before changing task fields", async () => {
+    const cookie = await register("attach-missing@example.test");
+    const task = await request("POST", "tasks", {
+      cookie,
+      body: { title: "Keep unchanged" },
+    });
+
+    const attached = await request("PATCH", `tasks/${task.body.id}`, {
+      cookie,
+      body: { sessionId: 999_999, title: "Must not change", periodStart: "2026-08-02" },
+    });
+    expect(attached.response.status).toBe(404);
+    expect((await request("GET", "tasks", { cookie })).body[0]).toMatchObject({
+      id: task.body.id, title: "Keep unchanged", period_start: null,
+    });
   });
 
   it("assigns completed tasks while editing a completed session", async () => {
@@ -453,6 +473,12 @@ describe("Next API", () => {
       },
     });
     expect(withBacklog.response.status).toBe(200);
+    expect(withBacklog.body.attachedTasks).toEqual(expect.arrayContaining([
+      expect.objectContaining({ id: backlogTask.body.id, period_start: "2026-08-02", completed_at: expect.any(String) }),
+    ]));
+    expect(withBacklog.body.changedTasks).toEqual([
+      expect.objectContaining({ id: backlogTask.body.id, period_start: "2026-08-02", completed_at: expect.any(String) }),
+    ]);
     const attached = (await request("GET", `sessions/${session.body.id}/tasks`, { cookie })).body;
     expect(attached).toEqual(expect.arrayContaining([
       expect.objectContaining({ id: backlogTask.body.id, period_start: "2026-08-02", completed_at: expect.any(String) }),

@@ -38,6 +38,13 @@ import {
 } from "@/lib/date";
 import { buildAiPrompt } from "@/lib/export";
 import { partialWeekStats, sessionDurationSeconds } from "@/lib/session-stats";
+import {
+  removeTask as removeTaskFromList,
+  removeTaskFromSessions,
+  replaceSessionTasks,
+  replaceTaskInSessions,
+  upsertTask,
+} from "@/lib/task-collections";
 
 function isValidDayKey(value: string) {
   if (!/^\d{4}-\d{2}-\d{2}$/.test(value)) return false;
@@ -138,21 +145,19 @@ export default function DayPlanningPage() {
   ) : null;
 
   function handleTaskCreated(task: Task) {
-    setTaskList((current) => [...current, task]);
+    setTaskList((current) => upsertTask(current, task));
   }
 
   function handleTaskUpdated(task: Task) {
-    setTaskList((current) => current.map((item) => item.id === task.id ? task : item));
-    setSessionTasks((current) => Object.fromEntries(
-      Object.entries(current).map(([sessionId, tasks]) => [
-        sessionId,
-        tasks.map((item) => item.id === task.id ? task : item),
-      ]),
-    ));
+    setTaskList((current) => upsertTask(current, task));
+    setSessionTasks((current) => task.completed_at === null && task.period_start === null
+      ? removeTaskFromSessions(current, task.id)
+      : replaceTaskInSessions(current, task));
   }
 
   function handleTaskDeleted(id: number) {
-    setTaskList((current) => current.filter((task) => task.id !== id));
+    setTaskList((current) => removeTaskFromList(current, id));
+    setSessionTasks((current) => removeTaskFromSessions(current, id));
   }
 
   function handleSessionUpdated(updated: StudySession) {
@@ -296,16 +301,12 @@ export default function DayPlanningPage() {
             now={now}
             onSessionUpdated={handleSessionUpdated}
             onTaskUpdated={handleTaskUpdated}
-            onSessionTasksChanged={(sessionId, tasks) => setSessionTasks((current) => ({
-              ...current,
-              [sessionId]: tasks,
-            }))}
+            onSessionTasksChanged={(sessionId, tasks) => setSessionTasks((current) =>
+              replaceSessionTasks(current, sessionId, tasks))}
             onSessionTaskCreated={(sessionId, task) => {
               handleTaskCreated(task);
-              setSessionTasks((current) => ({
-                ...current,
-                [sessionId]: [...(current[sessionId] ?? []).filter((item) => item.id !== task.id), task],
-              }));
+              setSessionTasks((current) =>
+                replaceSessionTasks(current, sessionId, upsertTask(current[sessionId] ?? [], task)));
             }}
           />
 

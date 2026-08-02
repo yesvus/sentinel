@@ -1,6 +1,7 @@
 import { describe, expect, it } from "vitest";
 import type { Note, Project, StudySession, Task } from "@/lib/api";
-import { buildHomeModel, combineDateAndTime } from "@/lib/home-model";
+import { buildHomeModel } from "@/lib/home-model";
+import { combineLocalDateAndTime } from "@/lib/date";
 
 const projects: Project[] = [
   { id: 2, name: "Writing", path: "B / Writing", icon: null, description: null, resources: null, parentId: null, pinned: false, archived: false, depth: 1, sortOrder: 0, lastUsedAt: null },
@@ -43,7 +44,7 @@ describe("Home model", () => {
 
   it("combines a time with the original local calendar day", () => {
     const base = new Date(2026, 7, 2, 23, 45).getTime();
-    const combined = new Date(combineDateAndTime(base, "07:15"));
+    const combined = combineLocalDateAndTime(base, "07:15");
 
     expect([combined.getFullYear(), combined.getMonth(), combined.getDate(), combined.getHours(), combined.getMinutes()]).toEqual([2026, 7, 2, 7, 15]);
   });

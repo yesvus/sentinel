@@ -11,6 +11,7 @@ export class ApiError extends Error {
 type CacheEntry = { expiresAt: number; value: unknown };
 const responseCache = new Map<string, CacheEntry>();
 const inFlightRequests = new Map<string, Promise<unknown>>();
+let cacheGeneration = 0;
 
 function cacheLifetime(path: string) {
   if (path === "/api/projects") return 60_000;
@@ -22,6 +23,7 @@ function cacheLifetime(path: string) {
 }
 
 export function clearApiCache() {
+  cacheGeneration += 1;
   responseCache.clear();
   inFlightRequests.clear();
 }
@@ -35,6 +37,7 @@ export async function api<T>(path: string, options: RequestInit = {}): Promise<T
   const pending = lifetime ? inFlightRequests.get(path) : null;
   if (pending) return pending as Promise<T>;
 
+  const requestGeneration = cacheGeneration;
   const request = (async () => {
     const res = await fetch(path, {
       ...options,
@@ -53,14 +56,16 @@ export async function api<T>(path: string, options: RequestInit = {}): Promise<T
 
     if (res.status === 204) return undefined as T;
     const value = await res.json() as T;
-    if (lifetime) responseCache.set(path, { expiresAt: Date.now() + lifetime, value });
+    if (lifetime && requestGeneration === cacheGeneration) {
+      responseCache.set(path, { expiresAt: Date.now() + lifetime, value });
+    }
     return value;
   })();
   if (lifetime) inFlightRequests.set(path, request);
   try {
     return await request;
   } finally {
-    if (lifetime) inFlightRequests.delete(path);
+    if (lifetime && inFlightRequests.get(path) === request) inFlightRequests.delete(path);
   }
 }
 
@@ -160,6 +165,18 @@ export type StudySession = {
 
 export type SessionPage = { items: StudySession[]; nextCursor: string | null };
 
+export type SessionUpdateResult = {
+  id: number;
+  description: string | null;
+  projectId: number | null;
+  startedAt: string;
+  endedAt: string | null;
+  durationSeconds: number | null;
+  productionPercentage: number | null;
+  attachedTasks?: Task[];
+  changedTasks?: Task[];
+};
+
 export const sessions = {
   start: (details?: { projectId?: number | null; description?: string | null; taskIds?: number[] }) =>
     api<{ id: number; startedAt: string }>("/api/sessions/start", {
@@ -178,15 +195,7 @@ export const sessions = {
       taskPeriodStart?: string;
     }
   ) =>
-    api<{
-      id: number;
-      description: string | null;
-      projectId: number | null;
-      startedAt: string;
-      endedAt: string | null;
-      durationSeconds: number | null;
-      productionPercentage: number | null;
-    }>(`/api/sessions/${id}`, { method: "PATCH", body: JSON.stringify(details) }),
+    api<SessionUpdateResult>(`/api/sessions/${id}`, { method: "PATCH", body: JSON.stringify(details) }),
   stop: (id: number, description?: string | null, productionPercentage?: number | null) =>
     api<{ id: number; endedAt: string; durationSeconds: number; description: string | null; productionPercentage: number | null }>(`/api/sessions/${id}/stop`, {
       method: "PATCH",

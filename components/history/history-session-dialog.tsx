@@ -1,7 +1,8 @@
 import { FormEvent, useState } from "react";
 import type { Project, StudySession } from "@/lib/api";
 import { ApiError, sessions as sessionsApi } from "@/lib/api";
-import { dateInputValue, timeInputValue } from "@/lib/session-form";
+import { dateInputValue, timeInputValue } from "@/lib/date";
+import { sessionFormDates, validateSessionFormDates } from "@/lib/session-form";
 import { orderProjectsAsTree } from "@/lib/project-tree";
 import { NoProjectIcon, ProjectIcon } from "@/lib/icons";
 import { useActiveSession } from "@/lib/active-session-context";
@@ -55,15 +56,10 @@ export function HistorySessionDialog({
   async function save(event: FormEvent) {
     event.preventDefault();
     setError(null);
-    const startedAt = new Date(`${date}T${startTime}`);
-    const endedAt = ongoing ? null : new Date(`${date}T${endTime}`);
-
-    if (startedAt > new Date()) {
-      setError("Start time cannot be in the future");
-      return;
-    }
-    if (endedAt && endedAt <= startedAt) {
-      setError("End time must be after start time");
+    const { startedAt, endedAt } = sessionFormDates(date, startTime, endTime, ongoing);
+    const validationError = validateSessionFormDates(startedAt, endedAt);
+    if (validationError) {
+      setError(validationError);
       return;
     }
 
@@ -72,7 +68,7 @@ export function HistorySessionDialog({
     setBusy(true);
     try {
       if (session) {
-        await sessionsApi.update(session.id, {
+        const updated = await sessionsApi.update(session.id, {
           startedAt: startedAt.toISOString(),
           endedAt: endedAt?.toISOString() ?? null,
           projectId,
@@ -85,13 +81,11 @@ export function HistorySessionDialog({
               item.id === session.id
                 ? {
                     ...item,
-                    started_at: startedAt.toISOString(),
-                    ended_at: endedAt?.toISOString() ?? null,
-                    duration_seconds: endedAt
-                      ? Math.round((endedAt.getTime() - startedAt.getTime()) / 1000)
-                      : null,
-                    description: description || null,
-                    project_id: projectId,
+                    started_at: updated.startedAt,
+                    ended_at: updated.endedAt,
+                    duration_seconds: updated.durationSeconds,
+                    description: updated.description,
+                    project_id: updated.projectId,
                     project_name: project?.name ?? null,
                     project_icon: project?.icon ?? null,
                     production_percentage: ongoing ? null : allocation,

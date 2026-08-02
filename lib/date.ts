@@ -6,6 +6,36 @@ export function dayKey(date: Date) {
   return `${date.getFullYear()}-${pad(date.getMonth() + 1)}-${pad(date.getDate())}`;
 }
 
+/** Values for date/time inputs must use local fields, never UTC string slicing. */
+export function dateInputValue(date: Date) {
+  return dayKey(date);
+}
+
+export function timeInputValue(date: Date) {
+  return `${pad(date.getHours())}:${pad(date.getMinutes())}`;
+}
+
+export function parseLocalDateTime(date: string, time: string) {
+  if (!/^\d{4}-\d{2}-\d{2}$/.test(date) || !/^\d{2}:\d{2}$/.test(time)) return new Date(Number.NaN);
+  const [year, month, day] = date.split("-").map(Number);
+  const [hours, minutes] = time.split(":").map(Number);
+  if (month < 1 || month > 12 || day < 1 || day > 31 || hours < 0 || hours > 23 || minutes < 0 || minutes > 59) {
+    return new Date(Number.NaN);
+  }
+  const parsed = new Date(year, month - 1, day, hours, minutes, 0, 0);
+  if (
+    parsed.getFullYear() !== year || parsed.getMonth() !== month - 1 || parsed.getDate() !== day ||
+    parsed.getHours() !== hours || parsed.getMinutes() !== minutes
+  ) {
+    return new Date(Number.NaN);
+  }
+  return parsed;
+}
+
+export function combineLocalDateAndTime(base: Date | number, time: string) {
+  return parseLocalDateTime(dateInputValue(new Date(base)), time);
+}
+
 /** Inverse of dayKey/weekKey: builds a local-midnight Date from a "YYYY-MM-DD" key. */
 export function parseDateKey(key: string): Date {
   const [year, month, day] = key.split("-").map(Number);

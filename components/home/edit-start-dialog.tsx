@@ -1,5 +1,5 @@
 import { Info } from "lucide-react";
-import { combineDateAndTime } from "@/lib/home-model";
+import { combineLocalDateAndTime } from "@/lib/date";
 import { Button } from "@/components/ui/button";
 import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle } from "@/components/ui/dialog";
 import { Input } from "@/components/ui/input";
@@ -46,7 +46,7 @@ export function EditStartDialog({ open, busy, error, time, startedAt, now, onOpe
             <Input id="edit-start-time" type="time" value={time} onChange={(event) => onTimeChange(event.target.value)} />
           </div>
           {time && startedAt !== null && (
-            <p className="text-center text-sm font-medium" aria-live="polite">New elapsed time: {formatElapsed(Math.max(0, now - combineDateAndTime(startedAt, time)))}</p>
+            <p className="text-center text-sm font-medium" aria-live="polite">New elapsed time: {formatElapsed(Math.max(0, now - combineLocalDateAndTime(startedAt, time).getTime()))}</p>
           )}
           {error && <p className="text-destructive text-sm">{error}</p>}
         </div>

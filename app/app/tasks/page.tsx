@@ -31,6 +31,8 @@ import { ProjectIcon, NoProjectIcon } from "@/lib/icons";
 import { ApiError, Project, Task, projects as projectsApi, tasks as tasksApi } from "@/lib/api";
 import { dayKey } from "@/lib/date";
 import { cn } from "@/lib/utils";
+import { removeTask as removeTaskFromList, upsertTask, upsertTasks } from "@/lib/task-collections";
+import { setTaskCompletion, taskMutations } from "@/lib/task-mutations";
 
 const NO_PROJECT_KEY = "none";
 
@@ -111,7 +113,7 @@ export default function TasksPage() {
     setCreateError(null);
     try {
       const created = await tasksApi.create(null, title.trim(), projectId);
-      setTaskList((current) => [...current, created]);
+      setTaskList((current) => upsertTask(current, created));
       setTitle("");
       markRecent([created.id]);
     } catch (error) {
@@ -124,9 +126,8 @@ export default function TasksPage() {
   async function movePastTasks() {
     setMoving(true);
     try {
-      const result = await tasksApi.movePastToBacklog(today);
-      const movedById = new Map(result.moved.map((task) => [task.id, task]));
-      setTaskList((current) => current.map((task) => movedById.get(task.id) ?? task));
+      const result = await taskMutations.movePastToBacklog(today);
+      setTaskList((current) => upsertTasks(current, result.moved));
       markRecent(result.moved.map((task) => task.id));
       toast.add({
         id: `backlog-moved-${Date.now()}`,
@@ -146,14 +147,14 @@ export default function TasksPage() {
   }
 
   function updateTask(updated: Task) {
-    setTaskList((current) => current.map((item) => item.id === updated.id ? updated : item));
+    setTaskList((current) => upsertTask(current, updated));
   }
 
   async function toggleTask(task: Task) {
     setTogglingId(task.id);
     try {
-      const updated = await tasksApi.update(task.id, { completed: task.completed_at === null });
-      setTaskList((current) => current.map((item) => item.id === task.id ? updated : item));
+      const updated = await setTaskCompletion(task);
+      setTaskList((current) => upsertTask(current, updated));
     } catch {
       toast.add({
         id: `backlog-toggle-error-${task.id}`,
@@ -168,9 +169,9 @@ export default function TasksPage() {
   async function removeTask(task: Task) {
     setRemovingIds((current) => [...current, task.id]);
     try {
-      await tasksApi.remove(task.id);
+      await taskMutations.remove(task);
       await new Promise((resolve) => window.setTimeout(resolve, 160));
-      setTaskList((current) => current.filter((item) => item.id !== task.id));
+      setTaskList((current) => removeTaskFromList(current, task.id));
     } catch {
       setRemovingIds((current) => current.filter((id) => id !== task.id));
       toast.add({

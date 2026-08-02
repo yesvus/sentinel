@@ -766,6 +766,8 @@ async function sessionRoutes(request: NextRequest, parts: string[], userId: numb
       : data.productionPercentage !== undefined
         ? data.productionPercentage
         : session.production_percentage;
+    let attachedTasks: Record<string, unknown>[] | undefined;
+    let changedTasks: Record<string, unknown>[] | undefined;
     try {
       await db.execute({
         sql: "UPDATE sessions SET description = ?, project_id = ?, started_at = ?, ended_at = ?, duration_seconds = ?, production_percentage = ? WHERE id = ? AND user_id = ?",
@@ -789,6 +791,24 @@ async function sessionRoutes(request: NextRequest, parts: string[], userId: numb
             args: [id, taskId],
           });
         }
+        if (selectedTaskIds.length) {
+          const placeholders = selectedTaskIds.map(() => "?").join(",");
+          const authoritative = await db.execute({
+            sql: `SELECT id, period_start, project_id, title, description, completed_at FROM tasks WHERE user_id = ? AND id IN (${placeholders})`,
+            args: [userId, ...selectedTaskIds],
+          });
+          const byId = new Map<number, Record<string, unknown>>(
+            authoritative.rows.map((task) => [Number(task.id), task as Record<string, unknown>]),
+          );
+          attachedTasks = selectedTaskIds
+            .map((taskId) => byId.get(taskId))
+            .filter((task): task is Record<string, unknown> => task !== undefined);
+          const changedIds = new Set(backlogTaskIds);
+          changedTasks = attachedTasks.filter((task) => changedIds.has(Number(task.id)));
+        } else {
+          attachedTasks = [];
+          changedTasks = [];
+        }
       }
     } catch (caught) {
       if (!uniqueActiveError(caught)) throw caught;
@@ -800,6 +820,7 @@ async function sessionRoutes(request: NextRequest, parts: string[], userId: numb
       productionPercentage: productionPercentage ?? null,
       pausedAt: session.paused_at ?? null,
       pausedSeconds,
+      ...(attachedTasks === undefined ? {} : { attachedTasks, changedTasks }),
     });
   }
   return error("Not found", 404);
@@ -1245,15 +1266,9 @@ async function taskRoutes(request: NextRequest, parts: string[], userId: number)
     const periodStart = data.periodStart !== undefined ? data.periodStart : row.period_start;
     if (data.completed !== undefined && typeof data.completed !== "boolean") return error("completed must be a boolean");
     const completedAt = data.completed !== undefined ? (data.completed ? new Date().toISOString() : null) : row.completed_at;
-    await db.execute({
-      sql: "UPDATE tasks SET title = ?, description = ?, project_id = ?, period_start = ?, completed_at = ? WHERE id = ? AND user_id = ?",
-      args: [title, description, row.project_id, periodStart, completedAt, id!, userId],
-    });
-    if (data.completed === false && data.periodStart === null) {
-      await db.execute({ sql: "DELETE FROM session_tasks WHERE task_id = ?", args: [id] });
-    }
+    let attachedSessionId: number | null = null;
     if (data.sessionId !== undefined) {
-      const attachedSessionId = Number(data.sessionId);
+      attachedSessionId = Number(data.sessionId);
       if (!Number.isInteger(attachedSessionId)) return error("sessionId must be an integer");
       const selectedSession = await db.execute({
         sql: "SELECT ended_at FROM sessions WHERE id = ? AND user_id = ?",
@@ -1262,6 +1277,15 @@ async function taskRoutes(request: NextRequest, parts: string[], userId: number)
       const sessionRow = selectedSession.rows[0];
       if (!sessionRow) return error("Session not found", 404);
       if (sessionRow.ended_at !== null) return error("Only an active session can accept tasks");
+    }
+    await db.execute({
+      sql: "UPDATE tasks SET title = ?, description = ?, project_id = ?, period_start = ?, completed_at = ? WHERE id = ? AND user_id = ?",
+      args: [title, description, row.project_id, periodStart, completedAt, id!, userId],
+    });
+    if (data.completed === false && data.periodStart === null) {
+      await db.execute({ sql: "DELETE FROM session_tasks WHERE task_id = ?", args: [id] });
+    }
+    if (attachedSessionId !== null) {
       const attached = await db.execute({
         sql: "SELECT 1 FROM session_tasks WHERE session_id = ? AND task_id = ?",
         args: [attachedSessionId, id],

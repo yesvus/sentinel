@@ -14,12 +14,10 @@ import { useHomeRailVisibility } from "@/hooks/use-home-rail-visibility";
 import { useActiveSession } from "@/lib/active-session-context";
 import { ApiError, type Note, type Project, type StudySession, type Task, notes as notesApi, projects as projectsApi, sessions, tasks as tasksApi } from "@/lib/api";
 import { useAuth } from "@/lib/auth-context";
-import { dayKey, formatDuration, pad } from "@/lib/date";
-import { buildHomeModel, combineDateAndTime } from "@/lib/home-model";
-
-function toTimeInput(date: Date) {
-  return `${pad(date.getHours())}:${pad(date.getMinutes())}`;
-}
+import { combineLocalDateAndTime, dayKey, formatDuration, timeInputValue } from "@/lib/date";
+import { buildHomeModel } from "@/lib/home-model";
+import { removeTask as removeTaskFromList, upsertTask } from "@/lib/task-collections";
+import { setTaskCompletion, taskMutations } from "@/lib/task-mutations";
 
 function greeting() {
   const hour = new Date().getHours();
@@ -148,8 +146,8 @@ export default function AppHomePage() {
 
   async function toggleTaskCompletion(task: Task) {
     try {
-      const updated = await tasksApi.update(task.id, { completed: task.completed_at === null });
-      setTaskList((list) => list.map((item) => item.id === updated.id ? updated : item));
+      const updated = await setTaskCompletion(task);
+      handleTaskUpdated(updated);
     } catch {
       // This remains a best-effort convenience toggle.
     }
@@ -158,10 +156,11 @@ export default function AppHomePage() {
   async function deleteTask(task: Task) {
     setDeletingTaskIds((ids) => [...ids, task.id]);
     try {
-      await tasksApi.remove(task.id);
+      await taskMutations.remove(task);
       await new Promise((resolve) => window.setTimeout(resolve, 160));
-      setTaskList((list) => list.filter((item) => item.id !== task.id));
+      setTaskList((list) => removeTaskFromList(list, task.id));
       setSelectedTaskIds((ids) => ids.filter((id) => id !== task.id));
+      setSessionTaskIds((ids) => ids.filter((id) => id !== task.id));
     } catch {
       setError("Could not delete this task.");
     } finally {
@@ -170,13 +169,18 @@ export default function AppHomePage() {
   }
 
   function handleTaskCreated(created: Task) {
-    setTaskList((list) => list.some((task) => task.id === created.id)
-      ? list.map((task) => task.id === created.id ? created : task)
-      : [...list, created]);
+    setTaskList((list) => upsertTask(list, created));
     setRecentTaskIds((ids) => [...ids, created.id]);
     if (!isRunning) setSelectedTaskIds((ids) => [...ids, created.id]);
     else setSessionTaskIds((ids) => ids.includes(created.id) ? ids : [...ids, created.id]);
     window.setTimeout(() => setRecentTaskIds((ids) => ids.filter((id) => id !== created.id)), 500);
+  }
+
+  function handleTaskUpdated(updated: Task) {
+    setTaskList((list) => upsertTask(list, updated));
+    if (updated.completed_at === null && updated.period_start === null) {
+      setSessionTaskIds((ids) => ids.filter((id) => id !== updated.id));
+    }
   }
 
   async function handleStart() {
@@ -228,7 +232,7 @@ export default function AppHomePage() {
 
   function openEditStart() {
     if (startedAt === null) return;
-    setEditStartTime(toTimeInput(new Date(startedAt)));
+    setEditStartTime(timeInputValue(new Date(startedAt)));
     setEditStartError(null);
     setEditStartOpen(true);
   }
@@ -236,7 +240,7 @@ export default function AppHomePage() {
   async function handleEditStart() {
     if (sessionId === null || startedAt === null) return;
     setEditStartError(null);
-    const nextStartedAt = combineDateAndTime(startedAt, editStartTime);
+    const nextStartedAt = combineLocalDateAndTime(startedAt, editStartTime).getTime();
     if (nextStartedAt > now) {
       setEditStartError("Start time can't be in the future");
       return;
@@ -337,7 +341,7 @@ export default function AppHomePage() {
           recentTaskIds={recentTaskIds}
           deletingTaskIds={deletingTaskIds}
           onTaskCreated={handleTaskCreated}
-          onTaskUpdated={(updated) => setTaskList((list) => list.map((task) => task.id === updated.id ? updated : task))}
+          onTaskUpdated={handleTaskUpdated}
           onToggleTask={(task) => void toggleTaskCompletion(task)}
           onDeleteTask={(task) => void deleteTask(task)}
         />

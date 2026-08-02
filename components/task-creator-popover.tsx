@@ -18,6 +18,7 @@ import {
 import { Spinner } from "@/components/ui/spinner";
 import { Textarea } from "@/components/ui/textarea";
 import { ApiError, Project, Task, tasks as tasksApi } from "@/lib/api";
+import { taskMutations } from "@/lib/task-mutations";
 
 export function TaskCreatorPopover({
   periodStart,
@@ -86,10 +87,9 @@ export function TaskCreatorPopover({
     setBusy(true);
     setError(null);
     try {
-      const details: Parameters<typeof tasksApi.update>[1] = {};
-      if (periodStart) details.periodStart = periodStart;
-      if (sessionId !== undefined) details.sessionId = sessionId;
-      const updated = await tasksApi.update(task.id, details);
+      const updated = sessionId === undefined
+        ? await taskMutations.schedule(task, periodStart!)
+        : await taskMutations.attachToActiveSession(task, sessionId, periodStart ?? undefined);
       onCreated(updated);
       setOpen(false);
     } catch (caught) {

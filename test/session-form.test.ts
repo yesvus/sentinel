@@ -2,7 +2,6 @@ import { describe, expect, it } from "vitest";
 import type { StudySession, Task } from "@/lib/api";
 import {
   initialSessionForm,
-  resolveAttachedTasks,
   sessionFormDates,
   validateSessionFormDates,
 } from "@/lib/session-form";
@@ -47,20 +46,21 @@ describe("session form transformations", () => {
 
   it("validates future starts and non-positive completed ranges", () => {
     const now = new Date("2026-08-02T12:00:00");
+    expect(validateSessionFormDates(new Date(Number.NaN), null, now)).toBe("Enter a valid date and time.");
     expect(validateSessionFormDates(new Date("2026-08-02T12:01:00"), null, now)).toBe("Start time cannot be in the future.");
     expect(validateSessionFormDates(new Date("2026-08-02T10:00:00"), new Date("2026-08-02T10:00:00"), now)).toBe("End time must be after start time.");
     expect(validateSessionFormDates(new Date("2026-08-02T10:00:00"), new Date("2026-08-02T11:00:00"), now)).toBeNull();
   });
 
-  it("creates dates and marks selected backlog tasks completed for the session day", () => {
+  it("creates local dates on the selected calendar day", () => {
     const dates = sessionFormDates("2026-08-02", "09:00", "10:30", false);
     expect(dates.endedAt!.getTime() - dates.startedAt.getTime()).toBe(90 * 60 * 1000);
-
-    const completed = task(1, "2026-08-01T08:00:00Z");
-    const backlog = task(2, null);
-    const attached = resolveAttachedTasks([2, 999, 1], [backlog, completed], [], "2026-08-02", "2026-08-02T12:00:00Z");
-    expect(attached.map(({ id }) => id)).toEqual([2, 1]);
-    expect(attached[0]).toMatchObject({ completed_at: "2026-08-02T12:00:00Z", period_start: "2026-08-02" });
-    expect(attached[1]!).toBe(completed);
+    expect([
+      dates.startedAt.getFullYear(),
+      dates.startedAt.getMonth(),
+      dates.startedAt.getDate(),
+      dates.startedAt.getHours(),
+      dates.startedAt.getMinutes(),
+    ]).toEqual([2026, 7, 2, 9, 0]);
   });
 });

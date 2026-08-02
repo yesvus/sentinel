@@ -9,7 +9,6 @@ import { NoProjectIcon, ProjectIcon } from "@/lib/icons";
 import { useActiveSession } from "@/lib/active-session-context";
 import {
   initialSessionForm,
-  resolveAttachedTasks,
   sessionFormDates,
   validateSessionFormDates,
 } from "@/lib/session-form";
@@ -89,7 +88,7 @@ export function SessionEditorDialog({
 
     setBusy(true);
     try {
-      await sessionsApi.update(session.id, {
+      const result = await sessionsApi.update(session.id, {
         startedAt: startedAt.toISOString(),
         endedAt: endedAt?.toISOString() ?? null,
         description: description.trim() || null,
@@ -98,25 +97,14 @@ export function SessionEditorDialog({
       });
       onUpdated({
         ...session,
-        started_at: startedAt.toISOString(),
-        ended_at: endedAt?.toISOString() ?? null,
-        duration_seconds: endedAt ? Math.round((endedAt.getTime() - startedAt.getTime()) / 1000) : null,
-        description: description.trim() || null,
+        started_at: result.startedAt,
+        ended_at: result.endedAt,
+        duration_seconds: result.durationSeconds,
+        description: result.description,
       });
       if (!ongoing) {
-        const completedAt = new Date().toISOString();
-        const attachedTasks = resolveAttachedTasks(
-          selectedTaskIds,
-          availableTasks,
-          tasks,
-          date,
-          completedAt,
-        );
-        const originalById = new Map([...availableTasks, ...tasks].map((task) => [task.id, task]));
-        for (const task of attachedTasks) {
-          if (originalById.get(task.id)?.completed_at === null) onTaskUpdated(task);
-        }
-        onTasksChanged(session.id, attachedTasks);
+        for (const task of result.changedTasks ?? []) onTaskUpdated(task);
+        onTasksChanged(session.id, result.attachedTasks ?? []);
       }
       await notifySessionChanged().catch(() => {});
       setOpen(false);

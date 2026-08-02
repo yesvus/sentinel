@@ -13,6 +13,8 @@ import { Skeleton } from "@/components/ui/skeleton";
 import { ApiError, type Project, type StudySession, type Task, projects as projectsApi, sessions as sessionsApi, tasks as tasksApi } from "@/lib/api";
 import { buildProjectDetailModel } from "@/lib/project-detail-model";
 import { PageHeaderActions } from "@/lib/page-header-actions-context";
+import { removeTask as removeTaskFromList, upsertTask } from "@/lib/task-collections";
+import { taskMutations } from "@/lib/task-mutations";
 
 export default function ProjectDetailPage() {
   const params = useParams<{ id: string }>();
@@ -162,9 +164,9 @@ export default function ProjectDetailPage() {
   async function deleteTask(task: Task) {
     setDeletingTaskId(task.id);
     try {
-      await tasksApi.remove(task.id);
+      await taskMutations.remove(task);
       await new Promise((resolve) => window.setTimeout(resolve, 160));
-      setTaskList((list) => list.filter((item) => item.id !== task.id));
+      setTaskList((list) => removeTaskFromList(list, task.id));
     } catch (caught) {
       setError(caught instanceof ApiError ? caught.message : "Could not delete this task.");
     } finally {
@@ -197,8 +199,8 @@ export default function ProjectDetailPage() {
         <div className="flex min-w-0 flex-col gap-6">
           <ProjectBacklogCard
             project={project} projects={projectList} tasks={model.backlogTasks} deletingTaskId={deletingTaskId}
-            onCreated={(task) => setTaskList((list) => [...list, task])}
-            onUpdated={(updated) => setTaskList((list) => list.map((item) => item.id === updated.id ? updated : item))}
+            onCreated={(task) => setTaskList((list) => upsertTask(list, task))}
+            onUpdated={(updated) => setTaskList((list) => upsertTask(list, updated))}
             onDelete={deleteTask}
           />
           <ProjectDescendantsCard descendants={model.descendants} />

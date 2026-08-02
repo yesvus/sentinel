@@ -14,7 +14,7 @@ import {
   type HistoryWeekGroup,
 } from "@/lib/history";
 import { partialWeekStats } from "@/lib/session-stats";
-import { dateInputValue } from "@/lib/session-form";
+import { dateInputValue } from "@/lib/date";
 import { useAuth } from "@/lib/auth-context";
 import { toast } from "@/components/ui/toast";
 import { Button } from "@/components/ui/button";
