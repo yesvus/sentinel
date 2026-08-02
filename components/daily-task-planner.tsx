@@ -71,14 +71,8 @@ export function DailyTaskPlanner({
   async function toggle(task: Task) {
     try {
       const updated = await tasksApi.update(task.id, { completed: task.completed_at === null });
-      if (updated.completed_at !== null) {
-        setLeavingId(task.id);
-        await new Promise((resolve) => window.setTimeout(resolve, 160));
-      }
       onUpdated(updated);
-      setLeavingId(null);
     } catch {
-      setLeavingId(null);
       // best-effort toggle, not worth surfacing an error for
     }
   }
@@ -121,6 +115,11 @@ export function DailyTaskPlanner({
     const key = project ? String(project.id) : NO_PROJECT_KEY;
     if (!groups.has(key)) groups.set(key, { project, tasks: [] });
     groups.get(key)!.tasks.push(task);
+  }
+  // Open tasks first, completed ones below — tasks includes both so completed
+  // work (with or without an attached session) stays visible on the day.
+  for (const group of groups.values()) {
+    group.tasks.sort((a, b) => Number(a.completed_at !== null) - Number(b.completed_at !== null));
   }
   const orderedGroups = Array.from(groups.values()).sort((a, b) => {
     if (!a.project) return 1;

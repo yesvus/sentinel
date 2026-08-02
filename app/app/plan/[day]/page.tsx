@@ -344,7 +344,7 @@ export default function DayPlanningPage() {
               <CardContent>
                 <DailyTaskPlanner
                   periodStart={selectedDayKey}
-                  tasks={plannedTasks}
+                  tasks={dayTasks}
                   projects={projectList}
                   backlogTasks={backlogTasks}
                   onCreated={handleTaskCreated}
