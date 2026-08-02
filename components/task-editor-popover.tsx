@@ -174,7 +174,7 @@ export function TaskEditorPopover({
               />
             </Field>
             {task.completed_at === null && <Field>
-              <FieldLabel htmlFor={`task-date-${task.id}`}>Plan date</FieldLabel>
+              <FieldLabel htmlFor={`task-date-${task.id}`}>Date</FieldLabel>
               <Input
                 id={`task-date-${task.id}`}
                 type="date"
@@ -187,7 +187,7 @@ export function TaskEditorPopover({
               <div className="flex items-center gap-1">
                 <FieldLabel htmlFor={`task-description-${task.id}`}>Description</FieldLabel>
                 <HelpTooltip label="About task descriptions">
-                  Optional · shown beneath the task while planning.
+                  Optional · shown beneath the task in Calendar.
                 </HelpTooltip>
               </div>
               <Textarea

@@ -649,7 +649,7 @@ export default function AppHomePage() {
             <LinkifiedText text={todayNote.content} as="p" className="text-muted-foreground border-t pt-2 text-xs" />
           )}
           <Link href={`/app/calendar/${todayKey}`} className="text-primary block pt-1 text-xs font-medium hover:underline">
-            Open today&apos;s plan →
+            Open today in Calendar →
           </Link>
         </div>
       </aside>}

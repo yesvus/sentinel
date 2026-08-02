@@ -125,7 +125,7 @@ export function TaskCreatorPopover({
               <div className="flex items-center gap-1">
                 <FieldLabel htmlFor="new-task-description">Description</FieldLabel>
                 <HelpTooltip label="About task descriptions">
-                  Optional · shown beneath the task while planning.
+                  Optional · shown beneath the task in Calendar.
                 </HelpTooltip>
               </div>
               <Textarea

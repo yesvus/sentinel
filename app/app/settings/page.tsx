@@ -250,7 +250,7 @@ export default function SettingsPage() {
           </div>
           <div className="space-y-2 border-t pt-4">
             <div>
-              <p className="text-sm font-medium">Daily planning reminder</p>
+              <p className="text-sm font-medium">Daily calendar reminder</p>
               <p className="text-muted-foreground text-sm">
                 A soft nudge on the Calendar tab after this time if tomorrow isn&apos;t planned yet. It&apos;s just a
                 reminder — nothing is blocked.
@@ -266,9 +266,9 @@ export default function SettingsPage() {
           </div>
           <div className="space-y-2 border-t pt-4">
             <div>
-              <p className="text-sm font-medium">Weekly planning reminder</p>
+              <p className="text-sm font-medium">Weekly calendar reminder</p>
               <p className="text-muted-foreground text-sm">
-                A soft nudge on this day and time to wrap up the week and plan the next one.
+                A soft nudge on this day and time to wrap up the week and set up the next one.
               </p>
             </div>
             <div className="flex flex-wrap gap-2">
@@ -276,7 +276,7 @@ export default function SettingsPage() {
                 value={user?.planWeeklyReminderDay ?? 0}
                 onChange={(event) => updateWeeklyReminder({ day: Number(event.target.value) })}
                 disabled={savingSessionDefault}
-                aria-label="Weekly planning day"
+                aria-label="Weekly calendar reminder day"
                 className="border-input bg-background h-9 rounded-md border px-3 text-sm"
               >
                 {WEEKDAY_NAMES.map((label, i) => (
@@ -288,7 +288,7 @@ export default function SettingsPage() {
                 value={`${pad(user?.planWeeklyReminderHour ?? 19)}:00`}
                 onChange={(event) => updateWeeklyReminder({ hour: Number(event.target.value.split(":")[0]) })}
                 disabled={savingSessionDefault}
-                aria-label="Weekly planning time"
+                aria-label="Weekly calendar reminder time"
                 className="border-input bg-background h-9 w-full max-w-40 rounded-md border px-3"
               />
             </div>

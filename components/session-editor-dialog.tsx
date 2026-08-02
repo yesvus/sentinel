@@ -317,7 +317,7 @@ export function SessionEditorDialog({
                           <Field>
                             <div className="flex items-center gap-1">
                               <FieldLabel htmlFor={`new-session-task-description-${session.id}`}>Description</FieldLabel>
-                              <HelpTooltip label="About task descriptions">Optional · shown beneath the task while planning.</HelpTooltip>
+                              <HelpTooltip label="About task descriptions">Optional · shown beneath the task in Calendar.</HelpTooltip>
                             </div>
                             <Textarea
                               id={`new-session-task-description-${session.id}`}
