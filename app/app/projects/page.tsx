@@ -63,7 +63,6 @@ export default function ProjectsPage() {
   }
 
   async function moveProject(project: Project, parentId: number | null, position: number) {
-    const previous = projectList;
     setBusyId(project.id);
     setError(null);
     setProjectList((list) => {
@@ -80,8 +79,11 @@ export default function ProjectsPage() {
       await projectsApi.move(project.id, parentId, position);
       await refreshProjects();
     } catch (caught) {
-      setProjectList(previous);
       setError(caught instanceof ApiError ? caught.message : "Could not move this project.");
+      // Re-sync with the server instead of restoring a locally-captured snapshot: a
+      // concurrent move that completed while this request was in flight would
+      // otherwise get clobbered by reverting to state captured before it happened.
+      await refreshProjects().catch(() => {});
     } finally {
       setBusyId(null);
     }

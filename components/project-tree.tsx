@@ -8,7 +8,7 @@ import {
   closestCenter,
   DndContext,
   DragEndEvent,
-  DragOverEvent,
+  DragMoveEvent,
   DragOverlay,
   DragStartEvent,
   KeyboardSensor,
@@ -38,12 +38,18 @@ import { Button } from "@/components/ui/button";
 import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip";
 import type { Project } from "@/lib/api";
 import { ProjectIcon } from "@/lib/icons";
-import { orderProjectsAsTree, projectBranchIds, type ProjectTreeItem } from "@/lib/project-tree";
+import { canPlaceProject, orderProjectsAsTree, projectBranchIds, type ProjectTreeItem } from "@/lib/project-tree";
 import { cn } from "@/lib/utils";
 
 const ROOT_DROP_ID = "project-tree-root";
 type DropPosition = "before" | "inside" | "after";
 type DropIntent = { targetId: number; position: DropPosition };
+
+function pointerClientY(event: Event): number | null {
+  if (event instanceof PointerEvent || event instanceof MouseEvent) return event.clientY;
+  if (event instanceof TouchEvent) return (event.touches[0] ?? event.changedTouches[0])?.clientY ?? null;
+  return null;
+}
 
 function ActionTooltip({ label, children }: { label: string; children: ReactNode }) {
   return (
@@ -67,7 +73,7 @@ function TreeRowSurface({
   dragHandle?: ReactNode;
   dragging?: boolean;
 }) {
-  const { project, childCount } = item;
+  const { project } = item;
   return (
     <div
       className={cn(
@@ -89,7 +95,6 @@ function TreeRowSurface({
             {project.name}
           </Link>
           {project.archived && <Badge variant="outline">Archived</Badge>}
-          {childCount > 0 && <Badge variant="secondary">{childCount} child{childCount === 1 ? "" : "ren"}</Badge>}
           {backlogCount > 0 && (
             <Badge variant="outline" className="gap-1">
               <Inbox />
@@ -123,6 +128,12 @@ function DraggableProjectRow({
 }) {
   const id = String(item.project.id);
   const draggable = useDraggable({ id, disabled: busy });
+  // Left enabled (not gated on draggable.isDragging): keeping the dragged row
+  // itself as the closest droppable for small pointer movements gives drags a
+  // "dead zone" around the origin. handleDragOver already discards self as a
+  // target, so this never resolves to a real move — but disabling it here
+  // would hand tiny, unintentional nudges to whichever row is next closest
+  // instead of absorbing them.
   const droppable = useDroppable({ id, disabled: busy });
   return (
     <div
@@ -265,21 +276,45 @@ export function ActiveProjectTree({
     setActiveId(Number(event.active.id));
   }
 
-  function handleDragOver(event: DragOverEvent) {
+  function handleDragMove(event: DragMoveEvent) {
     if (!event.over || event.over.id === ROOT_DROP_ID) {
       setDropIntent(null);
       return;
     }
     const targetId = Number(event.over.id);
+    const moving = projects.find((project) => project.id === activeId);
+    const target = projects.find((project) => project.id === targetId);
+    if (!moving || !target || targetId === moving.id) {
+      setDropIntent(null);
+      return;
+    }
+    // dnd-kit's onDragOver only fires when the resolved drop target *changes*,
+    // not on every pointer move within the same target — so the before/inside/after
+    // read has to come from onDragMove (which fires continuously) or it freezes at
+    // whatever it was the instant the cursor entered the row.
+    //
+    // Prefer the live cursor position (matches what the user sees, including the
+    // DragOverlay's snapCenterToCursor) over the dragged row's translated rect —
+    // that rect is anchored to wherever within the row the grip handle sits, which
+    // trails well below the cursor on taller rows.
+    const pointerStartY = pointerClientY(event.activatorEvent);
     const translated = event.active.rect.current.translated;
-    const center = translated
-      ? translated.top + translated.height / 2
-      : event.over.rect.top + event.over.rect.height / 2;
+    const center = pointerStartY !== null
+      ? pointerStartY + event.delta.y
+      : translated
+        ? translated.top + translated.height / 2
+        : event.over.rect.top + event.over.rect.height / 2;
     const ratio = (center - event.over.rect.top) / Math.max(1, event.over.rect.height);
-    setDropIntent({
-      targetId,
-      position: ratio < 0.28 ? "before" : ratio > 0.72 ? "after" : "inside",
-    });
+    let position: DropPosition = ratio < 0.28 ? "before" : ratio > 0.72 ? "after" : "inside";
+    if (position === "inside" && !canPlaceProject(projects, moving, target.id)) {
+      position = ratio < 0.5 ? "before" : "after";
+    }
+    const prospectiveParentId = position === "inside" ? target.id : target.parentId;
+    if (!canPlaceProject(projects, moving, prospectiveParentId)) {
+      setDropIntent(null);
+      return;
+    }
+    setDropIntent({ targetId, position });
   }
 
   async function handleDragEnd(event: DragEndEvent) {
@@ -309,6 +344,7 @@ export function ActiveProjectTree({
     setActiveId(null);
     setDropIntent(null);
     if (!moving || parentId === undefined || moving.id === parentId) return;
+    if (!canPlaceProject(projects, moving, parentId)) return;
     await onMove(moving, parentId, position);
   }
 
@@ -317,7 +353,7 @@ export function ActiveProjectTree({
       sensors={sensors}
       collisionDetection={closestCenter}
       onDragStart={handleDragStart}
-      onDragOver={handleDragOver}
+      onDragMove={handleDragMove}
       onDragCancel={() => { setActiveId(null); setDropIntent(null); }}
       onDragEnd={(event) => void handleDragEnd(event)}
     >
