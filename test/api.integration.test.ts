@@ -44,7 +44,7 @@ async function register(email: string) {
 
 beforeEach(async () => {
   await ensureDb();
-  for (const table of ["auth_rate_limits", "auth_sessions", "weekly_reports", "social_notifications", "friendships", "notes", "session_tasks", "tasks", "sessions", "projects", "users"]) {
+  for (const table of ["auth_rate_limits", "auth_sessions", "weekly_reports", "social_notifications", "friendships", "notes", "focus_noise_usage", "session_tasks", "tasks", "sessions", "projects", "users"]) {
     await db.execute(`DELETE FROM ${table}`);
   }
 });
@@ -61,6 +61,7 @@ describe("Next API", () => {
       autoStartNoise: false,
       focusAudioType: "speech-blocker",
       defaultSessionType: "learning",
+      sessionPauseTimeoutMinutes: 30,
     });
   });
 
@@ -121,11 +122,21 @@ describe("Next API", () => {
     expect((await request("GET", "auth/me", { cookie })).body.defaultSessionType).toBe("producing");
   });
 
+  it("saves the paused session timeout", async () => {
+    const cookie = await register("pause-setting@example.test");
+    const updated = await request("PATCH", "auth/session-settings", {
+      cookie,
+      body: { sessionPauseTimeoutMinutes: 45 },
+    });
+    expect(updated.body.sessionPauseTimeoutMinutes).toBe(45);
+    expect((await request("GET", "auth/me", { cookie })).body.sessionPauseTimeoutMinutes).toBe(45);
+  });
+
   it("persists project metadata and day notes", async () => {
     const cookie = await register("projects@example.test");
     const project = await request("POST", "projects", {
       cookie,
-      body: { name: "Thesis", description: "Long-term research", icon: "book" },
+      body: { name: "Thesis", description: "Long-term research", resources: "https://example.com/brief", icon: "book" },
     });
     const note = await request("PUT", "notes/day/2026-07-30", {
       cookie,
@@ -135,6 +146,7 @@ describe("Next API", () => {
     expect(project.body).toMatchObject({
       name: "Thesis",
       description: "Long-term research",
+      resources: "https://example.com/brief",
       icon: "book",
     });
     expect(note.body.content).toBe("Finished the outline");
@@ -196,7 +208,41 @@ describe("Next API", () => {
     await request("PATCH", `projects/${root.body.id}`, { cookie, body: { archived: true } });
     const projects = await request("GET", "projects", { cookie });
     expect(projects.body.filter((project: { archived: boolean }) => project.archived)).toHaveLength(3);
-    expect((await request("DELETE", `projects/${root.body.id}`, { cookie })).response.status).toBe(409);
+    expect((await request("DELETE", `projects/${root.body.id}`, { cookie })).response.status).toBe(204);
+    expect((await request("GET", "projects", { cookie })).body).toHaveLength(0);
+  });
+
+  it("keeps pinned projects first and reorders within sibling groups", async () => {
+    const cookie = await register("project-order@example.test");
+    const first = await request("POST", "projects", { cookie, body: { name: "First" } });
+    const pinnedA = await request("POST", "projects", { cookie, body: { name: "Pinned A", pinned: true } });
+    const pinnedB = await request("POST", "projects", { cookie, body: { name: "Pinned B", pinned: true } });
+    await request("PATCH", `projects/${pinnedB.body.id}`, { cookie, body: { parentId: null, position: 0 } });
+
+    const projects = (await request("GET", "projects", { cookie })).body;
+    const ordered = [...projects].sort((a, b) => Number(b.pinned) - Number(a.pinned) || a.sortOrder - b.sortOrder);
+    expect(ordered.map((project) => project.id)).toEqual([pinnedB.body.id, pinnedA.body.id, first.body.id]);
+  });
+
+  it("records private focus audio usage intervals", async () => {
+    const cookie = await register("focus-audio-metrics@example.test");
+    const started = await request("POST", "noise-usage/start", {
+      cookie,
+      body: { audioType: "brown" },
+    });
+    expect(started.response.status).toBe(201);
+    expect((await request("POST", `noise-usage/${started.body.id}/heartbeat`, { cookie })).response.status).toBe(204);
+    expect((await request("POST", `noise-usage/${started.body.id}/stop`, { cookie })).response.status).toBe(204);
+
+    const usage = await db.execute({
+      sql: "SELECT audio_type, ended_at, duration_seconds FROM focus_noise_usage WHERE id = ?",
+      args: [started.body.id],
+    });
+    expect(usage.rows[0]).toMatchObject({
+      audio_type: "brown",
+      ended_at: expect.any(String),
+      duration_seconds: expect.any(Number),
+    });
   });
 
   it("moves only past incomplete tasks into the backlog", async () => {
@@ -238,6 +284,169 @@ describe("Next API", () => {
     expect(tasks.body.find((task: { title: string }) => task.title === "Write introduction").period_start).toBe("2026-08-02");
   });
 
+  it("creates and updates optional task descriptions", async () => {
+    const cookie = await register("task-description@example.test");
+    const created = await request("POST", "tasks", {
+      cookie,
+      body: {
+        title: "Draft the findings section",
+        description: "Summarize the three strongest interview patterns.",
+        periodStart: "2026-08-02",
+      },
+    });
+
+    expect(created.response.status).toBe(201);
+    expect(created.body.description).toBe("Summarize the three strongest interview patterns.");
+
+    const updated = await request("PATCH", `tasks/${created.body.id}`, {
+      cookie,
+      body: { description: "  Link each pattern to supporting quotes.  " },
+    });
+    expect(updated.body.description).toBe("Link each pattern to supporting quotes.");
+
+    const cleared = await request("PATCH", `tasks/${created.body.id}`, {
+      cookie,
+      body: { description: "" },
+    });
+    expect(cleared.body.description).toBeNull();
+  });
+
+  it("keeps a task's project fixed after creation", async () => {
+    const cookie = await register("fixed-task-project@example.test");
+    const first = await request("POST", "projects", { cookie, body: { name: "First" } });
+    const second = await request("POST", "projects", { cookie, body: { name: "Second" } });
+    const task = await request("POST", "tasks", {
+      cookie,
+      body: { title: "Fixed assignment", projectId: first.body.id },
+    });
+    const changed = await request("PATCH", `tasks/${task.body.id}`, {
+      cookie,
+      body: { projectId: second.body.id },
+    });
+
+    expect(changed.response.status).toBe(400);
+    expect(changed.body.error).toBe("A task's project is fixed at creation");
+    expect((await request("GET", "tasks", { cookie })).body[0].project_id).toBe(first.body.id);
+  });
+
+  it("returns an undone completed task to backlog and detaches it from sessions", async () => {
+    const cookie = await register("undo-completed-task@example.test");
+    const started = await request("POST", "sessions/start", { cookie });
+    const task = await request("POST", "tasks", {
+      cookie,
+      body: { title: "Reopen this", periodStart: "2026-08-02", sessionId: started.body.id },
+    });
+    await request("PATCH", `tasks/${task.body.id}`, { cookie, body: { completed: true } });
+
+    const undone = await request("PATCH", `tasks/${task.body.id}`, {
+      cookie,
+      body: { completed: false, periodStart: null },
+    });
+    expect(undone.body).toMatchObject({ completed_at: null, period_start: null });
+    expect((await request("GET", `sessions/${started.body.id}/tasks`, { cookie })).body).toEqual([]);
+  });
+
+  it("attaches tasks created during an active session", async () => {
+    const cookie = await register("active-session-task@example.test");
+    const started = await request("POST", "sessions/start", { cookie });
+    const created = await request("POST", "tasks", {
+      cookie,
+      body: {
+        title: "Record the decision",
+        description: "Capture why this approach won.",
+        periodStart: "2026-08-02",
+        sessionId: started.body.id,
+      },
+    });
+    const attached = await request("GET", `sessions/${started.body.id}/tasks`, { cookie });
+
+    expect(created.response.status).toBe(201);
+    expect(attached.body).toEqual([
+      expect.objectContaining({
+        id: created.body.id,
+        title: "Record the decision",
+        description: "Capture why this approach won.",
+      }),
+    ]);
+  });
+
+  it("assigns completed tasks while editing a completed session", async () => {
+    const cookie = await register("completed-session-tasks@example.test");
+    const session = await request("POST", "sessions", {
+      cookie,
+      body: {
+        startedAt: "2026-08-02T08:00:00.000Z",
+        endedAt: "2026-08-02T09:00:00.000Z",
+      },
+    });
+    const completedTask = await request("POST", "tasks", {
+      cookie,
+      body: { title: "Finished work", periodStart: "2026-08-02" },
+    });
+    const openTask = await request("POST", "tasks", {
+      cookie,
+      body: { title: "Still open", periodStart: "2026-08-02" },
+    });
+    const backlogTask = await request("POST", "tasks", {
+      cookie,
+      body: { title: "Finished from backlog", periodStart: null },
+    });
+    await request("PATCH", `tasks/${completedTask.body.id}`, { cookie, body: { completed: true } });
+
+    const updated = await request("PATCH", `sessions/${session.body.id}`, {
+      cookie,
+      body: { taskIds: [completedTask.body.id] },
+    });
+    expect(updated.response.status).toBe(200);
+    expect((await request("GET", `sessions/${session.body.id}/tasks`, { cookie })).body)
+      .toEqual([expect.objectContaining({ id: completedTask.body.id, title: "Finished work" })]);
+
+    const rejected = await request("PATCH", `sessions/${session.body.id}`, {
+      cookie,
+      body: { taskIds: [openTask.body.id] },
+    });
+    expect(rejected.response.status).toBe(400);
+    expect(rejected.body.error).toBe("Only completed tasks or Backlog tasks can be assigned to a completed session");
+
+    const withBacklog = await request("PATCH", `sessions/${session.body.id}`, {
+      cookie,
+      body: {
+        taskIds: [completedTask.body.id, backlogTask.body.id],
+        taskPeriodStart: "2026-08-02",
+      },
+    });
+    expect(withBacklog.response.status).toBe(200);
+    const attached = (await request("GET", `sessions/${session.body.id}/tasks`, { cookie })).body;
+    expect(attached).toEqual(expect.arrayContaining([
+      expect.objectContaining({ id: backlogTask.body.id, period_start: "2026-08-02", completed_at: expect.any(String) }),
+    ]));
+  });
+
+  it("creates a forgotten completed task directly on a completed session", async () => {
+    const cookie = await register("forgotten-completed-task@example.test");
+    const session = await request("POST", "sessions", {
+      cookie,
+      body: {
+        startedAt: "2026-08-02T08:00:00.000Z",
+        endedAt: "2026-08-02T09:00:00.000Z",
+      },
+    });
+    const created = await request("POST", "tasks", {
+      cookie,
+      body: {
+        title: "Forgotten finished task",
+        periodStart: "2026-08-02",
+        sessionId: session.body.id,
+        completed: true,
+      },
+    });
+
+    expect(created.response.status).toBe(201);
+    expect(created.body.completed_at).toEqual(expect.any(String));
+    expect((await request("GET", `sessions/${session.body.id}/tasks`, { cookie })).body)
+      .toEqual([expect.objectContaining({ id: created.body.id, title: "Forgotten finished task" })]);
+  });
+
   it("saves the final description when stopping a session", async () => {
     const cookie = await register("stop@example.test");
     const started = await request("POST", "sessions/start", {
@@ -256,6 +465,50 @@ describe("Next API", () => {
       ended_at: expect.any(String),
       description: "Goal: done\nOutputs: tests\nNext: review",
     });
+  });
+
+  it("excludes persisted interruption pauses from session time", async () => {
+    const cookie = await register("pause-session@example.test");
+    const started = await request("POST", "sessions/start", { cookie });
+    await request("PATCH", `sessions/${started.body.id}/pause`, { cookie });
+    const paused = await request("GET", "sessions/active", { cookie });
+    expect(paused.body.paused_at).toEqual(expect.any(String));
+
+    const tenMinutesAgo = new Date(Date.now() - 10 * 60_000).toISOString();
+    const twoMinutesAgo = new Date(Date.now() - 2 * 60_000).toISOString();
+    await db.execute({
+      sql: "UPDATE sessions SET started_at = ?, paused_at = ?, paused_seconds = 60 WHERE id = ?",
+      args: [tenMinutesAgo, twoMinutesAgo, started.body.id],
+    });
+    const resumed = await request("PATCH", `sessions/${started.body.id}/resume`, { cookie });
+    expect(resumed.body.pausedSeconds).toBeGreaterThanOrEqual(179);
+    expect(resumed.body.pausedSeconds).toBeLessThanOrEqual(181);
+
+    const stopped = await request("PATCH", `sessions/${started.body.id}/stop`, { cookie });
+    expect(stopped.body.durationSeconds).toBeGreaterThanOrEqual(418);
+    expect(stopped.body.durationSeconds).toBeLessThanOrEqual(422);
+  });
+
+  it("automatically ends a session at its configured pause deadline", async () => {
+    const cookie = await register("pause-expiry@example.test");
+    await request("PATCH", "auth/session-settings", {
+      cookie,
+      body: { sessionPauseTimeoutMinutes: 5 },
+    });
+    const started = await request("POST", "sessions/start", { cookie });
+    const tenMinutesAgo = new Date(Date.now() - 10 * 60_000).toISOString();
+    const sixMinutesAgo = new Date(Date.now() - 6 * 60_000).toISOString();
+    await db.execute({
+      sql: "UPDATE sessions SET started_at = ?, paused_at = ? WHERE id = ?",
+      args: [tenMinutesAgo, sixMinutesAgo, started.body.id],
+    });
+
+    expect((await request("GET", "sessions/active", { cookie })).body).toBeNull();
+    const recorded = (await request("GET", "sessions", { cookie })).body[0];
+    expect(recorded.duration_seconds).toBeGreaterThanOrEqual(238);
+    expect(recorded.duration_seconds).toBeLessThanOrEqual(242);
+    expect(recorded.paused_at).toBeNull();
+    expect(recorded.paused_seconds).toBe(300);
   });
 
   it("validates and persists a Learning–Producing allocation", async () => {

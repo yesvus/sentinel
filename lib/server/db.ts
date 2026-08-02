@@ -266,6 +266,38 @@ async function initialize() {
     await addColumn("users", "plan_context TEXT");
   });
 
+  await migrate(10, async () => {
+    await addColumn("tasks", "description TEXT");
+  });
+
+  await migrate(11, async () => {
+    await addColumn("sessions", "paused_at TEXT");
+    await addColumn("sessions", "paused_seconds INTEGER NOT NULL DEFAULT 0");
+    await addColumn("users", "session_pause_timeout_minutes INTEGER NOT NULL DEFAULT 30");
+  });
+
+  await migrate(12, async () => {
+    await db.execute(`
+      CREATE TABLE IF NOT EXISTS focus_noise_usage (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        user_id INTEGER NOT NULL REFERENCES users(id),
+        audio_type TEXT NOT NULL CHECK (audio_type IN ('white', 'pink', 'brown', 'speech-blocker', 'binaural-40hz')),
+        started_at TEXT NOT NULL,
+        last_heartbeat_at TEXT NOT NULL,
+        ended_at TEXT,
+        duration_seconds INTEGER
+      )
+    `);
+  });
+
+  await migrate(13, async () => {
+    await addColumn("projects", "sort_order INTEGER NOT NULL DEFAULT 0");
+  });
+
+  await migrate(14, async () => {
+    await addColumn("projects", "resources TEXT");
+  });
+
   for (const statement of [
     "CREATE INDEX IF NOT EXISTS idx_auth_sessions_user ON auth_sessions (user_id)",
     "CREATE INDEX IF NOT EXISTS idx_auth_sessions_expiry ON auth_sessions (expires_at)",
@@ -280,6 +312,8 @@ async function initialize() {
     "CREATE INDEX IF NOT EXISTS idx_tasks_user_period ON tasks (user_id, period_start)",
     "CREATE INDEX IF NOT EXISTS idx_tasks_user_project ON tasks (user_id, project_id)",
     "CREATE INDEX IF NOT EXISTS idx_session_tasks_task ON session_tasks (task_id)",
+    "CREATE INDEX IF NOT EXISTS idx_focus_noise_usage_user_started ON focus_noise_usage (user_id, started_at DESC)",
+    "CREATE UNIQUE INDEX IF NOT EXISTS idx_one_open_focus_noise_usage_per_user ON focus_noise_usage (user_id) WHERE ended_at IS NULL",
   ]) await db.execute(statement);
 }
 

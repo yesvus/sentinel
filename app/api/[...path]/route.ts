@@ -26,6 +26,7 @@ const MAX_EMAIL_LENGTH = 254;
 const MAX_PASSWORD_LENGTH = 128;
 const MAX_NAME_LENGTH = 100;
 const MAX_DESCRIPTION_LENGTH = 4_000;
+const MAX_PROJECT_RESOURCES_LENGTH = 10_000;
 const MAX_NOTE_LENGTH = 10_000;
 const MAX_TASK_TITLE_LENGTH = 200;
 const MAX_PLAN_CONTEXT_LENGTH = 2_000;
@@ -151,11 +152,43 @@ function parseActivityCursor(cursor: string | null): [number, string, number] | 
   return null;
 }
 
+async function finalizeExpiredPause(userId: number, sessionId?: number) {
+  const result = await db.execute({
+    sql: `SELECT sessions.id, sessions.started_at, sessions.paused_at, sessions.paused_seconds,
+                 users.session_pause_timeout_minutes
+          FROM sessions JOIN users ON users.id = sessions.user_id
+          WHERE sessions.user_id = ? AND sessions.ended_at IS NULL AND sessions.paused_at IS NOT NULL
+          ${sessionId === undefined ? "" : "AND sessions.id = ?"}
+          LIMIT 1`,
+    args: sessionId === undefined ? [userId] : [userId, sessionId],
+  });
+  const session = result.rows[0];
+  if (!session) return null;
+  const pausedAt = new Date(session.paused_at as string).getTime();
+  const timeoutSeconds = Number(session.session_pause_timeout_minutes ?? 30) * 60;
+  const endedAt = pausedAt + timeoutSeconds * 1000;
+  if (endedAt > Date.now()) return null;
+  const pausedSeconds = Number(session.paused_seconds ?? 0) + timeoutSeconds;
+  const durationSeconds = Math.max(
+    0,
+    Math.round((endedAt - new Date(session.started_at as string).getTime()) / 1000) - pausedSeconds,
+  );
+  await db.execute({
+    sql: `UPDATE sessions
+          SET ended_at = ?, duration_seconds = ?, paused_at = NULL, paused_seconds = ?
+          WHERE id = ? AND user_id = ? AND ended_at IS NULL`,
+    args: [new Date(endedAt).toISOString(), durationSeconds, pausedSeconds, Number(session.id), userId],
+  });
+  return { id: Number(session.id), endedAt: new Date(endedAt).toISOString(), durationSeconds };
+}
+
 async function activeSession(userId: number) {
+  await finalizeExpiredPause(userId);
   const result = await db.execute({
     sql: `
       SELECT sessions.id, sessions.started_at, sessions.ended_at,
              sessions.duration_seconds, sessions.description, sessions.production_percentage,
+             sessions.paused_at, sessions.paused_seconds,
              project_id, projects.name AS project_name, projects.icon AS project_icon,
              projects.archived AS project_archived,
              CASE WHEN grandparent.id IS NOT NULL THEN grandparent.name || ' / ' || parent.name || ' / ' || projects.name
@@ -204,6 +237,7 @@ async function authRoutes(request: NextRequest, parts: string[]) {
       focusAudioType: "speech-blocker",
       defaultSessionType: "learning",
       trackProductionSplit: true,
+      sessionPauseTimeoutMinutes: 30,
       planReminderHour: 19,
       planWeeklyReminderDay: 0,
       planWeeklyReminderHour: 19,
@@ -220,7 +254,7 @@ async function authRoutes(request: NextRequest, parts: string[]) {
     const attemptKey = rateLimitKey("login", `${clientAddress(request)}:${email}`);
     if (await rateLimited(attemptKey, 5)) return error("Too many sign-in attempts. Try again later.", 429);
     const result = await db.execute({
-      sql: "SELECT id, email, password_hash, name, avatar, share_session_descriptions, auto_start_noise, focus_audio_type, default_session_type, track_production_split, plan_reminder_hour, plan_weekly_reminder_day, plan_weekly_reminder_hour, plan_context FROM users WHERE lower(email) = ?",
+      sql: "SELECT id, email, password_hash, name, avatar, share_session_descriptions, auto_start_noise, focus_audio_type, default_session_type, track_production_split, session_pause_timeout_minutes, plan_reminder_hour, plan_weekly_reminder_day, plan_weekly_reminder_hour, plan_context FROM users WHERE lower(email) = ?",
       args: [email],
     });
     const user = result.rows[0];
@@ -236,6 +270,7 @@ async function authRoutes(request: NextRequest, parts: string[]) {
       focusAudioType: user.focus_audio_type ?? "speech-blocker",
       defaultSessionType: user.default_session_type ?? "learning",
       trackProductionSplit: Boolean(user.track_production_split ?? 1),
+      sessionPauseTimeoutMinutes: Number(user.session_pause_timeout_minutes ?? 30),
       planReminderHour: Number(user.plan_reminder_hour ?? 19),
       planWeeklyReminderDay: Number(user.plan_weekly_reminder_day ?? 0),
       planWeeklyReminderHour: Number(user.plan_weekly_reminder_hour ?? 19),
@@ -255,7 +290,7 @@ async function authRoutes(request: NextRequest, parts: string[]) {
   if (!userId) return unauthorized();
   if (action === "me" && request.method === "GET") {
     const result = await db.execute({
-      sql: "SELECT id, email, name, avatar, share_session_descriptions, auto_start_noise, focus_audio_type, default_session_type, track_production_split, plan_reminder_hour, plan_weekly_reminder_day, plan_weekly_reminder_hour, plan_context FROM users WHERE id = ?",
+      sql: "SELECT id, email, name, avatar, share_session_descriptions, auto_start_noise, focus_audio_type, default_session_type, track_production_split, session_pause_timeout_minutes, plan_reminder_hour, plan_weekly_reminder_day, plan_weekly_reminder_hour, plan_context FROM users WHERE id = ?",
       args: [userId],
     });
     const user = result.rows[0];
@@ -267,6 +302,7 @@ async function authRoutes(request: NextRequest, parts: string[]) {
       focusAudioType: user.focus_audio_type ?? "speech-blocker",
       defaultSessionType: user.default_session_type ?? "learning",
       trackProductionSplit: Boolean(user.track_production_split ?? 1),
+      sessionPauseTimeoutMinutes: Number(user.session_pause_timeout_minutes ?? 30),
       planReminderHour: Number(user.plan_reminder_hour ?? 19),
       planWeeklyReminderDay: Number(user.plan_weekly_reminder_day ?? 0),
       planWeeklyReminderHour: Number(user.plan_weekly_reminder_hour ?? 19),
@@ -344,6 +380,12 @@ async function authRoutes(request: NextRequest, parts: string[]) {
       return error("trackProductionSplit must be a boolean");
     }
     if (
+      data.sessionPauseTimeoutMinutes !== undefined &&
+      (!Number.isInteger(data.sessionPauseTimeoutMinutes) || data.sessionPauseTimeoutMinutes < 5 || data.sessionPauseTimeoutMinutes > 180)
+    ) {
+      return error("sessionPauseTimeoutMinutes must be an integer from 5 to 180");
+    }
+    if (
       data.planReminderHour !== undefined &&
       (!Number.isInteger(data.planReminderHour) || data.planReminderHour < 0 || data.planReminderHour > 23)
     ) {
@@ -362,7 +404,7 @@ async function authRoutes(request: NextRequest, parts: string[]) {
       return error("planWeeklyReminderHour must be an integer from 0 to 23");
     }
     if (
-      data.defaultSessionType === undefined && data.trackProductionSplit === undefined &&
+      data.defaultSessionType === undefined && data.trackProductionSplit === undefined && data.sessionPauseTimeoutMinutes === undefined &&
       data.planReminderHour === undefined && data.planWeeklyReminderDay === undefined &&
       data.planWeeklyReminderHour === undefined
     ) {
@@ -372,6 +414,7 @@ async function authRoutes(request: NextRequest, parts: string[]) {
       sql: `UPDATE users
             SET default_session_type = COALESCE(?, default_session_type),
                 track_production_split = COALESCE(?, track_production_split),
+                session_pause_timeout_minutes = COALESCE(?, session_pause_timeout_minutes),
                 plan_reminder_hour = COALESCE(?, plan_reminder_hour),
                 plan_weekly_reminder_day = COALESCE(?, plan_weekly_reminder_day),
                 plan_weekly_reminder_hour = COALESCE(?, plan_weekly_reminder_hour)
@@ -379,6 +422,7 @@ async function authRoutes(request: NextRequest, parts: string[]) {
       args: [
         data.defaultSessionType ?? null,
         data.trackProductionSplit === undefined ? null : data.trackProductionSplit ? 1 : 0,
+        data.sessionPauseTimeoutMinutes ?? null,
         data.planReminderHour ?? null,
         data.planWeeklyReminderDay ?? null,
         data.planWeeklyReminderHour ?? null,
@@ -386,7 +430,7 @@ async function authRoutes(request: NextRequest, parts: string[]) {
       ],
     });
     const result = await db.execute({
-      sql: `SELECT default_session_type, track_production_split, plan_reminder_hour,
+      sql: `SELECT default_session_type, track_production_split, session_pause_timeout_minutes, plan_reminder_hour,
                    plan_weekly_reminder_day, plan_weekly_reminder_hour
             FROM users WHERE id = ?`,
       args: [userId],
@@ -394,6 +438,7 @@ async function authRoutes(request: NextRequest, parts: string[]) {
     return NextResponse.json({
       defaultSessionType: result.rows[0].default_session_type,
       trackProductionSplit: Boolean(result.rows[0].track_production_split),
+      sessionPauseTimeoutMinutes: Number(result.rows[0].session_pause_timeout_minutes),
       planReminderHour: Number(result.rows[0].plan_reminder_hour),
       planWeeklyReminderDay: Number(result.rows[0].plan_weekly_reminder_day),
       planWeeklyReminderHour: Number(result.rows[0].plan_weekly_reminder_hour),
@@ -433,6 +478,8 @@ async function sessionRoutes(request: NextRequest, parts: string[], userId: numb
     if (invalidProject) return invalidProject;
     const invalidTasks = await taskIdsError(userId, data.taskIds);
     if (invalidTasks) return invalidTasks;
+    const taskPeriodStartInvalid = periodStartError(data.taskPeriodStart);
+    if (taskPeriodStartInvalid) return taskPeriodStartInvalid;
     const startedAt = new Date().toISOString();
     try {
       const result = await db.execute({
@@ -457,6 +504,7 @@ async function sessionRoutes(request: NextRequest, parts: string[], userId: numb
     }
   }
   if (!action && request.method === "GET") {
+    await finalizeExpiredPause(userId);
     const requestedLimit = request.nextUrl.searchParams.get("limit");
     const limit = requestedLimit ? Number(requestedLimit) : null;
     if (requestedLimit && (!Number.isInteger(limit) || limit! < 1 || limit! > 100)) {
@@ -483,6 +531,7 @@ async function sessionRoutes(request: NextRequest, parts: string[], userId: numb
       sql: `
         SELECT sessions.id, sessions.started_at, sessions.ended_at,
                sessions.duration_seconds, sessions.description, sessions.production_percentage,
+               sessions.paused_at, sessions.paused_seconds,
                project_id, projects.name AS project_name, projects.icon AS project_icon,
                projects.archived AS project_archived,
                CASE WHEN grandparent.id IS NOT NULL THEN grandparent.name || ' / ' || parent.name || ' / ' || projects.name
@@ -543,7 +592,7 @@ async function sessionRoutes(request: NextRequest, parts: string[], userId: numb
   if (parts[2] === "tasks" && request.method === "GET") {
     const result = await db.execute({
       sql: `
-        SELECT tasks.id, tasks.period_start, tasks.project_id, tasks.title, tasks.completed_at
+        SELECT tasks.id, tasks.period_start, tasks.project_id, tasks.title, tasks.description, tasks.completed_at
         FROM session_tasks
         JOIN tasks ON tasks.id = session_tasks.task_id
         JOIN sessions ON sessions.id = session_tasks.session_id
@@ -554,24 +603,92 @@ async function sessionRoutes(request: NextRequest, parts: string[], userId: numb
     });
     return NextResponse.json(result.rows);
   }
+  if (parts[2] === "pause" && request.method === "PATCH") {
+    await finalizeExpiredPause(userId, id);
+    const existing = await db.execute({
+      sql: "SELECT paused_at, paused_seconds FROM sessions WHERE id = ? AND user_id = ? AND ended_at IS NULL",
+      args: [id, userId],
+    });
+    const session = existing.rows[0];
+    if (!session) return error("Active session not found", 404);
+    const pausedAt = session.paused_at ?? new Date().toISOString();
+    if (session.paused_at === null) {
+      await db.execute({
+        sql: "UPDATE sessions SET paused_at = ? WHERE id = ? AND user_id = ? AND ended_at IS NULL AND paused_at IS NULL",
+        args: [pausedAt, id, userId],
+      });
+    }
+    return NextResponse.json({ id, pausedAt, pausedSeconds: Number(session.paused_seconds ?? 0) });
+  }
+  if (parts[2] === "resume" && request.method === "PATCH") {
+    const expired = await finalizeExpiredPause(userId, id);
+    if (expired) return error("Session ended after reaching the pause limit", 409);
+    const existing = await db.execute({
+      sql: "SELECT paused_at, paused_seconds FROM sessions WHERE id = ? AND user_id = ? AND ended_at IS NULL",
+      args: [id, userId],
+    });
+    const session = existing.rows[0];
+    if (!session) return error("Active session not found", 404);
+    const previousPausedSeconds = Number(session.paused_seconds ?? 0);
+    if (session.paused_at === null) {
+      return NextResponse.json({ id, pausedAt: null, pausedSeconds: previousPausedSeconds });
+    }
+    const pausedSeconds = previousPausedSeconds + Math.max(
+      0,
+      Math.round((Date.now() - new Date(session.paused_at as string).getTime()) / 1000),
+    );
+    await db.execute({
+      sql: "UPDATE sessions SET paused_at = NULL, paused_seconds = ? WHERE id = ? AND user_id = ? AND ended_at IS NULL",
+      args: [pausedSeconds, id, userId],
+    });
+    return NextResponse.json({ id, pausedAt: null, pausedSeconds });
+  }
+  if (parts[2] === "expire-pause" && request.method === "PATCH") {
+    const expired = await finalizeExpiredPause(userId, id);
+    if (expired) return NextResponse.json({ ended: true, ...expired });
+    const existing = await db.execute({
+      sql: "SELECT ended_at, duration_seconds FROM sessions WHERE id = ? AND user_id = ?",
+      args: [id, userId],
+    });
+    if (!existing.rows[0]) return error("Session not found", 404);
+    if (existing.rows[0].ended_at !== null) {
+      return NextResponse.json({
+        ended: true,
+        endedAt: existing.rows[0].ended_at,
+        durationSeconds: Number(existing.rows[0].duration_seconds ?? 0),
+      });
+    }
+    return NextResponse.json({ ended: false });
+  }
   if (parts[2] === "stop" && request.method === "PATCH") {
+    const expired = await finalizeExpiredPause(userId, id);
+    if (expired) return error("Session ended after reaching the pause limit", 409);
     const data = await body(request);
     const allocationError = productionPercentageError(data.productionPercentage);
     if (allocationError) return allocationError;
     const descriptionError = optionalTextError(data.description, "Description", MAX_DESCRIPTION_LENGTH);
     if (descriptionError) return descriptionError;
     const existing = await db.execute({
-      sql: "SELECT started_at, description FROM sessions WHERE id = ? AND user_id = ?",
+      sql: "SELECT started_at, ended_at, description, paused_at, paused_seconds FROM sessions WHERE id = ? AND user_id = ?",
       args: [id, userId],
     });
     if (!existing.rows[0]) return error("Session not found", 404);
+    if (existing.rows[0].ended_at !== null) return error("Session already ended", 409);
     const endedAt = new Date();
-    const durationSeconds = Math.round((endedAt.getTime() - new Date(existing.rows[0].started_at as string).getTime()) / 1000);
+    const currentPauseSeconds = existing.rows[0].paused_at === null ? 0 : Math.max(
+      0,
+      Math.round((endedAt.getTime() - new Date(existing.rows[0].paused_at as string).getTime()) / 1000),
+    );
+    const pausedSeconds = Number(existing.rows[0].paused_seconds ?? 0) + currentPauseSeconds;
+    const durationSeconds = Math.max(
+      0,
+      Math.round((endedAt.getTime() - new Date(existing.rows[0].started_at as string).getTime()) / 1000) - pausedSeconds,
+    );
     const description =
       data.description !== undefined ? data.description : existing.rows[0].description;
     await db.execute({
-      sql: "UPDATE sessions SET ended_at = ?, duration_seconds = ?, description = ?, production_percentage = ? WHERE id = ? AND user_id = ?",
-      args: [endedAt.toISOString(), durationSeconds, description ?? null, data.productionPercentage ?? null, id, userId],
+      sql: "UPDATE sessions SET ended_at = ?, duration_seconds = ?, description = ?, production_percentage = ?, paused_at = NULL, paused_seconds = ? WHERE id = ? AND user_id = ?",
+      args: [endedAt.toISOString(), durationSeconds, description ?? null, data.productionPercentage ?? null, pausedSeconds, id, userId],
     });
     return NextResponse.json({
       id,
@@ -593,8 +710,10 @@ async function sessionRoutes(request: NextRequest, parts: string[], userId: numb
     if (descriptionError) return descriptionError;
     const invalidProject = await projectIdError(userId, data.projectId);
     if (invalidProject) return invalidProject;
+    const invalidTasks = await taskIdsError(userId, data.taskIds);
+    if (invalidTasks) return invalidTasks;
     const existing = await db.execute({
-      sql: "SELECT started_at, ended_at, description, project_id, production_percentage FROM sessions WHERE id = ? AND user_id = ?",
+      sql: "SELECT started_at, ended_at, description, project_id, production_percentage, paused_at, paused_seconds FROM sessions WHERE id = ? AND user_id = ?",
       args: [id, userId],
     });
     const session = existing.rows[0];
@@ -611,7 +730,33 @@ async function sessionRoutes(request: NextRequest, parts: string[], userId: numb
     if (Number.isNaN(start.getTime()) || (end && Number.isNaN(end.getTime()))) return error("startedAt and endedAt must be valid dates");
     if (end === null && start.getTime() > Date.now()) return error("startedAt cannot be in the future");
     if (end && end <= start) return error("endedAt must be after startedAt");
-    const durationSeconds = end ? Math.round((end.getTime() - start.getTime()) / 1000) : null;
+    const selectedTaskIds: number[] | null = Array.isArray(data.taskIds)
+      ? Array.from(new Set<number>(data.taskIds.map((value: unknown) => Number(value))))
+      : null;
+    if (selectedTaskIds && end === null) return error("Completed tasks can only be assigned to a completed session");
+    let selectedTasks: Array<{ id: number; completed_at: string | null; period_start: string | null }> = [];
+    if (selectedTaskIds?.length) {
+      const placeholders = selectedTaskIds.map(() => "?").join(",");
+      const selected = await db.execute({
+        sql: `SELECT id, completed_at, period_start FROM tasks WHERE user_id = ? AND id IN (${placeholders})`,
+        args: [userId, ...selectedTaskIds],
+      });
+      selectedTasks = selected.rows.map((row) => ({
+        id: Number(row.id),
+        completed_at: row.completed_at as string | null,
+        period_start: row.period_start as string | null,
+      }));
+      if (selectedTasks.some((task) => task.completed_at === null && task.period_start !== null)) {
+        return error("Only completed tasks or Backlog tasks can be assigned to a completed session");
+      }
+      if (selectedTasks.some((task) => task.completed_at === null) && typeof data.taskPeriodStart !== "string") {
+        return error("taskPeriodStart is required when assigning Backlog tasks");
+      }
+    }
+    const pausedSeconds = Number(session.paused_seconds ?? 0);
+    const durationSeconds = end
+      ? Math.max(0, Math.round((end.getTime() - start.getTime()) / 1000) - pausedSeconds)
+      : null;
     const description = data.description !== undefined ? data.description : session.description;
     const projectId = data.projectId !== undefined
       ? (data.projectId === null ? null : Number(data.projectId))
@@ -626,6 +771,25 @@ async function sessionRoutes(request: NextRequest, parts: string[], userId: numb
         sql: "UPDATE sessions SET description = ?, project_id = ?, started_at = ?, ended_at = ?, duration_seconds = ?, production_percentage = ? WHERE id = ? AND user_id = ?",
         args: [description ?? null, projectId ?? null, start.toISOString(), end?.toISOString() ?? null, durationSeconds, productionPercentage ?? null, id, userId],
       });
+      if (selectedTaskIds) {
+        const backlogTaskIds = selectedTasks
+          .filter((task) => task.completed_at === null)
+          .map((task) => task.id);
+        if (backlogTaskIds.length) {
+          const placeholders = backlogTaskIds.map(() => "?").join(",");
+          await db.execute({
+            sql: `UPDATE tasks SET completed_at = ?, period_start = ? WHERE user_id = ? AND id IN (${placeholders})`,
+            args: [new Date().toISOString(), data.taskPeriodStart as string, userId, ...backlogTaskIds],
+          });
+        }
+        await db.execute({ sql: "DELETE FROM session_tasks WHERE session_id = ?", args: [id] });
+        for (const taskId of selectedTaskIds) {
+          await db.execute({
+            sql: "INSERT INTO session_tasks (session_id, task_id) VALUES (?, ?)",
+            args: [id, taskId],
+          });
+        }
+      }
     } catch (caught) {
       if (!uniqueActiveError(caught)) throw caught;
       return NextResponse.json({ error: "A session is already in progress", session: await activeSession(userId) }, { status: 409 });
@@ -634,20 +798,22 @@ async function sessionRoutes(request: NextRequest, parts: string[], userId: numb
       id, description: description ?? null, projectId: projectId ?? null,
       startedAt: start.toISOString(), endedAt: end?.toISOString() ?? null, durationSeconds,
       productionPercentage: productionPercentage ?? null,
+      pausedAt: session.paused_at ?? null,
+      pausedSeconds,
     });
   }
   return error("Not found", 404);
 }
 
 type ProjectRow = {
-  id: number; name: string; icon: string | null; description: string | null;
-  parent_id: number | null; pinned: number; archived: number; last_used_at: string | null;
+  id: number; name: string; icon: string | null; description: string | null; resources: string | null;
+  parent_id: number | null; pinned: number; archived: number; sort_order: number; last_used_at: string | null;
 };
 
 async function userProjects(userId: number) {
   const result = await db.execute({
-    sql: `SELECT projects.id, projects.name, projects.icon, projects.description,
-                 projects.parent_id, projects.pinned, projects.archived,
+    sql: `SELECT projects.id, projects.name, projects.icon, projects.description, projects.resources,
+                 projects.parent_id, projects.pinned, projects.archived, projects.sort_order,
                  MAX(sessions.started_at) AS last_used_at
           FROM projects LEFT JOIN sessions ON sessions.project_id = projects.id
           WHERE projects.user_id = ?
@@ -660,6 +826,7 @@ async function userProjects(userId: number) {
     parent_id: row.parent_id === null ? null : Number(row.parent_id),
     pinned: Number(row.pinned),
     archived: Number(row.archived),
+    sort_order: Number(row.sort_order),
   })) as unknown as ProjectRow[];
 }
 
@@ -681,12 +848,11 @@ function decorateProjects(rows: ProjectRow[]) {
   return rows.map((row) => {
     const names = pathFor(row);
     return {
-      id: row.id, name: row.name, icon: row.icon, description: row.description,
+      id: row.id, name: row.name, icon: row.icon, description: row.description, resources: row.resources,
       parentId: row.parent_id, pinned: Boolean(row.pinned), archived: Boolean(row.archived),
-      path: names.join(" / "), depth: names.length, lastUsedAt: row.last_used_at,
+      path: names.join(" / "), depth: names.length, sortOrder: row.sort_order, lastUsedAt: row.last_used_at,
     };
-  }).sort((a, b) => Number(b.pinned) - Number(a.pinned) ||
-    (b.lastUsedAt ?? "").localeCompare(a.lastUsedAt ?? "") || a.path.localeCompare(b.path));
+  }).sort((a, b) => a.depth - b.depth || Number(b.pinned) - Number(a.pinned) || a.sortOrder - b.sortOrder || a.path.localeCompare(b.path));
 }
 
 function validateProjectParent(rows: ProjectRow[], id: number | null, parentId: number | null) {
@@ -721,6 +887,8 @@ async function projectRoutes(request: NextRequest, parts: string[], userId: numb
     if (data.name.trim().length > MAX_NAME_LENGTH) return error(`Name must be at most ${MAX_NAME_LENGTH} characters`);
     const descriptionError = optionalTextError(data.description, "Description", MAX_DESCRIPTION_LENGTH);
     if (descriptionError) return descriptionError;
+    const resourcesError = optionalTextError(data.resources, "Resources", MAX_PROJECT_RESOURCES_LENGTH);
+    if (resourcesError) return resourcesError;
     if (data.icon !== undefined && data.icon !== null && !PROJECT_ICON_TYPES.has(data.icon)) return error("Invalid project icon");
     if (data.pinned !== undefined && typeof data.pinned !== "boolean") return error("pinned must be a boolean");
     const parentId = data.parentId == null ? null : Number(data.parentId);
@@ -731,9 +899,12 @@ async function projectRoutes(request: NextRequest, parts: string[], userId: numb
       return error("A project with this name already exists under that parent", 409);
     }
     const description = typeof data.description === "string" ? data.description.trim() || null : null;
+    const resources = typeof data.resources === "string" ? data.resources.trim() || null : null;
+    const siblingOrders = rows.filter((row) => row.parent_id === parentId && !row.pinned).map((row) => row.sort_order);
+    const sortOrder = siblingOrders.length ? Math.max(...siblingOrders) + 1 : 0;
     const result = await db.execute({
-      sql: "INSERT INTO projects (user_id, name, icon, description, parent_id, pinned) VALUES (?, ?, ?, ?, ?, ?)",
-      args: [userId, data.name.trim(), data.icon ?? null, description, parentId, data.pinned ? 1 : 0],
+      sql: "INSERT INTO projects (user_id, name, icon, description, resources, parent_id, pinned, sort_order) VALUES (?, ?, ?, ?, ?, ?, ?, ?)",
+      args: [userId, data.name.trim(), data.icon ?? null, description, resources, parentId, data.pinned ? 1 : 0, sortOrder],
     });
     const projects = decorateProjects(await userProjects(userId));
     return NextResponse.json(projects.find((project) => project.id === Number(result.lastInsertRowid)), { status: 201 });
@@ -754,21 +925,46 @@ async function projectRoutes(request: NextRequest, parts: string[], userId: numb
     if (name.length > MAX_NAME_LENGTH) return error(`Name must be at most ${MAX_NAME_LENGTH} characters`);
     const descriptionError = optionalTextError(data.description, "Description", MAX_DESCRIPTION_LENGTH);
     if (descriptionError) return descriptionError;
+    const resourcesError = optionalTextError(data.resources, "Resources", MAX_PROJECT_RESOURCES_LENGTH);
+    if (resourcesError) return resourcesError;
     if (data.icon !== undefined && data.icon !== null && !PROJECT_ICON_TYPES.has(data.icon)) return error("Invalid project icon");
     if (data.pinned !== undefined && typeof data.pinned !== "boolean") return error("pinned must be a boolean");
     if (data.archived !== undefined && typeof data.archived !== "boolean") return error("archived must be a boolean");
+    if (data.position !== undefined && (!Number.isInteger(data.position) || data.position < 0)) {
+      return error("position must be a non-negative integer");
+    }
     if (rows.some((row) => row.id !== id && row.parent_id === parentId && row.name.toLowerCase() === name.toLowerCase())) {
       return error("A project with this name already exists under that parent", 409);
     }
     const description = data.description !== undefined
       ? (typeof data.description === "string" ? data.description.trim() || null : null)
       : existing.description;
+    const resources = data.resources !== undefined
+      ? (typeof data.resources === "string" ? data.resources.trim() || null : null)
+      : existing.resources;
     const archived = data.archived !== undefined ? Boolean(data.archived) : Boolean(existing.archived);
+    const targetPinned = data.pinned !== undefined ? Boolean(data.pinned) : Boolean(existing.pinned);
+    const targetSiblings = rows
+      .filter((row) => row.id !== id && row.parent_id === parentId && Boolean(row.pinned) === targetPinned)
+      .sort((a, b) => a.sort_order - b.sort_order || a.name.localeCompare(b.name));
+    const targetPosition = data.position !== undefined
+      ? Math.min(Number(data.position), targetSiblings.length)
+      : existing.parent_id === parentId && Boolean(existing.pinned) === targetPinned
+        ? Math.min(existing.sort_order, targetSiblings.length)
+        : targetSiblings.length;
+    targetSiblings.splice(targetPosition, 0, existing);
+    for (let position = 0; position < targetSiblings.length; position += 1) {
+      if (targetSiblings[position].id === id) continue;
+      await db.execute({
+        sql: "UPDATE projects SET sort_order = ? WHERE id = ? AND user_id = ?",
+        args: [position, targetSiblings[position].id, userId],
+      });
+    }
     const result = await db.execute({
-      sql: "UPDATE projects SET name = ?, icon = ?, description = ?, parent_id = ?, pinned = ?, archived = ? WHERE id = ? AND user_id = ?",
-      args: [name, data.icon !== undefined ? data.icon : existing.icon, description, parentId,
+      sql: "UPDATE projects SET name = ?, icon = ?, description = ?, resources = ?, parent_id = ?, pinned = ?, archived = ?, sort_order = ? WHERE id = ? AND user_id = ?",
+      args: [name, data.icon !== undefined ? data.icon : existing.icon, description, resources, parentId,
         data.pinned !== undefined ? (data.pinned ? 1 : 0) : existing.pinned,
-        archived ? 1 : 0, id!, userId],
+        archived ? 1 : 0, targetPosition, id!, userId],
     });
     if (!result.rowsAffected) return error("Project not found", 404);
     if (data.archived !== undefined) {
@@ -787,20 +983,93 @@ async function projectRoutes(request: NextRequest, parts: string[], userId: numb
     return NextResponse.json(decorateProjects(await userProjects(userId)).find((project) => project.id === id));
   }
   if (request.method === "DELETE") {
-    const usage = await db.execute({
-      sql: `SELECT
-              EXISTS(SELECT 1 FROM projects WHERE parent_id = ? AND user_id = ?) AS has_children,
-              EXISTS(SELECT 1 FROM sessions WHERE project_id = ? AND user_id = ?) AS has_sessions`,
-      args: [id!, userId, id!, userId],
-    });
-    if (Number(usage.rows[0]?.has_children) || Number(usage.rows[0]?.has_sessions)) {
-      return error("Archive projects with children or session history instead of deleting them", 409);
+    const rows = await userProjects(userId);
+    const existing = rows.find((row) => row.id === id);
+    if (!existing) return error("Project not found", 404);
+    if (!existing.archived) return error("Archive this project before deleting it", 409);
+
+    const branch = new Set<number>([id!]);
+    let changed = true;
+    while (changed) {
+      changed = false;
+      for (const row of rows) {
+        if (row.parent_id !== null && branch.has(row.parent_id) && !branch.has(row.id)) {
+          branch.add(row.id);
+          changed = true;
+        }
+      }
     }
-    const result = await db.execute({
-      sql: "DELETE FROM projects WHERE id = ? AND user_id = ?",
-      args: [id!, userId],
+    const branchRows = rows
+      .filter((row) => branch.has(row.id))
+      .sort((a, b) => {
+        const depth = (row: ProjectRow) => decorateProjects(rows).find((project) => project.id === row.id)?.depth ?? 1;
+        return depth(b) - depth(a);
+      });
+    if (branchRows.some((row) => !row.archived)) {
+      return error("Restore or archive the entire project branch before deleting it", 409);
+    }
+    const branchIds = branchRows.map((row) => row.id);
+    const placeholders = branchIds.map(() => "?").join(", ");
+    await db.batch([
+      {
+        sql: `DELETE FROM session_tasks WHERE task_id IN (
+                SELECT id FROM tasks WHERE user_id = ? AND project_id IN (${placeholders})
+              )`,
+        args: [userId, ...branchIds],
+      },
+      { sql: `DELETE FROM tasks WHERE user_id = ? AND project_id IN (${placeholders})`, args: [userId, ...branchIds] },
+      { sql: `UPDATE sessions SET project_id = NULL WHERE user_id = ? AND project_id IN (${placeholders})`, args: [userId, ...branchIds] },
+      ...branchRows.map((row) => ({
+        sql: "DELETE FROM projects WHERE id = ? AND user_id = ?",
+        args: [row.id, userId],
+      })),
+    ], "write");
+    return noContent();
+  }
+  return error("Not found", 404);
+}
+
+async function noiseUsageRoutes(request: NextRequest, parts: string[], userId: number) {
+  if (parts[1] === "start" && request.method === "POST") {
+    const data = await body(request);
+    if (typeof data.audioType !== "string" || !FOCUS_AUDIO_TYPES.has(data.audioType)) {
+      return error("Invalid focus audio type");
+    }
+    await db.execute({
+      sql: `UPDATE focus_noise_usage
+            SET ended_at = last_heartbeat_at,
+                duration_seconds = MAX(0, unixepoch(last_heartbeat_at) - unixepoch(started_at))
+            WHERE user_id = ? AND ended_at IS NULL`,
+      args: [userId],
     });
-    return result.rowsAffected ? noContent() : error("Project not found", 404);
+    const now = new Date().toISOString();
+    const result = await db.execute({
+      sql: `INSERT INTO focus_noise_usage (user_id, audio_type, started_at, last_heartbeat_at)
+            VALUES (?, ?, ?, ?)`,
+      args: [userId, data.audioType, now, now],
+    });
+    return NextResponse.json({ id: Number(result.lastInsertRowid) }, { status: 201 });
+  }
+
+  const id = Number(parts[1]);
+  if (!Number.isInteger(id) || id < 1) return error("Not found", 404);
+  if (parts[2] === "heartbeat" && request.method === "POST") {
+    await db.execute({
+      sql: "UPDATE focus_noise_usage SET last_heartbeat_at = ? WHERE id = ? AND user_id = ? AND ended_at IS NULL",
+      args: [new Date().toISOString(), id, userId],
+    });
+    return noContent();
+  }
+  if (parts[2] === "stop" && request.method === "POST") {
+    const endedAt = new Date().toISOString();
+    await db.execute({
+      sql: `UPDATE focus_noise_usage
+            SET ended_at = ?, last_heartbeat_at = ?,
+                duration_seconds = MAX(0, unixepoch(?) - unixepoch(started_at))
+            WHERE id = ? AND user_id = ? AND ended_at IS NULL`,
+      args: [endedAt, endedAt, endedAt, id, userId],
+    });
+    return noContent();
   }
   return error("Not found", 404);
 }
@@ -863,7 +1132,7 @@ function periodStartError(value: unknown) {
 }
 
 async function taskRoutes(request: NextRequest, parts: string[], userId: number) {
-  const TASK_COLUMNS = "id, period_start, project_id, title, completed_at";
+  const TASK_COLUMNS = "id, period_start, project_id, title, description, completed_at";
 
   if (parts[1] === "backlog" && request.method === "POST") {
     const data = await body(request);
@@ -901,12 +1170,42 @@ async function taskRoutes(request: NextRequest, parts: string[], userId: number)
     if (periodStartInvalid) return periodStartInvalid;
     if (typeof data.title !== "string" || !data.title.trim()) return error("Title is required");
     if (data.title.trim().length > MAX_TASK_TITLE_LENGTH) return error(`Title must be at most ${MAX_TASK_TITLE_LENGTH} characters`);
+    const descriptionError = optionalTextError(data.description, "Description", MAX_DESCRIPTION_LENGTH);
+    if (descriptionError) return descriptionError;
     const invalidProject = await projectIdError(userId, data.projectId);
     if (invalidProject) return invalidProject;
+    if (data.completed !== undefined && typeof data.completed !== "boolean") return error("completed must be a boolean");
+    let attachedSessionId: number | null = null;
+    if (data.sessionId !== undefined) {
+      attachedSessionId = Number(data.sessionId);
+      if (!Number.isInteger(attachedSessionId)) return error("sessionId must be an integer");
+      const selectedSession = await db.execute({
+        sql: "SELECT ended_at FROM sessions WHERE id = ? AND user_id = ?",
+        args: [attachedSessionId, userId],
+      });
+      if (!selectedSession.rows.length) return error("Session not found", 404);
+      if (selectedSession.rows[0].ended_at !== null && data.completed !== true) {
+        return error("Tasks added to a completed session must be completed");
+      }
+    }
+    const completedAt = data.completed === true ? new Date().toISOString() : null;
     const result = await db.execute({
-      sql: "INSERT INTO tasks (user_id, period_start, project_id, title) VALUES (?, ?, ?, ?)",
-      args: [userId, data.periodStart ?? null, data.projectId == null ? null : Number(data.projectId), data.title.trim()],
+      sql: "INSERT INTO tasks (user_id, period_start, project_id, title, description, completed_at) VALUES (?, ?, ?, ?, ?, ?)",
+      args: [
+        userId,
+        data.periodStart ?? null,
+        data.projectId == null ? null : Number(data.projectId),
+        data.title.trim(),
+        typeof data.description === "string" ? data.description.trim() || null : null,
+        completedAt,
+      ],
     });
+    if (attachedSessionId !== null) {
+      await db.execute({
+        sql: "INSERT INTO session_tasks (session_id, task_id) VALUES (?, ?)",
+        args: [attachedSessionId, Number(result.lastInsertRowid)],
+      });
+    }
     const created = await db.execute({
       sql: `SELECT ${TASK_COLUMNS} FROM tasks WHERE id = ?`,
       args: [Number(result.lastInsertRowid)],
@@ -917,7 +1216,7 @@ async function taskRoutes(request: NextRequest, parts: string[], userId: number)
   if (request.method === "PATCH") {
     const data = await body(request);
     const existing = await db.execute({
-      sql: "SELECT title, project_id, period_start, completed_at FROM tasks WHERE id = ? AND user_id = ?",
+      sql: "SELECT title, description, project_id, period_start, completed_at FROM tasks WHERE id = ? AND user_id = ?",
       args: [id, userId],
     });
     const row = existing.rows[0];
@@ -925,20 +1224,24 @@ async function taskRoutes(request: NextRequest, parts: string[], userId: number)
     const title = data.title !== undefined ? (typeof data.title === "string" ? data.title.trim() : "") : (row.title as string);
     if (!title) return error("Title is required");
     if (title.length > MAX_TASK_TITLE_LENGTH) return error(`Title must be at most ${MAX_TASK_TITLE_LENGTH} characters`);
-    const invalidProject = await projectIdError(userId, data.projectId);
-    if (invalidProject) return invalidProject;
-    const projectId = data.projectId !== undefined
-      ? (data.projectId == null ? null : Number(data.projectId))
-      : row.project_id;
+    const descriptionError = optionalTextError(data.description, "Description", MAX_DESCRIPTION_LENGTH);
+    if (descriptionError) return descriptionError;
+    const description = data.description !== undefined
+      ? (typeof data.description === "string" ? data.description.trim() || null : null)
+      : row.description;
+    if (data.projectId !== undefined) return error("A task's project is fixed at creation");
     const periodStartInvalid = periodStartError(data.periodStart);
     if (periodStartInvalid) return periodStartInvalid;
     const periodStart = data.periodStart !== undefined ? data.periodStart : row.period_start;
     if (data.completed !== undefined && typeof data.completed !== "boolean") return error("completed must be a boolean");
     const completedAt = data.completed !== undefined ? (data.completed ? new Date().toISOString() : null) : row.completed_at;
     await db.execute({
-      sql: "UPDATE tasks SET title = ?, project_id = ?, period_start = ?, completed_at = ? WHERE id = ? AND user_id = ?",
-      args: [title, projectId, periodStart, completedAt, id!, userId],
+      sql: "UPDATE tasks SET title = ?, description = ?, project_id = ?, period_start = ?, completed_at = ? WHERE id = ? AND user_id = ?",
+      args: [title, description, row.project_id, periodStart, completedAt, id!, userId],
     });
+    if (data.completed === false && data.periodStart === null) {
+      await db.execute({ sql: "DELETE FROM session_tasks WHERE task_id = ?", args: [id] });
+    }
     const updated = await db.execute({
       sql: `SELECT ${TASK_COLUMNS} FROM tasks WHERE id = ?`,
       args: [id],
@@ -1127,7 +1430,7 @@ async function socialRoutes(request: NextRequest, parts: string[], userId: numbe
     if (cursor) args.push(cursor[0], cursor[0], cursor[1], cursor[1], cursor[2]);
     args.push(limit + 1);
     const result = await db.execute({
-      sql: `SELECT s.id, s.user_id, s.started_at, s.ended_at, s.duration_seconds,
+      sql: `SELECT s.id, s.user_id, s.started_at, s.ended_at, s.duration_seconds, s.paused_at, s.paused_seconds,
                    CASE WHEN u.share_session_descriptions = 1 THEN s.description ELSE NULL END AS description,
                    p.name AS project_name, p.icon AS project_icon,
                    u.name AS user_name, u.email AS user_email, u.avatar AS user_avatar
@@ -1184,11 +1487,9 @@ async function reportRoutes(request: NextRequest, parts: string[], userId: numbe
   }
   const result = await db.execute({
     sql: `SELECT s.started_at, s.duration_seconds, s.production_percentage,
-                 COALESCE(grandparent.name, parent.name, project.name) AS root_project_name
+                 project.name AS project_name
           FROM sessions s
           LEFT JOIN projects project ON project.id = s.project_id AND project.user_id = s.user_id
-          LEFT JOIN projects parent ON parent.id = project.parent_id AND parent.user_id = s.user_id
-          LEFT JOIN projects grandparent ON grandparent.id = parent.parent_id AND grandparent.user_id = s.user_id
           WHERE s.user_id = ? AND s.ended_at IS NOT NULL`,
     args: [userId],
   });
@@ -1196,7 +1497,7 @@ async function reportRoutes(request: NextRequest, parts: string[], userId: numbe
     startedAt: row.started_at as string,
     duration: Number(row.duration_seconds ?? 0),
     production: row.production_percentage === null ? 0 : Number(row.production_percentage),
-    root: row.root_project_name as string | null,
+    project: row.project_name as string | null,
   }));
   const currentMonday = mondayForDateKey(dateKeyInTimezone(new Date(), timezone));
   for (let offset = 1; offset <= 12; offset += 1) {
@@ -1217,7 +1518,7 @@ async function reportRoutes(request: NextRequest, parts: string[], userId: numbe
       const producing = Math.round(session.duration * session.production / 100);
       producingSeconds += producing;
       learningSeconds += session.duration - producing;
-      if (session.root) projects.set(session.root, (projects.get(session.root) ?? 0) + session.duration);
+      if (session.project) projects.set(session.project, (projects.get(session.project) ?? 0) + session.duration);
     }
     const topProject = Array.from(projects.entries())
       .sort((a, b) => b[1] - a[1] || a[0].localeCompare(b[0]))[0]?.[0] ?? null;
@@ -1231,13 +1532,13 @@ async function reportRoutes(request: NextRequest, parts: string[], userId: numbe
     await db.execute({
       sql: `INSERT OR IGNORE INTO weekly_reports
             (user_id, week_start, timezone, calculation_version, data_json)
-            VALUES (?, ?, ?, 1, ?)`,
+            VALUES (?, ?, ?, 2, ?)`,
       args: [userId, weekStart, timezone, JSON.stringify(data)],
     });
   }
   const reports = await db.execute({
     sql: `SELECT data_json, finalized_at FROM weekly_reports
-          WHERE user_id = ? AND timezone = ? AND calculation_version = 1
+          WHERE user_id = ? AND timezone = ? AND calculation_version = 2
           ORDER BY week_start DESC LIMIT 12`,
     args: [userId, timezone],
   });
@@ -1334,6 +1635,7 @@ async function handle(request: NextRequest, context: Context) {
   if (path[0] === "projects") return projectRoutes(request, path, userId);
   if (path[0] === "notes") return noteRoutes(request, path, userId);
   if (path[0] === "tasks") return taskRoutes(request, path, userId);
+  if (path[0] === "noise-usage") return noiseUsageRoutes(request, path, userId);
   if (path[0] === "social") return socialRoutes(request, path, userId);
   if (path[0] === "reports") return reportRoutes(request, path, userId);
   if (path[0] === "calendar") return calendarRoutes(request, path, userId);

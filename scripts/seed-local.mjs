@@ -47,14 +47,14 @@ async function ensureProject(userId, details) {
   if (existing.rows[0]) {
     const id = Number(existing.rows[0].id);
     await db.execute({
-      sql: "UPDATE projects SET icon = ?, description = ?, pinned = ?, archived = 0 WHERE id = ?",
-      args: [details.icon, details.description, details.pinned ? 1 : 0, id],
+      sql: "UPDATE projects SET icon = ?, description = ?, resources = ?, pinned = ?, archived = 0 WHERE id = ?",
+      args: [details.icon, details.description, details.resources ?? null, details.pinned ? 1 : 0, id],
     });
     return id;
   }
   const inserted = await db.execute({
-    sql: "INSERT INTO projects (user_id, name, icon, description, parent_id, pinned) VALUES (?, ?, ?, ?, ?, ?)",
-    args: [userId, details.name, details.icon, details.description, details.parentId, details.pinned ? 1 : 0],
+    sql: "INSERT INTO projects (user_id, name, icon, description, resources, parent_id, pinned) VALUES (?, ?, ?, ?, ?, ?, ?)",
+    args: [userId, details.name, details.icon, details.description, details.resources ?? null, details.parentId, details.pinned ? 1 : 0],
   });
   return Number(inserted.lastInsertRowid);
 }
@@ -67,14 +67,14 @@ async function ensureTask(userId, details) {
   if (existing.rows[0]) {
     const id = Number(existing.rows[0].id);
     await db.execute({
-      sql: "UPDATE tasks SET period_start = ?, project_id = ?, completed_at = ? WHERE id = ?",
-      args: [details.periodStart, details.projectId, details.completedAt, id],
+      sql: "UPDATE tasks SET period_start = ?, project_id = ?, description = ?, completed_at = ? WHERE id = ?",
+      args: [details.periodStart, details.projectId, details.description ?? null, details.completedAt, id],
     });
     return id;
   }
   const inserted = await db.execute({
-    sql: "INSERT INTO tasks (user_id, period_start, project_id, title, completed_at) VALUES (?, ?, ?, ?, ?)",
-    args: [userId, details.periodStart, details.projectId, details.title, details.completedAt],
+    sql: "INSERT INTO tasks (user_id, period_start, project_id, title, description, completed_at) VALUES (?, ?, ?, ?, ?, ?)",
+    args: [userId, details.periodStart, details.projectId, details.title, details.description ?? null, details.completedAt],
   });
   return Number(inserted.lastInsertRowid);
 }
@@ -149,6 +149,7 @@ async function seed() {
     name: "Sentinel beta",
     icon: "code",
     description: "Planning, focus, and review workflows for the beta release.",
+    resources: "Product brief: https://example.com/sentinel-brief\nRepository: https://github.com/example/sentinel",
     parentId: null,
     pinned: true,
   });
@@ -156,7 +157,32 @@ async function seed() {
     name: "Product research",
     icon: "book",
     description: "Usability notes and workflow research.",
+    resources: "Research index: https://example.com/research",
     parentId: null,
+    pinned: false,
+  });
+  await ensureProject(userId, {
+    name: "Calendar experience",
+    icon: "palette",
+    description: "Week and day planning views, navigation, and activity summaries.",
+    resources: "Interaction notes: https://example.com/calendar-notes",
+    parentId: sentinelProjectId,
+    pinned: true,
+  });
+  const projectWorkspaceId = await ensureProject(userId, {
+    name: "Project workspace",
+    icon: "briefcase",
+    description: "The project tree, dedicated detail pages, and project backlog workflows.",
+    resources: "Drag-and-drop reference: https://dndkit.com/",
+    parentId: sentinelProjectId,
+    pinned: false,
+  });
+  await ensureProject(userId, {
+    name: "Detail editor",
+    icon: "pen",
+    description: "Autosaving descriptions, resources, and direct edit entry points.",
+    resources: "Design review: https://example.com/project-editor",
+    parentId: projectWorkspaceId,
     pinned: false,
   });
 
@@ -170,12 +196,14 @@ async function seed() {
 
   const routedPageTaskId = await ensureTask(userId, {
     title: "Replace the day planner dialog with a routed page",
+    description: "Give each day a durable URL with week-aware navigation back to the planning overview.",
     periodStart: today,
     projectId: sentinelProjectId,
     completedAt: firstEnd,
   });
   const sessionDescriptionTaskId = await ensureTask(userId, {
     title: "Show session descriptions in the planning page",
+    description: "Make the work log readable without opening individual sessions.",
     periodStart: today,
     projectId: sentinelProjectId,
     completedAt: secondEnd,
@@ -188,6 +216,7 @@ async function seed() {
   });
   await ensureTask(userId, {
     title: "Review the planning page on a narrow screen",
+    description: "Check task actions, long descriptions, and the fixed header at phone width.",
     periodStart: today,
     projectId: sentinelProjectId,
     completedAt: null,
@@ -200,6 +229,7 @@ async function seed() {
   });
   await ensureTask(userId, {
     title: "Polish breadcrumb transitions",
+    description: "Keep the planning hierarchy legible while navigation changes in place.",
     periodStart: null,
     projectId: sentinelProjectId,
     completedAt: null,

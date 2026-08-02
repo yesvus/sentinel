@@ -74,6 +74,7 @@ export type User = {
   focusAudioType: FocusAudioType;
   defaultSessionType: "learning" | "producing";
   trackProductionSplit: boolean;
+  sessionPauseTimeoutMinutes: number;
   planReminderHour: number;
   planWeeklyReminderDay: number;
   planWeeklyReminderHour: number;
@@ -81,6 +82,17 @@ export type User = {
 };
 
 export type FocusAudioType = "white" | "pink" | "brown" | "speech-blocker" | "binaural-40hz";
+
+export const noiseUsage = {
+  start: (audioType: FocusAudioType) =>
+    api<{ id: number }>("/api/noise-usage/start", {
+      method: "POST",
+      body: JSON.stringify({ audioType }),
+    }),
+  heartbeat: (id: number) => api<void>(`/api/noise-usage/${id}/heartbeat`, { method: "POST" }),
+  stop: (id: number, keepalive = false) =>
+    api<void>(`/api/noise-usage/${id}/stop`, { method: "POST", keepalive }),
+};
 
 export const auth = {
   register: (email: string, password: string) =>
@@ -112,6 +124,7 @@ export const auth = {
   updateSessionSettings: (settings: {
     defaultSessionType?: "learning" | "producing";
     trackProductionSplit?: boolean;
+    sessionPauseTimeoutMinutes?: number;
     planReminderHour?: number;
     planWeeklyReminderDay?: number;
     planWeeklyReminderHour?: number;
@@ -119,6 +132,7 @@ export const auth = {
     api<{
       defaultSessionType: "learning" | "producing";
       trackProductionSplit: boolean;
+      sessionPauseTimeoutMinutes: number;
       planReminderHour: number;
       planWeeklyReminderDay: number;
       planWeeklyReminderHour: number;
@@ -140,6 +154,8 @@ export type StudySession = {
   root_project_icon?: string | null;
   project_archived?: number | boolean | null;
   production_percentage?: number | null;
+  paused_at?: string | null;
+  paused_seconds?: number;
 };
 
 export type SessionPage = { items: StudySession[]; nextCursor: string | null };
@@ -158,6 +174,8 @@ export const sessions = {
       startedAt?: string;
       endedAt?: string | null;
       productionPercentage?: number | null;
+      taskIds?: number[];
+      taskPeriodStart?: string;
     }
   ) =>
     api<{
@@ -174,6 +192,12 @@ export const sessions = {
       method: "PATCH",
       body: JSON.stringify({ description, productionPercentage }),
     }),
+  pause: (id: number) =>
+    api<{ id: number; pausedAt: string; pausedSeconds: number }>(`/api/sessions/${id}/pause`, { method: "PATCH" }),
+  resume: (id: number) =>
+    api<{ id: number; pausedAt: null; pausedSeconds: number }>(`/api/sessions/${id}/resume`, { method: "PATCH" }),
+  expirePause: (id: number) =>
+    api<{ ended: boolean; durationSeconds?: number; endedAt?: string }>(`/api/sessions/${id}/expire-pause`, { method: "PATCH" }),
   list: (range?: { from?: string; to?: string }) => {
     const query = new URLSearchParams();
     if (range?.from) query.set("from", range.from);
@@ -220,6 +244,7 @@ export type Task = {
   period_start: string | null;
   project_id: number | null;
   title: string;
+  description: string | null;
   completed_at: string | null;
 };
 
@@ -229,12 +254,24 @@ export type MoveToBacklogResult = {
 
 export const tasks = {
   list: () => api<Task[]>("/api/tasks"),
-  create: (periodStart: string | null, title: string, projectId?: number | null) =>
+  create: (
+    periodStart: string | null,
+    title: string,
+    projectId?: number | null,
+    description?: string | null,
+    sessionId?: number,
+    completed?: boolean,
+  ) =>
     api<Task>("/api/tasks", {
       method: "POST",
-      body: JSON.stringify({ periodStart, title, projectId }),
+      body: JSON.stringify({ periodStart, title, projectId, description, sessionId, completed }),
     }),
-  update: (id: number, details: { title?: string; projectId?: number | null; periodStart?: string | null; completed?: boolean }) =>
+  update: (id: number, details: {
+    title?: string;
+    description?: string | null;
+    periodStart?: string | null;
+    completed?: boolean;
+  }) =>
     api<Task>(`/api/tasks/${id}`, { method: "PATCH", body: JSON.stringify(details) }),
   movePastToBacklog: (before: string) =>
     api<MoveToBacklogResult>("/api/tasks/backlog", {
@@ -249,22 +286,36 @@ export type Project = {
   name: string;
   icon: string | null;
   description: string | null;
+  resources: string | null;
   parentId: number | null;
   pinned: boolean;
   archived: boolean;
   path: string;
   depth: number;
+  sortOrder: number;
   lastUsedAt: string | null;
 };
 
 export const projects = {
   list: () => api<Project[]>("/api/projects"),
-  create: (name: string, icon?: string | null, description?: string | null, parentId?: number | null, pinned?: boolean) =>
-    api<Project>("/api/projects", { method: "POST", body: JSON.stringify({ name, icon, description, parentId, pinned }) }),
-  rename: (id: number, name: string, icon?: string | null, description?: string | null, parentId?: number | null) =>
+  create: (name: string, icon?: string | null, description?: string | null) =>
+    api<Project>("/api/projects", { method: "POST", body: JSON.stringify({ name, icon, description }) }),
+  rename: (
+    id: number,
+    name: string,
+    icon?: string | null,
+    description?: string | null,
+    parentId?: number | null,
+    resources?: string | null,
+  ) =>
     api<Project>(`/api/projects/${id}`, {
       method: "PATCH",
-      body: JSON.stringify({ name, icon, description, parentId }),
+      body: JSON.stringify({ name, icon, description, parentId, resources }),
+    }),
+  move: (id: number, parentId: number | null, position: number) =>
+    api<Project>(`/api/projects/${id}`, {
+      method: "PATCH",
+      body: JSON.stringify({ parentId, position }),
     }),
   updateState: (id: number, details: { pinned?: boolean; archived?: boolean }) =>
     api<Project>(`/api/projects/${id}`, { method: "PATCH", body: JSON.stringify(details) }),
@@ -315,6 +366,8 @@ export type FriendActivity = {
   started_at: string;
   ended_at: string | null;
   duration_seconds: number | null;
+  paused_at?: string | null;
+  paused_seconds?: number;
   description: string | null;
   project_name: string | null;
   project_icon: string | null;
