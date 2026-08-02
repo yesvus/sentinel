@@ -37,6 +37,7 @@ import {
 import { ApiError, StudySession, Task, sessions as sessionsApi, tasks as tasksApi } from "@/lib/api";
 import { formatTime } from "@/lib/date";
 import { NoProjectIcon, ProjectIcon } from "@/lib/icons";
+import { useActiveSession } from "@/lib/active-session-context";
 
 function pad(value: number) {
   return String(value).padStart(2, "0");
@@ -67,6 +68,7 @@ export function SessionEditorDialog({
   onTasksChanged: (sessionId: number, tasks: Task[]) => void;
   onTaskCreated: (sessionId: number, task: Task) => void;
 }) {
+  const { notifySessionChanged } = useActiveSession();
   const initialStart = new Date(session.started_at);
   const initialEnd = session.ended_at ? new Date(session.ended_at) : new Date();
   const [open, setOpen] = useState(false);
@@ -177,16 +179,7 @@ export function SessionEditorDialog({
         });
         onTasksChanged(session.id, attachedTasks);
       }
-      if (ongoing) {
-        const channel = new BroadcastChannel("sentinel-session-sync");
-        channel.postMessage({
-          type: "updated",
-          projectId: session.project_id,
-          description: description.trim() || null,
-          startedAt: startedAt.toISOString(),
-        });
-        channel.close();
-      }
+      await notifySessionChanged().catch(() => {});
       setOpen(false);
     } catch (caught) {
       setError(caught instanceof ApiError ? caught.message : "Could not save this session.");

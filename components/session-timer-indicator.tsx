@@ -1,13 +1,11 @@
 "use client";
 
-import { useEffect, useRef, useState } from "react";
 import Link from "next/link";
 import { usePathname } from "next/navigation";
-import { sessions, StudySession } from "@/lib/api";
 import { ProjectIcon, NoProjectIcon } from "@/lib/icons";
 import { DropdownMenu, DropdownMenuContent, DropdownMenuTrigger } from "@/components/ui/dropdown-menu";
-import { BROADCAST_CHANNEL_NAME, SessionBroadcastMessage } from "@/lib/session-sync";
 import { LinkifiedText } from "@/components/linkified-text";
+import { useActiveSession } from "@/lib/active-session-context";
 
 function formatElapsed(ms: number) {
   const totalSeconds = Math.floor(ms / 1000);
@@ -24,67 +22,7 @@ function formatElapsed(ms: number) {
  */
 export function SessionTimerIndicator() {
   const pathname = usePathname();
-  const [active, setActive] = useState<StudySession | null>(null);
-  const [elapsedMs, setElapsedMs] = useState(0);
-  const channelRef = useRef<BroadcastChannel | null>(null);
-
-  function refetch() {
-    sessions
-      .getActive()
-      .then((session) => {
-        setActive(session);
-        setElapsedMs(session ? Math.max(0, Date.now() - new Date(session.started_at).getTime()) : 0);
-      })
-      .catch(() => {});
-  }
-
-  useEffect(() => {
-    refetch();
-  }, []);
-
-  // Same-tab-group sync: mirrors the broadcast the Home page's timer sends.
-  useEffect(() => {
-    const channel = new BroadcastChannel(BROADCAST_CHANNEL_NAME);
-    channelRef.current = channel;
-
-    function handleMessage(event: MessageEvent<SessionBroadcastMessage>) {
-      const message = event.data;
-      if (message.type === "started" || message.type === "updated") {
-        // Broadcasts carry projectId but not the project's name/icon; refetch for the full record.
-        refetch();
-      } else if (message.type === "stopped") {
-        setActive(null);
-        setElapsedMs(0);
-      }
-    }
-
-    channel.addEventListener("message", handleMessage);
-    return () => {
-      channel.removeEventListener("message", handleMessage);
-      channel.close();
-      channelRef.current = null;
-    };
-  }, []);
-
-  // Cross-device/tab catch-up when this tab regains focus.
-  useEffect(() => {
-    function handleVisibility() {
-      if (document.visibilityState === "visible") refetch();
-    }
-    window.addEventListener("focus", refetch);
-    document.addEventListener("visibilitychange", handleVisibility);
-    return () => {
-      window.removeEventListener("focus", refetch);
-      document.removeEventListener("visibilitychange", handleVisibility);
-    };
-  }, []);
-
-  useEffect(() => {
-    if (!active) return;
-    const started = new Date(active.started_at).getTime();
-    const interval = setInterval(() => setElapsedMs(Date.now() - started), 1000);
-    return () => clearInterval(interval);
-  }, [active]);
+  const { activeSession: active, elapsedMs } = useActiveSession();
 
   if (!active || pathname === "/app") return null;
 

@@ -12,7 +12,6 @@ import { Skeleton } from "@/components/ui/skeleton";
 import { toast } from "@/components/ui/toast";
 import { sessions, projects as projectsApi, tasks as tasksApi, notes as notesApi, ApiError, Note, Project, StudySession, Task } from "@/lib/api";
 import { useAuth } from "@/lib/auth-context";
-import { NOISE_SESSION_EVENT } from "@/lib/noise-player";
 import { ProjectSelector } from "@/components/project-selector";
 import { TaskCreatorPopover } from "@/components/task-creator-popover";
 import { TaskEditorPopover } from "@/components/task-editor-popover";
@@ -23,8 +22,7 @@ import { formatDuration, pad, dayKey } from "@/lib/date";
 import { sessionDurationSeconds } from "@/lib/session-stats";
 import { useSidebar } from "@/components/ui/sidebar";
 import { LongContentFade } from "@/components/long-content-fade";
-import { useInitialActiveSession } from "@/lib/active-session-context";
-import { BROADCAST_CHANNEL_NAME, SessionBroadcastMessage } from "@/lib/session-sync";
+import { useActiveSession } from "@/lib/active-session-context";
 import { cn } from "@/lib/utils";
 import {
   Dialog,
@@ -41,11 +39,6 @@ function formatElapsed(ms: number) {
   const minutes = Math.floor((totalSeconds % 3600) / 60);
   const seconds = totalSeconds % 60;
   return [hours, minutes, seconds].map((n) => String(n).padStart(2, "0")).join(":");
-}
-
-function activeElapsedMs(startedAt: number, at: number, pausedAt: number | null, pausedSeconds: number) {
-  const effectiveEnd = pausedAt ?? at;
-  return Math.max(0, effectiveEnd - startedAt - pausedSeconds * 1000);
 }
 
 function toTimeInput(date: Date) {
@@ -68,21 +61,24 @@ function greeting() {
   return "Good evening";
 }
 
-function conflictSession(err: unknown): StudySession | null | undefined {
-  if (!(err instanceof ApiError) || err.status !== 409) return undefined;
-  const body = err.body as { session?: StudySession | null } | undefined;
-  return body?.session;
-}
-
 export default function AppHomePage() {
   const { user } = useAuth();
   const { isMobile, setOpen, setOpenMobile } = useSidebar();
-  const initialActiveSession = useInitialActiveSession();
+  const {
+    activeSession,
+    elapsedMs,
+    now,
+    reconciling: refreshingActive,
+    startSession,
+    updateSession,
+    stopSession,
+    pauseSession,
+    resumeSession,
+  } = useActiveSession();
   const [projectList, setProjectList] = useState<Project[]>([]);
-  const [projectId, setProjectId] = useState<number | null>(() => initialActiveSession?.project_id ?? null);
-  const [description, setDescription] = useState(() => initialActiveSession?.description ?? "");
+  const [projectId, setProjectId] = useState<number | null>(() => activeSession?.project_id ?? null);
+  const [description, setDescription] = useState(() => activeSession?.description ?? "");
   const [descriptionStatus, setDescriptionStatus] = useState<"idle" | "saving" | "saved">("idle");
-  const [refreshingActive, setRefreshingActive] = useState(false);
   const [taskList, setTaskList] = useState<Task[]>([]);
   const [noteList, setNoteList] = useState<Note[]>([]);
   const [todaySessions, setTodaySessions] = useState<StudySession[]>([]);
@@ -95,28 +91,8 @@ export default function AppHomePage() {
   const [recentTaskIds, setRecentTaskIds] = useState<number[]>([]);
   const [sessionTaskIds, setSessionTaskIds] = useState<number[]>([]);
 
-  const [sessionId, setSessionId] = useState<number | null>(() => initialActiveSession?.id ?? null);
-  const [startedAt, setStartedAt] = useState<number | null>(() =>
-    initialActiveSession ? new Date(initialActiveSession.started_at).getTime() : null,
-  );
-  const [elapsedMs, setElapsedMs] = useState(() =>
-    initialActiveSession
-      ? activeElapsedMs(
-          new Date(initialActiveSession.started_at).getTime(),
-          Date.now(),
-          initialActiveSession.paused_at ? new Date(initialActiveSession.paused_at).getTime() : null,
-          initialActiveSession.paused_seconds ?? 0,
-        )
-      : 0,
-  );
-  const [pausedAt, setPausedAt] = useState<number | null>(() =>
-    initialActiveSession?.paused_at ? new Date(initialActiveSession.paused_at).getTime() : null,
-  );
-  const [pausedSeconds, setPausedSeconds] = useState(() => initialActiveSession?.paused_seconds ?? 0);
-  const [now, setNow] = useState(() => Date.now());
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
-  const [lastDuration, setLastDuration] = useState<number | null>(null);
   const [stopOpen, setStopOpen] = useState(false);
   const [viewingSession, setViewingSession] = useState<StudySession | null>(null);
   const [viewingSessionTasks, setViewingSessionTasks] = useState<Task[]>([]);
@@ -127,22 +103,37 @@ export default function AppHomePage() {
   const trackProductionSplit = user?.trackProductionSplit ?? true;
   const defaultProductionPercentage = user?.defaultSessionType === "producing" ? 100 : 0;
   const [productionPercentage, setProductionPercentage] = useState(defaultProductionPercentage);
-  const channelRef = useRef<BroadcastChannel | null>(null);
   const descriptionSaveTimeout = useRef<ReturnType<typeof setTimeout> | null>(null);
 
-  const isRunning = sessionId !== null && lastDuration === null;
-  const isPaused = isRunning && pausedAt !== null;
+  const sessionId = activeSession?.id ?? null;
+  const startedAt = activeSession ? new Date(activeSession.started_at).getTime() : null;
+  const isRunning = activeSession !== null;
+  const isPaused = activeSession?.paused_at != null;
   const wasRunningRef = useRef(isRunning);
 
   useEffect(() => {
-    if (!isRunning || startedAt === null) return;
-    const interval = setInterval(() => {
-      const currentTime = Date.now();
-      setNow(currentTime);
-      setElapsedMs(activeElapsedMs(startedAt, currentTime, pausedAt, pausedSeconds));
-    }, 1000);
-    return () => clearInterval(interval);
-  }, [isRunning, pausedAt, pausedSeconds, startedAt]);
+    const sessionWasRunning = wasRunningRef.current;
+    const timer = window.setTimeout(() => {
+      if (activeSession) {
+        setProjectId(activeSession.project_id);
+        setDescription(activeSession.description ?? "");
+        if (!sessionWasRunning) {
+          setSelectedTaskIds([]);
+          setSessionTaskIds([]);
+          void loadSidebars();
+        }
+        return;
+      }
+      if (sessionWasRunning) {
+        setDescription("");
+        setProductionPercentage(defaultProductionPercentage);
+        setStopOpen(false);
+        setSessionTaskIds([]);
+        void loadSidebars();
+      }
+    }, 0);
+    return () => window.clearTimeout(timer);
+  }, [activeSession, defaultProductionPercentage]);
 
   useEffect(() => {
     if (!isRunning) {
@@ -176,24 +167,6 @@ export default function AppHomePage() {
     // user manually reopens it mid-session.
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [isMobile, isRunning]);
-
-  function applyActiveSession(active: StudySession) {
-    const nextStartedAt = new Date(active.started_at).getTime();
-    const nextPausedAt = active.paused_at ? new Date(active.paused_at).getTime() : null;
-    const nextPausedSeconds = active.paused_seconds ?? 0;
-    setSessionId(active.id);
-    setStartedAt(nextStartedAt);
-    setPausedAt(nextPausedAt);
-    setPausedSeconds(nextPausedSeconds);
-    setElapsedMs(activeElapsedMs(nextStartedAt, Date.now(), nextPausedAt, nextPausedSeconds));
-    setProjectId(active.project_id);
-    setDescription(active.description ?? "");
-    setLastDuration(null);
-  }
-
-  function broadcast(message: SessionBroadcastMessage) {
-    channelRef.current?.postMessage(message);
-  }
 
   function loadSidebars() {
     const today = new Date();
@@ -255,60 +228,6 @@ export default function AppHomePage() {
     }, 500);
   }
 
-  // Same-tab-group sync: other tabs of this browser pick up our mutations instantly.
-  useEffect(() => {
-    const channel = new BroadcastChannel(BROADCAST_CHANNEL_NAME);
-    channelRef.current = channel;
-
-    function handleMessage(event: MessageEvent<SessionBroadcastMessage>) {
-      const message = event.data;
-      if (message.type === "started") {
-        setSessionId(message.id);
-        setStartedAt(new Date(message.startedAt).getTime());
-        setElapsedMs(0);
-        setPausedAt(null);
-        setPausedSeconds(0);
-        setLastDuration(null);
-        setProjectId(message.projectId);
-        setDescription(message.description ?? "");
-        setSelectedTaskIds([]);
-        setSessionTaskIds([]);
-      } else if (message.type === "stopped") {
-        setLastDuration(message.durationSeconds);
-        setSessionId(null);
-        setSessionTaskIds([]);
-        setStartedAt(null);
-        setElapsedMs(0);
-        setPausedAt(null);
-        setPausedSeconds(0);
-        setDescription("");
-        setProductionPercentage(defaultProductionPercentage);
-        setStopOpen(false);
-      } else if (message.type === "paused") {
-        setPausedAt(new Date(message.pausedAt).getTime());
-        setPausedSeconds(message.pausedSeconds);
-      } else if (message.type === "resumed") {
-        setPausedAt(null);
-        setPausedSeconds(message.pausedSeconds);
-      } else if (message.type === "updated") {
-        setProjectId(message.projectId);
-        setDescription(message.description ?? "");
-        if (message.startedAt) {
-          const nextStartedAt = new Date(message.startedAt).getTime();
-          setStartedAt(nextStartedAt);
-          setElapsedMs(activeElapsedMs(nextStartedAt, Date.now(), pausedAt, pausedSeconds));
-        }
-      }
-    }
-
-    channel.addEventListener("message", handleMessage);
-    return () => {
-      channel.removeEventListener("message", handleMessage);
-      channel.close();
-      channelRef.current = null;
-    };
-  }, [defaultProductionPercentage, pausedAt, pausedSeconds]);
-
   useEffect(() => {
     if (sessionId === null) return;
     let cancelled = false;
@@ -323,78 +242,15 @@ export default function AppHomePage() {
     };
   }, [sessionId]);
 
-  // Cross-device sync: catch up with whatever happened elsewhere when we come back to this tab.
-  useEffect(() => {
-    function refetchActive() {
-      setRefreshingActive(true);
-      sessions
-        .getActive()
-        .then((active) => {
-          if (active) {
-            applyActiveSession(active);
-            return;
-          }
-          setSessionId((current) => (current !== null ? null : current));
-          setSessionTaskIds([]);
-          setLastDuration(null);
-          setStartedAt(null);
-          setElapsedMs(0);
-          setPausedAt(null);
-          setPausedSeconds(0);
-        })
-        .catch(() => {})
-        .finally(() => setRefreshingActive(false));
-    }
-
-    function handleVisibility() {
-      if (document.visibilityState === "visible") refetchActive();
-    }
-
-    // Also reconcile once on mount: the initial state comes from a session snapshot fetched by the
-    // app shell before this page rendered, which can be stale if a session started or stopped on
-    // another tab/device while the user was navigating around within this one.
-    refetchActive();
-
-    window.addEventListener("focus", refetchActive);
-    window.addEventListener("online", refetchActive);
-    document.addEventListener("visibilitychange", handleVisibility);
-    return () => {
-      window.removeEventListener("focus", refetchActive);
-      window.removeEventListener("online", refetchActive);
-      document.removeEventListener("visibilitychange", handleVisibility);
-    };
-  }, []);
-
   async function handleStart() {
     setError(null);
     setBusy(true);
     try {
-      const session = await sessions.start({ projectId, description: description || null, taskIds: selectedTaskIds });
-      setSessionId(session.id);
-      setStartedAt(new Date(session.startedAt).getTime());
-      setElapsedMs(0);
-      setPausedAt(null);
-      setPausedSeconds(0);
-      setLastDuration(null);
+      await startSession({ projectId, description: description || null, taskIds: selectedTaskIds });
       setSelectedTaskIds([]);
-      broadcast({
-        type: "started",
-        id: session.id,
-        startedAt: session.startedAt,
-        projectId,
-        description: description || null,
-      });
-      window.dispatchEvent(new CustomEvent(NOISE_SESSION_EVENT, { detail: "started" }));
       loadSidebars();
     } catch (err) {
-      const active = conflictSession(err);
-      if (active !== undefined) {
-        // A session was already running (e.g. started from another device); adopt it
-        // instead of showing an error, same as resuming one on load.
-        if (active) applyActiveSession(active);
-      } else {
-        setError(err instanceof ApiError ? err.message : "Something went wrong");
-      }
+      setError(err instanceof ApiError ? err.message : "Something went wrong");
     } finally {
       setBusy(false);
     }
@@ -405,19 +261,11 @@ export default function AppHomePage() {
     setError(null);
     setBusy(true);
     try {
-      const result = await sessions.stop(sessionId, description || null, trackProductionSplit ? productionPercentage : null);
-      setLastDuration(result.durationSeconds);
-      setSessionId(null);
+      const result = await stopSession(sessionId, description || null, trackProductionSplit ? productionPercentage : null);
       setSessionTaskIds([]);
-      setStartedAt(null);
-      setElapsedMs(0);
-      setPausedAt(null);
-      setPausedSeconds(0);
       setDescription("");
       setProductionPercentage(defaultProductionPercentage);
       setStopOpen(false);
-      broadcast({ type: "stopped", durationSeconds: result.durationSeconds });
-      window.dispatchEvent(new CustomEvent(NOISE_SESSION_EVENT, { detail: "stopped" }));
       loadSidebars();
       toast.add({
         type: "success",
@@ -437,63 +285,16 @@ export default function AppHomePage() {
     setError(null);
     try {
       if (isPaused) {
-        const result = await sessions.resume(sessionId);
-        setPausedAt(null);
-        setPausedSeconds(result.pausedSeconds);
-        broadcast({ type: "resumed", pausedSeconds: result.pausedSeconds });
-        window.dispatchEvent(new CustomEvent(NOISE_SESSION_EVENT, { detail: "resumed" }));
+        await resumeSession(sessionId);
       } else {
-        const result = await sessions.pause(sessionId);
-        setPausedAt(new Date(result.pausedAt).getTime());
-        setPausedSeconds(result.pausedSeconds);
-        broadcast({ type: "paused", pausedAt: result.pausedAt, pausedSeconds: result.pausedSeconds });
-        window.dispatchEvent(new CustomEvent(NOISE_SESSION_EVENT, { detail: "paused" }));
+        await pauseSession(sessionId);
       }
     } catch (err) {
-      const active = await sessions.getActive().catch(() => null);
-      if (active) applyActiveSession(active);
-      else {
-        setSessionId(null);
-        setStartedAt(null);
-        setPausedAt(null);
-        setPausedSeconds(0);
-        setElapsedMs(0);
-      }
       setError(err instanceof ApiError ? err.message : "Could not update the session pause.");
     } finally {
       setBusy(false);
     }
   }
-
-  useEffect(() => {
-    if (!isPaused || pausedAt === null || sessionId === null) return;
-    const timeoutMinutes = user?.sessionPauseTimeoutMinutes ?? 30;
-    const delay = Math.max(0, pausedAt + timeoutMinutes * 60_000 - Date.now());
-    const timer = window.setTimeout(async () => {
-      try {
-        const result = await sessions.expirePause(sessionId);
-        if (!result.ended) return;
-        const durationSeconds = result.durationSeconds ?? Math.floor(elapsedMs / 1000);
-        setLastDuration(durationSeconds);
-        setSessionId(null);
-        setStartedAt(null);
-        setPausedAt(null);
-        setPausedSeconds(0);
-        setElapsedMs(0);
-        broadcast({ type: "stopped", durationSeconds });
-        window.dispatchEvent(new CustomEvent(NOISE_SESSION_EVENT, { detail: "stopped" }));
-        loadSidebars();
-        toast.add({
-          type: "info",
-          title: "Session ended after a long pause",
-          description: `${formatDuration(durationSeconds)} logged. The interruption was excluded.`,
-        });
-      } catch {
-        // Reconciled on the next focus/active-session request if the device is offline at the deadline.
-      }
-    }, Math.min(delay + 50, 2_147_483_647));
-    return () => window.clearTimeout(timer);
-  }, [elapsedMs, isPaused, pausedAt, sessionId, user?.sessionPauseTimeoutMinutes]);
 
   useEffect(() => {
     if (!viewingSession) return;
@@ -527,15 +328,7 @@ export default function AppHomePage() {
     }
     setEditStartBusy(true);
     try {
-      await sessions.update(sessionId, { startedAt: new Date(nextStartedAt).toISOString() });
-      setStartedAt(nextStartedAt);
-      setElapsedMs(activeElapsedMs(nextStartedAt, now, pausedAt, pausedSeconds));
-      broadcast({
-        type: "updated",
-        projectId,
-        description: description || null,
-        startedAt: new Date(nextStartedAt).toISOString(),
-      });
+      await updateSession(sessionId, { startedAt: new Date(nextStartedAt).toISOString() });
       setEditStartOpen(false);
     } catch (err) {
       setEditStartError(err instanceof ApiError ? err.message : "Something went wrong");
@@ -557,10 +350,8 @@ export default function AppHomePage() {
     if (sessionId === null) return;
 
     const save = () =>
-      sessions
-        .update(sessionId, { projectId: nextProjectId, description: nextDescription })
+      updateSession(sessionId, { projectId: nextProjectId, description: nextDescription })
         .then(() => {
-          broadcast({ type: "updated", projectId: nextProjectId, description: nextDescription });
           if (next.description !== undefined) {
             setDescriptionStatus("saved");
             setTimeout(() => setDescriptionStatus((s) => (s === "saved" ? "idle" : s)), 1500);
@@ -732,7 +523,7 @@ export default function AppHomePage() {
               periodStart={todayKey}
               projects={projectList}
               defaultProjectId={projectId}
-              sessionId={sessionId}
+              sessionId={sessionId ?? undefined}
               todaySuggestions={todaySuggestions}
               backlogSuggestions={backlogSuggestions}
               onCreated={handleTaskCreated}

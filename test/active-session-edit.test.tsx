@@ -3,7 +3,10 @@ import { beforeEach, describe, expect, it, vi } from "vitest";
 import { HistorySection } from "@/components/history-section";
 import type { StudySession } from "@/lib/api";
 
-const { update } = vi.hoisted(() => ({ update: vi.fn().mockResolvedValue({}) }));
+const { update, notifySessionChanged } = vi.hoisted(() => ({
+  update: vi.fn().mockResolvedValue({}),
+  notifySessionChanged: vi.fn().mockResolvedValue(null),
+}));
 
 vi.mock("@/lib/api", () => {
   class ApiError extends Error {}
@@ -21,8 +24,15 @@ vi.mock("@/lib/auth-context", () => ({
   useAuth: () => ({ user: { trackProductionSplit: true }, loading: false, refresh: vi.fn() }),
 }));
 
+vi.mock("@/lib/active-session-context", () => ({
+  useActiveSession: () => ({ notifySessionChanged }),
+}));
+
 describe("active session editing", () => {
-  beforeEach(() => update.mockClear());
+  beforeEach(() => {
+    update.mockClear();
+    notifySessionChanged.mockClear();
+  });
 
   it("shows an ongoing session with a disabled end time", async () => {
     const now = Date.now();

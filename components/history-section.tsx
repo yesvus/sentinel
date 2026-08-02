@@ -44,6 +44,7 @@ import { exportSessions, buildAiPrompt } from "@/lib/export";
 import { partialWeekStats } from "@/lib/session-stats";
 import { sessionDurationSeconds } from "@/lib/session-stats";
 import { orderProjectsAsTree } from "@/lib/project-tree";
+import { useActiveSession } from "@/lib/active-session-context";
 import {
   dayKey,
   weekKey,
@@ -134,6 +135,7 @@ export function HistorySection({
   onSessionsChange: (updater: (list: StudySession[]) => StudySession[]) => void;
 }) {
   const { user } = useAuth();
+  const { notifySessionChanged } = useActiveSession();
   const trackProductionSplit = user?.trackProductionSplit ?? true;
   const [expandedIds, setExpandedIds] = useState<Set<number>>(new Set());
   const [collapsedWeeks, setCollapsedWeeks] = useState<Set<string>>(new Set());
@@ -255,16 +257,7 @@ export function HistorySection({
             )
             .sort((a, b) => new Date(b.started_at).getTime() - new Date(a.started_at).getTime())
         );
-        if (editingActive) {
-          const channel = new BroadcastChannel("sentinel-session-sync");
-          channel.postMessage({
-            type: "updated",
-            projectId: addProjectId,
-            description: addDescription || null,
-            startedAt: startedAt.toISOString(),
-          });
-          channel.close();
-        }
+        await notifySessionChanged().catch(() => {});
       } else {
         const created = await sessionsApi.createManual({
           startedAt: startedAt.toISOString(),
