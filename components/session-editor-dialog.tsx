@@ -3,7 +3,7 @@
 import { FormEvent, useState } from "react";
 import { Pencil } from "lucide-react";
 import type { StudySession, Task } from "@/lib/api";
-import { ApiError, sessions as sessionsApi } from "@/lib/api";
+import { ApiError } from "@/lib/api";
 import { formatTime } from "@/lib/date";
 import { NoProjectIcon, ProjectIcon } from "@/lib/icons";
 import { useActiveSession } from "@/lib/active-session-context";
@@ -43,7 +43,7 @@ export function SessionEditorDialog({
   onTasksChanged: (sessionId: number, tasks: Task[]) => void;
   onTaskCreated: (sessionId: number, task: Task) => void;
 }) {
-  const { notifySessionChanged } = useActiveSession();
+  const { updateSession } = useActiveSession();
   const [initial] = useState(() => initialSessionForm(session, tasks));
   const [open, setOpen] = useState(false);
   const [formVersion, setFormVersion] = useState(0);
@@ -88,7 +88,7 @@ export function SessionEditorDialog({
 
     setBusy(true);
     try {
-      const result = await sessionsApi.update(session.id, {
+      const result = await updateSession(session.id, {
         startedAt: startedAt.toISOString(),
         endedAt: endedAt?.toISOString() ?? null,
         description: description.trim() || null,
@@ -106,7 +106,6 @@ export function SessionEditorDialog({
         for (const task of result.changedTasks ?? []) onTaskUpdated(task);
         onTasksChanged(session.id, result.attachedTasks ?? []);
       }
-      await notifySessionChanged().catch(() => {});
       setOpen(false);
     } catch (caught) {
       setError(caught instanceof ApiError ? caught.message : "Could not save this session.");

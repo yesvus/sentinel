@@ -62,6 +62,7 @@ export default function DayPlanningPage() {
   const [sessionList, setSessionList] = useState<StudySession[]>([]);
   const [projectList, setProjectList] = useState<Project[]>([]);
   const [sessionTasks, setSessionTasks] = useState<Record<number, Task[]>>({});
+  const [sessionTaskErrors, setSessionTaskErrors] = useState<Record<number, string>>({});
   const [loading, setLoading] = useState(validDay);
   const [loadError, setLoadError] = useState<string | null>(null);
   const [now] = useState(() => Date.now());
@@ -71,6 +72,8 @@ export default function DayPlanningPage() {
     const timer = window.setTimeout(() => {
       setLoading(true);
       setLoadError(null);
+      setSessionTasks({});
+      setSessionTaskErrors({});
       const date = parseDateKey(selectedDayKey);
       const weekStart = startOfWeek(date);
       const previousDay = addDays(date, -1);
@@ -86,17 +89,26 @@ export default function DayPlanningPage() {
           const sessionsForDay = sessions.filter(
             (session) => dayKey(new Date(session.started_at)) === selectedDayKey,
           );
-          const sessionTaskEntries = await Promise.all(
+          const sessionTaskResults = await Promise.all(
             sessionsForDay.map(async (session) => {
-              const attachedTasks = await sessionsApi.tasks(session.id).catch(() => []);
-              return [session.id, attachedTasks] as const;
+              try {
+                return { sessionId: session.id, tasks: await sessionsApi.tasks(session.id) };
+              } catch (error) {
+                return {
+                  sessionId: session.id,
+                  error: error instanceof ApiError ? error.message : "Could not load this session's tasks.",
+                };
+              }
             }),
           );
           setTaskList(tasks);
           setNoteList(notes);
           setSessionList(sessions);
           setProjectList(projects);
-          setSessionTasks(Object.fromEntries(sessionTaskEntries));
+          setSessionTasks(Object.fromEntries(sessionTaskResults.flatMap((result) =>
+            result.tasks ? [[result.sessionId, result.tasks]] : [])));
+          setSessionTaskErrors(Object.fromEntries(sessionTaskResults.flatMap((result) =>
+            result.error ? [[result.sessionId, result.error]] : [])));
         })
         .catch((error) => {
           setLoadError(error instanceof ApiError ? error.message : "Could not load this calendar day.");
@@ -164,6 +176,23 @@ export default function DayPlanningPage() {
     setSessionList((current) => current
       .map((session) => session.id === updated.id ? updated : session)
       .sort((a, b) => a.started_at.localeCompare(b.started_at)));
+  }
+
+  async function retrySessionTasks(sessionId: number) {
+    try {
+      const tasks = await sessionsApi.tasks(sessionId);
+      setSessionTasks((current) => replaceSessionTasks(current, sessionId, tasks));
+      setSessionTaskErrors((current) => {
+        const next = { ...current };
+        delete next[sessionId];
+        return next;
+      });
+    } catch (error) {
+      setSessionTaskErrors((current) => ({
+        ...current,
+        [sessionId]: error instanceof ApiError ? error.message : "Could not load this session's tasks.",
+      }));
+    }
   }
 
   function handleProjectCreated(project: Project) {
@@ -296,6 +325,7 @@ export default function DayPlanningPage() {
           <DaySessionTimeline
             sessions={daySessions}
             sessionTasks={sessionTasks}
+            sessionTaskErrors={sessionTaskErrors}
             taskList={taskList}
             totalSessionSeconds={totalSessionSeconds}
             now={now}
@@ -308,6 +338,7 @@ export default function DayPlanningPage() {
               setSessionTasks((current) =>
                 replaceSessionTasks(current, sessionId, upsertTask(current[sessionId] ?? [], task)));
             }}
+            onRetrySessionTasks={retrySessionTasks}
           />
 
           <aside className="grid min-w-0 gap-4 lg:col-span-2 xl:col-span-1" aria-label="Daily statistics">

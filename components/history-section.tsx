@@ -2,7 +2,6 @@
 
 import { useState } from "react";
 import type { Note, Project, StudySession, Task } from "@/lib/api";
-import { sessions as sessionsApi } from "@/lib/api";
 import { buildAiPrompt, exportSessions } from "@/lib/export";
 import {
   findHistoryNote,
@@ -16,6 +15,7 @@ import {
 import { partialWeekStats } from "@/lib/session-stats";
 import { dateInputValue } from "@/lib/date";
 import { useAuth } from "@/lib/auth-context";
+import { useActiveSession } from "@/lib/active-session-context";
 import { toast } from "@/components/ui/toast";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent } from "@/components/ui/card";
@@ -47,13 +47,14 @@ export function HistorySection({
   onSessionsChange: (updater: (list: StudySession[]) => StudySession[]) => void;
 }) {
   const { user } = useAuth();
+  const { deleteSession: deleteSessionMutation } = useActiveSession();
   const [dialogSession, setDialogSession] = useState<StudySession | null | undefined>(undefined);
   const weeks = groupHistorySessions(sessionList, now);
   const today = dateInputValue(new Date());
 
   async function deleteSession(id: number) {
     try {
-      await sessionsApi.remove(id);
+      await deleteSessionMutation(id);
       onSessionsChange((list) => list.filter((session) => session.id !== id));
     } catch {
       // Leave the session in place when the best-effort delete fails.

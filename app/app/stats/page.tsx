@@ -13,6 +13,7 @@ import { LearningProducingChart } from "@/components/learning-producing-chart";
 import { WeeklyReportHistory } from "@/components/weekly-report-history";
 import { Button } from "@/components/ui/button";
 import { orderProjectsAsTree, projectTreeText } from "@/lib/project-tree";
+import { useActiveSession } from "@/lib/active-session-context";
 
 const WEEKS = 14;
 const DAYS = WEEKS * 7;
@@ -32,7 +33,19 @@ function buildLastNDays(totalsByDay: Map<string, number>, n: number): Day[] {
   return days;
 }
 
+function mergeActiveSession(
+  sessionList: StudySession[],
+  activeSession: StudySession | null,
+  include: (session: StudySession) => boolean = () => true,
+) {
+  const withoutStaleActive = sessionList.filter((session) => session.ended_at !== null);
+  if (!activeSession || !include(activeSession)) return withoutStaleActive;
+  return [activeSession, ...withoutStaleActive.filter((session) => session.id !== activeSession.id)]
+    .sort((a, b) => new Date(b.started_at).getTime() - new Date(a.started_at).getTime());
+}
+
 export default function StatsPage() {
+  const { activeSession, now } = useActiveSession();
   const [sessionList, setSessionList] = useState<StudySession[]>([]);
   const [historySessions, setHistorySessions] = useState<StudySession[]>([]);
   const [historyCursor, setHistoryCursor] = useState<string | null>(null);
@@ -42,14 +55,16 @@ export default function StatsPage() {
   const [noteList, setNoteList] = useState<Note[]>([]);
   const [taskList, setTaskList] = useState<Task[]>([]);
   const [loading, setLoading] = useState(true);
-  const [now, setNow] = useState(() => Date.now());
   const [selectedProject, setSelectedProject] = useState("all");
+  const [rangeStart] = useState(() => {
+    const start = new Date();
+    start.setHours(0, 0, 0, 0);
+    start.setDate(start.getDate() - DAYS + 1);
+    return start;
+  });
 
   useEffect(() => {
-    const loadStart = new Date();
-    loadStart.setHours(0, 0, 0, 0);
-    loadStart.setDate(loadStart.getDate() - DAYS + 1);
-    Promise.all([sessionsApi.list({ from: loadStart.toISOString() }), sessionsApi.page()])
+    Promise.all([sessionsApi.list({ from: rangeStart.toISOString() }), sessionsApi.page()])
       .then(([allSessions, firstPage]) => {
         setSessionList(allSessions);
         setHistorySessions(firstPage.items);
@@ -59,14 +74,7 @@ export default function StatsPage() {
     projectsApi.list().then(setProjectList).catch(() => {});
     notesApi.list().then(setNoteList).catch(() => {});
     tasksApi.list().then(setTaskList).catch(() => {});
-  }, []);
-
-  useEffect(() => {
-    const hasActiveSession = sessionList.some((s) => s.ended_at === null);
-    if (!hasActiveSession) return;
-    const interval = setInterval(() => setNow(Date.now()), 1000);
-    return () => clearInterval(interval);
-  }, [sessionList]);
+  }, [rangeStart]);
 
   function handleNoteSaved(note: Note) {
     setNoteList((list) => {
@@ -80,8 +88,15 @@ export default function StatsPage() {
   }
 
   function handleHistorySessionsChange(updater: (list: StudySession[]) => StudySession[]) {
-    setHistorySessions(updater);
-    setSessionList(updater);
+    const previousVisible = filteredHistorySessions;
+    const nextVisible = updater(previousVisible);
+    const previousIds = new Set(previousVisible.map((session) => session.id));
+    const mergeChanges = (current: StudySession[], bounded: boolean) => [
+      ...current.filter((session) => !previousIds.has(session.id)),
+      ...nextVisible.filter((session) => !bounded || new Date(session.started_at) >= rangeStart),
+    ].sort((a, b) => new Date(b.started_at).getTime() - new Date(a.started_at).getTime());
+    setHistorySessions((current) => mergeChanges(current, false));
+    setSessionList((current) => mergeChanges(current, true));
   }
 
   async function loadMoreHistory() {
@@ -103,10 +118,18 @@ export default function StatsPage() {
   }
 
   // Totals include the in-progress session's elapsed-so-far time.
-  const rangeSessions = sessionList;
+  const rangeSessions = mergeActiveSession(
+    sessionList,
+    activeSession,
+    (session) => new Date(session.started_at) >= rangeStart,
+  );
+  const mergedHistorySessions = mergeActiveSession(historySessions, activeSession);
   const filteredSessions = selectedProject === "all"
     ? rangeSessions
     : rangeSessions.filter((session) => String(session.project_id ?? "none") === selectedProject);
+  const filteredHistorySessions = selectedProject === "all"
+    ? mergedHistorySessions
+    : mergedHistorySessions.filter((session) => String(session.project_id ?? "none") === selectedProject);
   const allocationByDay = dailyAllocationTotals(filteredSessions, now);
 
   const rangeDays = buildLastNDays(new Map(), DAYS);
@@ -167,7 +190,7 @@ export default function StatsPage() {
   return (
     <div className="animate-in fade-in duration-500 fill-mode-both mx-auto w-full max-w-5xl space-y-8">
       <ReportCards
-        sessions={historySessions}
+        sessions={mergedHistorySessions}
         notes={noteList}
         now={now}
         onNoteSaved={handleNoteSaved}
@@ -204,7 +227,7 @@ export default function StatsPage() {
       <WeeklyReportHistory />
 
       <HistorySection
-        sessions={filteredSessions}
+        sessions={filteredHistorySessions}
         projects={projectList}
         notes={noteList}
         tasks={taskList}

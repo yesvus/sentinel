@@ -1,11 +1,18 @@
 import { act, render, screen, waitFor } from "@testing-library/react";
+import { useEffect } from "react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { ActiveSessionProvider, useActiveSession } from "@/lib/active-session-context";
 import type { StudySession } from "@/lib/api";
 
-const { getActive, expirePause, toastAdd } = vi.hoisted(() => ({
+const { getActive, expirePause, start, update, remove, stop, pause, resume, toastAdd } = vi.hoisted(() => ({
   getActive: vi.fn(),
   expirePause: vi.fn(),
+  start: vi.fn(),
+  update: vi.fn(),
+  remove: vi.fn(),
+  stop: vi.fn(),
+  pause: vi.fn(),
+  resume: vi.fn(),
   toastAdd: vi.fn(),
 }));
 
@@ -14,11 +21,12 @@ vi.mock("@/lib/api", () => ({
   sessions: {
     getActive,
     expirePause,
-    start: vi.fn(),
-    update: vi.fn(),
-    stop: vi.fn(),
-    pause: vi.fn(),
-    resume: vi.fn(),
+    start,
+    update,
+    remove,
+    stop,
+    pause,
+    resume,
   },
 }));
 
@@ -53,8 +61,10 @@ class ControlledBroadcastChannel {
   }
 }
 
-function Probe() {
-  const { activeSession, elapsedMs, loading } = useActiveSession();
+function Probe({ onContext }: { onContext?: (context: ReturnType<typeof useActiveSession>) => void }) {
+  const context = useActiveSession();
+  const { activeSession, elapsedMs, loading } = context;
+  useEffect(() => onContext?.(context), [context, onContext]);
   return (
     <div>
       <span data-testid="loading">{String(loading)}</span>
@@ -86,6 +96,12 @@ describe("ActiveSessionProvider", () => {
     vi.stubGlobal("BroadcastChannel", ControlledBroadcastChannel);
     getActive.mockReset();
     expirePause.mockReset();
+    start.mockReset();
+    update.mockReset();
+    remove.mockReset();
+    stop.mockReset();
+    pause.mockReset();
+    resume.mockReset();
     toastAdd.mockReset();
   });
 
@@ -110,6 +126,90 @@ describe("ActiveSessionProvider", () => {
 
     await waitFor(() => expect(screen.getByTestId("session")).toHaveTextContent("42"));
     expect(getActive).toHaveBeenCalledTimes(2);
+  });
+
+  it("propagates start, update, pause, resume, and stop mutations", async () => {
+    let mutationContext: ReturnType<typeof useActiveSession> | undefined;
+    const active = session();
+    const updated = session({ description: "Updated" });
+    getActive.mockResolvedValueOnce(null).mockResolvedValueOnce(active).mockResolvedValueOnce(updated);
+    start.mockResolvedValue({ id: 42, startedAt: active.started_at });
+    update.mockResolvedValue({
+      id: 42,
+      startedAt: updated.started_at,
+      endedAt: null,
+      durationSeconds: null,
+      description: "Updated",
+      projectId: null,
+      productionPercentage: null,
+      activeSession: updated,
+      attachedTasks: [],
+      changedTasks: [],
+    });
+    pause.mockResolvedValue({ id: 42, pausedAt: "2026-08-02T11:30:00.000Z", pausedSeconds: 0 });
+    resume.mockResolvedValue({ id: 42, pausedAt: null, pausedSeconds: 60 });
+    stop.mockResolvedValue({ id: 42, endedAt: "2026-08-02T12:00:00.000Z", durationSeconds: 3540 });
+
+    render(<ActiveSessionProvider><Probe onContext={(context) => { mutationContext = context; }} /></ActiveSessionProvider>);
+    await waitFor(() => expect(screen.getByTestId("loading")).toHaveTextContent("false"));
+    const channel = ControlledBroadcastChannel.instances[0];
+    if (!mutationContext) throw new Error("Provider context was not captured");
+    const context = mutationContext;
+
+    await act(async () => { await context.startSession({ description: "Focused work" }); });
+    expect(channel.postMessage).toHaveBeenCalledWith({ type: "started" });
+    await waitFor(() => expect(getActive).toHaveBeenCalledTimes(2));
+
+    let updateResult;
+    await act(async () => {
+      updateResult = await context.updateSession(42, { description: "Updated" });
+    });
+    expect(updateResult).toEqual(expect.objectContaining({ attachedTasks: [], changedTasks: [] }));
+    expect(channel.postMessage).toHaveBeenCalledWith({ type: "changed" });
+    expect(screen.getByTestId("session")).toHaveTextContent("42");
+
+    await act(async () => { await context.pauseSession(42); });
+    expect(channel.postMessage).toHaveBeenCalledWith({ type: "paused" });
+    await act(async () => { await context.resumeSession(42); });
+    expect(channel.postMessage).toHaveBeenCalledWith({ type: "resumed" });
+    await act(async () => { await context.stopSession(42); });
+    expect(channel.postMessage).toHaveBeenCalledWith({ type: "stopped" });
+    expect(screen.getByTestId("session")).toHaveTextContent("none");
+  });
+
+  it("applies authoritative mutation results and broadcasts deletion without a second fetch", async () => {
+    let mutationContext: ReturnType<typeof useActiveSession> | undefined;
+    const active = session();
+    getActive.mockResolvedValueOnce(active);
+    remove.mockResolvedValue(undefined);
+
+    render(<ActiveSessionProvider><Probe onContext={(context) => { mutationContext = context; }} /></ActiveSessionProvider>);
+    await waitFor(() => expect(screen.getByTestId("session")).toHaveTextContent("42"));
+    if (!mutationContext) throw new Error("Provider context was not captured");
+    const context = mutationContext;
+    await act(async () => { await context.deleteSession(42); });
+
+    expect(remove).toHaveBeenCalledWith(42);
+    expect(screen.getByTestId("session")).toHaveTextContent("none");
+    expect(ControlledBroadcastChannel.instances[0].postMessage).toHaveBeenCalledWith({ type: "changed" });
+
+    update.mockResolvedValue({
+      id: 7,
+      startedAt: active.started_at,
+      endedAt: null,
+      durationSeconds: null,
+      description: "accepted",
+      projectId: null,
+      productionPercentage: null,
+      activeSession: { ...active, id: 7, description: "accepted" },
+    });
+    let updateResult;
+    await act(async () => {
+      updateResult = await context.updateSession(7, { description: "accepted" });
+    });
+    expect(updateResult).toEqual(expect.objectContaining({ id: 7, description: "accepted" }));
+    await waitFor(() => expect(screen.getByTestId("session")).toHaveTextContent("7"));
+    expect(getActive).toHaveBeenCalledTimes(1);
   });
 
   it("expires a pause at the configured deadline and clears every consumer", async () => {

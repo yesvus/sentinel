@@ -14,7 +14,10 @@ export async function taskRoutes(request: NextRequest, parts: string[], userId: 
       sql: `SELECT ${TASK_COLUMNS} FROM tasks WHERE user_id = ? AND period_start IS NOT NULL AND period_start < ? AND completed_at IS NULL ORDER BY created_at`,
       args: [userId, data.before],
     });
-    await db.execute({ sql: "UPDATE tasks SET period_start = NULL WHERE user_id = ? AND period_start IS NOT NULL AND period_start < ? AND completed_at IS NULL", args: [userId, data.before] });
+    await db.batch([
+      { sql: "DELETE FROM session_tasks WHERE task_id IN (SELECT id FROM tasks WHERE user_id = ? AND period_start IS NOT NULL AND period_start < ? AND completed_at IS NULL)", args: [userId, data.before] },
+      { sql: "UPDATE tasks SET period_start = NULL WHERE user_id = ? AND period_start IS NOT NULL AND period_start < ? AND completed_at IS NULL", args: [userId, data.before] },
+    ], "write");
     return NextResponse.json({ moved: candidates.rows.map((task) => ({ ...task, period_start: null })) });
   }
   if (parts[1] === "backlog" && request.method === "GET") {
@@ -46,12 +49,18 @@ export async function taskRoutes(request: NextRequest, parts: string[], userId: 
       if (selectedSession.rows[0].ended_at !== null && data.completed !== true) return error("Tasks added to a completed session must be completed");
     }
     const completedAt = data.completed === true ? new Date().toISOString() : null;
-    const result = await db.execute({
-      sql: "INSERT INTO tasks (user_id, period_start, project_id, title, description, completed_at) VALUES (?, ?, ?, ?, ?, ?)",
-      args: [userId, data.periodStart as string | null ?? null, data.projectId == null ? null : Number(data.projectId), data.title.trim(), typeof data.description === "string" ? data.description.trim() || null : null, completedAt],
-    });
-    if (attachedSessionId !== null) await db.execute({ sql: "INSERT INTO session_tasks (session_id, task_id) VALUES (?, ?)", args: [attachedSessionId, Number(result.lastInsertRowid)] });
-    const created = await db.execute({ sql: `SELECT ${TASK_COLUMNS} FROM tasks WHERE id = ?`, args: [Number(result.lastInsertRowid)] });
+    const results = await db.batch([
+      {
+        sql: "INSERT INTO tasks (user_id, period_start, project_id, title, description, completed_at) VALUES (?, ?, ?, ?, ?, ?)",
+        args: [userId, data.periodStart as string | null ?? null, data.projectId == null ? null : Number(data.projectId), data.title.trim(), typeof data.description === "string" ? data.description.trim() || null : null, completedAt],
+      },
+      ...(attachedSessionId === null ? [] : [{
+        sql: "INSERT INTO session_tasks (session_id, task_id) VALUES (?, last_insert_rowid())",
+        args: [attachedSessionId],
+      }]),
+    ], "write");
+    const taskId = Number(results[0].lastInsertRowid);
+    const created = await db.execute({ sql: `SELECT ${TASK_COLUMNS} FROM tasks WHERE id = ?`, args: [taskId] });
     return NextResponse.json(created.rows[0], { status: 201 });
   }
   if (!Number.isInteger(id)) return error("Not found", 404);
@@ -81,20 +90,22 @@ export async function taskRoutes(request: NextRequest, parts: string[], userId: 
       if (!sessionRow) return error("Session not found", 404);
       if (sessionRow.ended_at !== null) return error("Only an active session can accept tasks");
     }
-    await db.execute({ sql: "UPDATE tasks SET title = ?, description = ?, project_id = ?, period_start = ?, completed_at = ? WHERE id = ? AND user_id = ?", args: [title, description, row.project_id, periodStart as string | null, completedAt, id!, userId] });
-    if (data.completed === false && data.periodStart === null) await db.execute({ sql: "DELETE FROM session_tasks WHERE task_id = ?", args: [id!] });
-    if (attachedSessionId !== null) {
-      const attached = await db.execute({ sql: "SELECT 1 FROM session_tasks WHERE session_id = ? AND task_id = ?", args: [attachedSessionId, id!] });
-      if (!attached.rows.length) await db.execute({ sql: "INSERT INTO session_tasks (session_id, task_id) VALUES (?, ?)", args: [attachedSessionId, id!] });
-    }
+    const statements = [
+      { sql: "UPDATE tasks SET title = ?, description = ?, project_id = ?, period_start = ?, completed_at = ? WHERE id = ? AND user_id = ?", args: [title, description, row.project_id, periodStart as string | null, completedAt, id!, userId] },
+      ...(data.periodStart === null ? [{ sql: "DELETE FROM session_tasks WHERE task_id = ?", args: [id!] }] : []),
+      ...(attachedSessionId === null ? [] : [{ sql: "INSERT OR IGNORE INTO session_tasks (session_id, task_id) VALUES (?, ?)", args: [attachedSessionId, id!] }]),
+    ];
+    await db.batch(statements, "write");
     const updated = await db.execute({ sql: `SELECT ${TASK_COLUMNS} FROM tasks WHERE id = ?`, args: [id!] });
     return NextResponse.json(updated.rows[0]);
   }
   if (request.method === "DELETE") {
     const owned = await db.execute({ sql: "SELECT 1 FROM tasks WHERE id = ? AND user_id = ?", args: [id!, userId] });
     if (!owned.rows.length) return error("Task not found", 404);
-    await db.execute({ sql: "DELETE FROM session_tasks WHERE task_id = ?", args: [id!] });
-    await db.execute({ sql: "DELETE FROM tasks WHERE id = ?", args: [id!] });
+    await db.batch([
+      { sql: "DELETE FROM session_tasks WHERE task_id = ?", args: [id!] },
+      { sql: "DELETE FROM tasks WHERE id = ? AND user_id = ?", args: [id!, userId] },
+    ], "write");
     return noContent();
   }
   return error("Not found", 404);

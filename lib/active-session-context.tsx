@@ -2,7 +2,7 @@
 
 import { createContext, useCallback, useContext, useEffect, useRef, useState } from "react";
 import { toast } from "@/components/ui/toast";
-import { ApiError, sessions, type StudySession } from "@/lib/api";
+import { ApiError, sessions, type SessionUpdateResult, type StudySession } from "@/lib/api";
 import { useAuth } from "@/lib/auth-context";
 import { formatDuration } from "@/lib/date";
 import { NOISE_SESSION_EVENT } from "@/lib/noise-player";
@@ -28,7 +28,8 @@ type ActiveSessionContextValue = {
   reconcile: () => Promise<StudySession | null>;
   notifySessionChanged: () => Promise<StudySession | null>;
   startSession: (details: StartDetails) => Promise<StudySession>;
-  updateSession: (id: number, details: UpdateDetails) => Promise<StudySession | null>;
+  updateSession: (id: number, details: UpdateDetails) => Promise<SessionUpdateResult>;
+  deleteSession: (id: number) => Promise<void>;
   stopSession: (id: number, description?: string | null, productionPercentage?: number | null) => ReturnType<typeof sessions.stop>;
   pauseSession: (id: number) => ReturnType<typeof sessions.pause>;
   resumeSession: (id: number) => ReturnType<typeof sessions.resume>;
@@ -86,8 +87,8 @@ export function ActiveSessionProvider({ children }: { children: React.ReactNode 
 
   const notifySessionChanged = useCallback(async () => {
     const previous = activeRef.current;
-    post({ type: "changed" });
     const next = await reconcile();
+    post({ type: "changed" });
     if (previous && !next) localNoise("stopped");
     if (!previous && next) localNoise("started");
     return next;
@@ -205,18 +206,23 @@ export function ActiveSessionProvider({ children }: { children: React.ReactNode 
   }
 
   async function updateSession(id: number, details: UpdateDetails) {
-    await sessions.update(id, details);
-    const current = activeSession?.id === id ? activeSession : null;
-    if (current) {
-      applyActive({
-        ...current,
-        started_at: details.startedAt ?? current.started_at,
-        ended_at: details.endedAt !== undefined ? details.endedAt : current.ended_at,
-        project_id: details.projectId !== undefined ? details.projectId : current.project_id,
-        description: details.description !== undefined ? details.description : current.description,
-      });
+    const previous = activeRef.current;
+    const result = await sessions.update(id, details);
+    applyActive(result.activeSession);
+    post({ type: "changed" });
+    if (previous && !result.activeSession) localNoise("stopped");
+    if (!previous && result.activeSession) localNoise("started");
+    return result;
+  }
+
+  async function deleteSession(id: number) {
+    const deletingActive = activeRef.current?.id === id;
+    await sessions.remove(id);
+    if (deletingActive) {
+      applyActive(null);
+      localNoise("stopped");
     }
-    return notifySessionChanged().catch(() => current);
+    post({ type: "changed" });
   }
 
   async function stopSession(id: number, description?: string | null, productionPercentage?: number | null) {
@@ -260,7 +266,7 @@ export function ActiveSessionProvider({ children }: { children: React.ReactNode 
 
   return (
     <ActiveSessionContext.Provider
-      value={{ activeSession, elapsedMs, now, loading, reconciling, reconcile, notifySessionChanged, startSession, updateSession, stopSession, pauseSession, resumeSession }}
+      value={{ activeSession, elapsedMs, now, loading, reconciling, reconcile, notifySessionChanged, startSession, updateSession, deleteSession, stopSession, pauseSession, resumeSession }}
     >
       {children}
     </ActiveSessionContext.Provider>

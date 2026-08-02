@@ -30,6 +30,7 @@ export type SessionUpdateResult = {
   endedAt: string | null;
   durationSeconds: number | null;
   productionPercentage: number | null;
+  activeSession: StudySession | null;
   attachedTasks?: Task[];
   changedTasks?: Task[];
 };

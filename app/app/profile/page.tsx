@@ -20,10 +20,12 @@ import {
   sessions as sessionsApi,
 } from "@/lib/api";
 import { useAuth } from "@/lib/auth-context";
+import { useActiveSession } from "@/lib/active-session-context";
 import { Avatar, AVATAR_ICONS, AvatarIconKey } from "@/lib/icons";
 
 export default function ProfilePage() {
   const { user, refresh } = useAuth();
+  const { activeSession, now } = useActiveSession();
   const [name, setName] = useState(user?.name ?? "");
   const [avatar, setAvatar] = useState<string | null>(user?.avatar ?? null);
   const [savingProfile, setSavingProfile] = useState(false);
@@ -41,7 +43,6 @@ export default function ProfilePage() {
   const [activitySessions, setActivitySessions] = useState<StudySession[]>([]);
   const [longTermNote, setLongTermNote] = useState<Note | undefined>();
   const [insightsLoading, setInsightsLoading] = useState(true);
-  const [now, setNow] = useState(() => Date.now());
 
   useEffect(() => {
     const from = new Date();
@@ -55,11 +56,10 @@ export default function ProfilePage() {
       .finally(() => setInsightsLoading(false));
   }, []);
 
-  useEffect(() => {
-    if (!activitySessions.some((session) => session.ended_at === null)) return;
-    const interval = window.setInterval(() => setNow(Date.now()), 1000);
-    return () => window.clearInterval(interval);
-  }, [activitySessions]);
+  const canonicalActivitySessions = [
+    ...(activeSession ? [activeSession] : []),
+    ...activitySessions.filter((session) => session.ended_at !== null && session.id !== activeSession?.id),
+  ];
 
   async function handleSaveProfile(e: FormEvent) {
     e.preventDefault();
@@ -131,7 +131,7 @@ export default function ProfilePage() {
         </div>
       ) : (
         <div className="animate-in fade-in slide-in-from-bottom-1 grid items-start gap-8 duration-300 lg:grid-cols-[minmax(0,1.4fr)_minmax(18rem,0.6fr)]">
-          <ActivityHeatmap sessions={activitySessions} now={now} />
+          <ActivityHeatmap sessions={canonicalActivitySessions} now={now} />
           <NoteFocusCard
             icon={<Target className="text-muted-foreground size-4" />}
             title="Long-term goals"

@@ -5,6 +5,7 @@ import { LinkifiedText } from "@/components/linkified-text";
 import { SessionEditorDialog } from "@/components/session-editor-dialog";
 import { TaskEditorPopover } from "@/components/task-editor-popover";
 import { Badge } from "@/components/ui/badge";
+import { Button } from "@/components/ui/button";
 import { Card, CardAction, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Empty, EmptyDescription, EmptyHeader, EmptyMedia, EmptyTitle } from "@/components/ui/empty";
 import { buildDaySessionTimeline } from "@/components/planning/day-session-timeline-model";
@@ -15,6 +16,7 @@ import { NoProjectIcon, ProjectIcon } from "@/lib/icons";
 type DaySessionTimelineProps = {
   sessions: StudySession[];
   sessionTasks: Record<number, Task[]>;
+  sessionTaskErrors: Record<number, string>;
   taskList: Task[];
   totalSessionSeconds: number;
   now: number;
@@ -22,11 +24,13 @@ type DaySessionTimelineProps = {
   onTaskUpdated: (task: Task) => void;
   onSessionTasksChanged: (sessionId: number, tasks: Task[]) => void;
   onSessionTaskCreated: (sessionId: number, task: Task) => void;
+  onRetrySessionTasks: (sessionId: number) => void;
 };
 
 export function DaySessionTimeline({
   sessions,
   sessionTasks,
+  sessionTaskErrors,
   taskList,
   totalSessionSeconds,
   now,
@@ -34,6 +38,7 @@ export function DaySessionTimeline({
   onTaskUpdated,
   onSessionTasksChanged,
   onSessionTaskCreated,
+  onRetrySessionTasks,
 }: DaySessionTimelineProps) {
   const items = buildDaySessionTimeline(sessions, sessionTasks, now);
   const availableTasks = taskList.filter((task) => task.completed_at !== null || task.period_start === null);
@@ -78,15 +83,17 @@ export function DaySessionTimeline({
                 </div>
                 <div className="relative flex min-w-0 flex-col gap-2 pr-8">
                   <div className="absolute -top-1 right-0 opacity-100 transition-opacity duration-150 sm:opacity-0 sm:group-hover/session:opacity-100 sm:group-focus-within/session:opacity-100">
-                    <SessionEditorDialog
-                      session={session}
-                      tasks={completedTasks}
-                      availableTasks={availableTasks}
-                      onUpdated={onSessionUpdated}
-                      onTaskUpdated={onTaskUpdated}
-                      onTasksChanged={onSessionTasksChanged}
-                      onTaskCreated={onSessionTaskCreated}
-                    />
+                    {!sessionTaskErrors[session.id] && sessionTasks[session.id] && (
+                      <SessionEditorDialog
+                        session={session}
+                        tasks={completedTasks}
+                        availableTasks={availableTasks}
+                        onUpdated={onSessionUpdated}
+                        onTaskUpdated={onTaskUpdated}
+                        onTasksChanged={onSessionTasksChanged}
+                        onTaskCreated={onSessionTaskCreated}
+                      />
+                    )}
                   </div>
                   <LinkifiedText
                     text={session.description?.trim() || "No description recorded for this session."}
@@ -95,6 +102,12 @@ export function DaySessionTimeline({
                       ? "text-sm leading-relaxed whitespace-pre-wrap"
                       : "text-muted-foreground text-sm italic"}
                   />
+                  {sessionTaskErrors[session.id] && (
+                    <div className="border-destructive/30 bg-destructive/5 animate-in fade-in flex flex-wrap items-center gap-2 rounded-md border px-2.5 py-2 text-xs duration-200">
+                      <span className="text-destructive flex-1">{sessionTaskErrors[session.id]}</span>
+                      <Button type="button" variant="outline" size="xs" onClick={() => onRetrySessionTasks(session.id)}>Retry</Button>
+                    </div>
+                  )}
                   {completedTasks.length > 0 && (
                     <div className="flex flex-col gap-1.5">
                       <p className="text-muted-foreground text-xs font-medium">Completed in this session</p>

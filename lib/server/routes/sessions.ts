@@ -83,14 +83,20 @@ export async function sessionRoutes(request: NextRequest, parts: string[], userI
     if (taskPeriodStartInvalid) return taskPeriodStartInvalid;
     const startedAt = new Date().toISOString();
     try {
-      const result = await db.execute({
-        sql: "INSERT INTO sessions (user_id, started_at, description, project_id) VALUES (?, ?, ?, ?)",
-        args: [userId, startedAt, data.description as string | null ?? null, data.projectId == null ? null : Number(data.projectId)],
-      });
-      const sessionId = Number(result.lastInsertRowid);
       const uniqueTaskIds = new Set<number>();
       if (Array.isArray(data.taskIds)) for (const rawTaskId of data.taskIds) uniqueTaskIds.add(Number(rawTaskId));
-      for (const taskId of uniqueTaskIds) await db.execute({ sql: "INSERT INTO session_tasks (session_id, task_id) VALUES (?, ?)", args: [sessionId, taskId] });
+      const taskIds = Array.from(uniqueTaskIds);
+      const results = await db.batch([
+        {
+          sql: "INSERT INTO sessions (user_id, started_at, description, project_id) VALUES (?, ?, ?, ?)",
+          args: [userId, startedAt, data.description as string | null ?? null, data.projectId == null ? null : Number(data.projectId)],
+        },
+        ...(taskIds.length ? [{
+          sql: `INSERT INTO session_tasks (session_id, task_id) SELECT last_insert_rowid(), id FROM tasks WHERE id IN (${taskIds.map(() => "?").join(",")})`,
+          args: taskIds,
+        }] : []),
+      ], "write");
+      const sessionId = Number(results[0].lastInsertRowid);
       return NextResponse.json({ id: sessionId, startedAt }, { status: 201 });
     } catch (caught) {
       if (!uniqueActiveError(caught)) throw caught;
@@ -214,8 +220,13 @@ export async function sessionRoutes(request: NextRequest, parts: string[], userI
     return NextResponse.json({ id, endedAt: endedAt.toISOString(), durationSeconds, description: description ?? null, productionPercentage: data.productionPercentage ?? null });
   }
   if (request.method === "DELETE") {
-    const result = await db.execute({ sql: "DELETE FROM sessions WHERE id = ? AND user_id = ?", args: [id, userId] });
-    return result.rowsAffected ? noContent() : error("Session not found", 404);
+    const existing = await db.execute({ sql: "SELECT 1 FROM sessions WHERE id = ? AND user_id = ?", args: [id, userId] });
+    if (!existing.rows.length) return error("Session not found", 404);
+    await db.batch([
+      { sql: "DELETE FROM session_tasks WHERE session_id = ?", args: [id] },
+      { sql: "DELETE FROM sessions WHERE id = ? AND user_id = ?", args: [id, userId] },
+    ], "write");
+    return noContent();
   }
   if (request.method === "PATCH") return updateSession(request, id, userId);
   return error("Not found", 404);
@@ -258,15 +269,18 @@ async function updateSession(request: NextRequest, id: number, userId: number) {
   let attachedTasks: Record<string, unknown>[] | undefined;
   let changedTasks: Record<string, unknown>[] | undefined;
   try {
-    await db.execute({ sql: "UPDATE sessions SET description = ?, project_id = ?, started_at = ?, ended_at = ?, duration_seconds = ?, production_percentage = ? WHERE id = ? AND user_id = ?", args: [description as string | null ?? null, projectId ?? null, start.toISOString(), end?.toISOString() ?? null, durationSeconds, productionPercentage as number | null ?? null, id, userId] });
+    const statements = [
+      { sql: "UPDATE sessions SET description = ?, project_id = ?, started_at = ?, ended_at = ?, duration_seconds = ?, production_percentage = ? WHERE id = ? AND user_id = ?", args: [description as string | null ?? null, projectId ?? null, start.toISOString(), end?.toISOString() ?? null, durationSeconds, productionPercentage as number | null ?? null, id, userId] },
+    ];
     if (selectedTaskIds) {
       const backlogTaskIds = selectedTasks.filter((task) => task.completed_at === null).map((task) => task.id);
       if (backlogTaskIds.length) {
         const placeholders = backlogTaskIds.map(() => "?").join(",");
-        await db.execute({ sql: `UPDATE tasks SET completed_at = ?, period_start = ? WHERE user_id = ? AND id IN (${placeholders})`, args: [new Date().toISOString(), data.taskPeriodStart as string, userId, ...backlogTaskIds] });
+        statements.push({ sql: `UPDATE tasks SET completed_at = ?, period_start = ? WHERE user_id = ? AND id IN (${placeholders})`, args: [new Date().toISOString(), data.taskPeriodStart as string, userId, ...backlogTaskIds] });
       }
-      await db.execute({ sql: "DELETE FROM session_tasks WHERE session_id = ?", args: [id] });
-      for (const taskId of selectedTaskIds) await db.execute({ sql: "INSERT INTO session_tasks (session_id, task_id) VALUES (?, ?)", args: [id, taskId] });
+      statements.push({ sql: "DELETE FROM session_tasks WHERE session_id = ?", args: [id] });
+      for (const taskId of selectedTaskIds) statements.push({ sql: "INSERT INTO session_tasks (session_id, task_id) VALUES (?, ?)", args: [id, taskId] });
+      await db.batch(statements, "write");
       if (selectedTaskIds.length) {
         const placeholders = selectedTaskIds.map(() => "?").join(",");
         const authoritative = await db.execute({ sql: `SELECT id, period_start, project_id, title, description, completed_at FROM tasks WHERE user_id = ? AND id IN (${placeholders})`, args: [userId, ...selectedTaskIds] });
@@ -278,6 +292,8 @@ async function updateSession(request: NextRequest, id: number, userId: number) {
         attachedTasks = [];
         changedTasks = [];
       }
+    } else {
+      await db.batch(statements, "write");
     }
   } catch (caught) {
     if (!uniqueActiveError(caught)) throw caught;
@@ -286,6 +302,7 @@ async function updateSession(request: NextRequest, id: number, userId: number) {
   return NextResponse.json({
     id, description: description ?? null, projectId: projectId ?? null, startedAt: start.toISOString(), endedAt: end?.toISOString() ?? null, durationSeconds,
     productionPercentage: productionPercentage ?? null, pausedAt: session.paused_at ?? null, pausedSeconds,
+    activeSession: await activeSession(userId),
     ...(attachedTasks === undefined ? {} : { attachedTasks, changedTasks }),
   });
 }

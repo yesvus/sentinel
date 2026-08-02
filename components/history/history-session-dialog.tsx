@@ -35,7 +35,7 @@ export function HistorySessionDialog({
   onClose: () => void;
   onSaved: (updater: (list: StudySession[]) => StudySession[]) => void;
 }) {
-  const { notifySessionChanged } = useActiveSession();
+  const { updateSession } = useActiveSession();
   const [initial] = useState(() => {
     const now = new Date();
     return {
@@ -68,7 +68,7 @@ export function HistorySessionDialog({
     setBusy(true);
     try {
       if (session) {
-        const updated = await sessionsApi.update(session.id, {
+        const updated = await updateSession(session.id, {
           startedAt: startedAt.toISOString(),
           endedAt: endedAt?.toISOString() ?? null,
           projectId,
@@ -94,7 +94,6 @@ export function HistorySessionDialog({
             )
             .sort((a, b) => new Date(b.started_at).getTime() - new Date(a.started_at).getTime()),
         );
-        await notifySessionChanged().catch(() => {});
       } else {
         const created = await sessionsApi.createManual({
           startedAt: startedAt.toISOString(),

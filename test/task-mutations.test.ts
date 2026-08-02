@@ -24,4 +24,10 @@ describe("semantic task mutations", () => {
     expect(update).toHaveBeenNthCalledWith(1, 7, { periodStart: "2026-08-03" });
     expect(update).toHaveBeenNthCalledWith(2, 7, { sessionId: 4, periodStart: "2026-08-02" });
   });
+
+  it("defines moving to backlog as a single authoritative period change", async () => {
+    const update = vi.spyOn(tasksApi, "update").mockResolvedValue({ ...task(false), period_start: null });
+    await taskMutations.moveToBacklog(task(false));
+    expect(update).toHaveBeenCalledWith(7, { periodStart: null });
+  });
 });

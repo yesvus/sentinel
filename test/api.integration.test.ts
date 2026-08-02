@@ -384,6 +384,59 @@ describe("Next API", () => {
     expect((await request("GET", `sessions/${started.body.id}/tasks`, { cookie })).body).toEqual([]);
   });
 
+  it("treats every move to backlog as an authoritative session detach", async () => {
+    const cookie = await register("backlog-detach@example.test");
+    const started = await request("POST", "sessions/start", { cookie });
+    const task = await request("POST", "tasks", {
+      cookie,
+      body: { title: "Detach this", periodStart: "2026-08-02", sessionId: started.body.id },
+    });
+
+    const moved = await request("PATCH", `tasks/${task.body.id}`, {
+      cookie,
+      body: { periodStart: null },
+    });
+    expect(moved.body).toMatchObject({ id: task.body.id, period_start: null });
+    expect((await request("GET", `sessions/${started.body.id}/tasks`, { cookie })).body).toEqual([]);
+  });
+
+  it("rolls back task creation when attaching it fails", async () => {
+    const cookie = await register("atomic-create-attach@example.test");
+    const started = await request("POST", "sessions/start", { cookie });
+    await db.execute("CREATE TEMP TRIGGER fail_task_attach BEFORE INSERT ON session_tasks BEGIN SELECT RAISE(ABORT, 'attach failed'); END");
+    try {
+      const failed = await request("POST", "tasks", {
+        cookie,
+        body: { title: "Must roll back", periodStart: "2026-08-02", sessionId: started.body.id },
+      });
+      expect(failed.response.status).toBe(500);
+      expect((await request("GET", "tasks", { cookie })).body).toEqual([]);
+    } finally {
+      await db.execute("DROP TRIGGER fail_task_attach");
+    }
+  });
+
+  it("rolls back session and task changes when membership replacement fails", async () => {
+    const cookie = await register("atomic-session-membership@example.test");
+    const session = await request("POST", "sessions", {
+      cookie,
+      body: { startedAt: "2026-08-02T08:00:00.000Z", endedAt: "2026-08-02T09:00:00.000Z", description: "Original" },
+    });
+    const backlogTask = await request("POST", "tasks", { cookie, body: { title: "Still backlog" } });
+    await db.execute("CREATE TEMP TRIGGER fail_session_attach BEFORE INSERT ON session_tasks BEGIN SELECT RAISE(ABORT, 'membership failed'); END");
+    try {
+      const failed = await request("PATCH", `sessions/${session.body.id}`, {
+        cookie,
+        body: { description: "Must roll back", taskIds: [backlogTask.body.id], taskPeriodStart: "2026-08-02" },
+      });
+      expect(failed.response.status).toBe(500);
+      expect((await request("GET", "sessions", { cookie })).body[0].description).toBe("Original");
+      expect((await request("GET", "tasks", { cookie })).body[0]).toMatchObject({ completed_at: null, period_start: null });
+    } finally {
+      await db.execute("DROP TRIGGER fail_session_attach");
+    }
+  });
+
   it("attaches tasks created during an active session", async () => {
     const cookie = await register("active-session-task@example.test");
     const started = await request("POST", "sessions/start", { cookie });

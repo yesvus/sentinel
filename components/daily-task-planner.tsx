@@ -70,20 +70,22 @@ export function DailyTaskPlanner({
   }
 
   async function toggle(task: Task) {
+    setError(null);
     try {
       const updated = await setTaskCompletion(task);
       onUpdated(updated);
-    } catch {
-      // best-effort toggle, not worth surfacing an error for
+    } catch (err) {
+      setError(err instanceof ApiError ? err.message : "Couldn't update task");
     }
   }
 
   async function remove(id: number) {
+    setError(null);
     try {
       await taskMutations.remove(id);
       onDeleted(id);
-    } catch {
-      // best-effort; leave the task in place if the delete failed
+    } catch (err) {
+      setError(err instanceof ApiError ? err.message : "Couldn't delete task");
     }
   }
 
