@@ -6,11 +6,11 @@ import type { Project } from "@/lib/api";
 const projects: Project[] = [
   {
     id: 1, name: "Erasmus", path: "Erasmus", depth: 1, parentId: null,
-    icon: null, description: null, pinned: true, archived: false, lastUsedAt: null,
+    icon: null, description: null, resources: null, pinned: true, archived: false, sortOrder: 0, lastUsedAt: null,
   },
   {
     id: 2, name: "Authentication", path: "Erasmus / Authentication", depth: 2, parentId: 1,
-    icon: null, description: null, pinned: false, archived: false,
+    icon: null, description: null, resources: null, pinned: false, archived: false, sortOrder: 0,
     lastUsedAt: "2026-07-30T08:00:00.000Z",
   },
 ];
@@ -23,7 +23,7 @@ describe("ProjectSelector", () => {
     fireEvent.change(screen.getByRole("searchbox", { name: "Search projects" }), {
       target: { value: "auth" },
     });
-    fireEvent.click(screen.getByText("Erasmus / Authentication"));
+    fireEvent.click(screen.getByText("Authentication"));
     expect(onChange).toHaveBeenCalledWith(2);
   });
 });

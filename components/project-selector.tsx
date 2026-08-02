@@ -15,6 +15,7 @@ import {
 import { Input } from "@/components/ui/input";
 import type { Project } from "@/lib/api";
 import { ProjectIcon, NoProjectIcon } from "@/lib/icons";
+import { projectTreeWithMatches } from "@/lib/project-tree";
 
 export function ProjectSelector({
   projects,
@@ -36,31 +37,13 @@ export function ProjectSelector({
     () => projects.filter((project) => !project.archived || project.id === value),
     [projects, value],
   );
-  const matches = (project: Project) =>
-    project.path.toLowerCase().includes(search.trim().toLowerCase());
-  const pinned = active.filter((project) => project.pinned && matches(project));
-  const recent = active
-    .filter((project) => !project.pinned && project.lastUsedAt && matches(project))
-    .sort((a, b) => (b.lastUsedAt ?? "").localeCompare(a.lastUsedAt ?? ""))
-    .slice(0, 5);
-  const promoted = new Set([...pinned, ...recent].map((project) => project.id));
-  const hierarchy = active
-    .filter((project) => !promoted.has(project.id) && matches(project))
-    .sort((a, b) => a.path.localeCompare(b.path));
+  const hierarchy = useMemo(() => projectTreeWithMatches(active, search), [active, search]);
 
   const choose = (id: number | null) => {
     onChange(id);
     setOpen(false);
     setSearch("");
   };
-
-  const renderProject = (project: Project) => (
-    <DropdownMenuItem key={project.id} onClick={() => choose(project.id)}>
-      <ProjectIcon icon={project.icon} className="size-4" />
-      <span className="min-w-0 flex-1 truncate" title={project.path}>{project.path}</span>
-      <span className="sr-only">Level {project.depth}</span>
-    </DropdownMenuItem>
-  );
 
   return (
     <DropdownMenu open={open} onOpenChange={setOpen}>
@@ -84,7 +67,7 @@ export function ProjectSelector({
             ) : (
               <NoProjectIcon className="text-muted-foreground size-4 shrink-0" />
             )}
-            <span className="truncate">{selected?.path ?? "No project"}</span>
+            <span className="truncate" title={selected?.path}>{selected?.name ?? "No project"}</span>
           </span>
           <ChevronsUpDown className="text-muted-foreground" />
         </DropdownMenuTrigger>
@@ -108,25 +91,25 @@ export function ProjectSelector({
             No project
           </DropdownMenuItem>
         )}
-        {pinned.length > 0 && (
-          <DropdownMenuGroup>
-            <DropdownMenuLabel className="flex items-center gap-1.5"><Pin className="size-3" />Pinned</DropdownMenuLabel>
-            {pinned.map(renderProject)}
-          </DropdownMenuGroup>
-        )}
-        {recent.length > 0 && (
-          <DropdownMenuGroup>
-            <DropdownMenuLabel>Recent</DropdownMenuLabel>
-            {recent.map(renderProject)}
-          </DropdownMenuGroup>
-        )}
         {hierarchy.length > 0 && (
           <DropdownMenuGroup>
-            <DropdownMenuLabel>All projects</DropdownMenuLabel>
-            {hierarchy.map(renderProject)}
+            <DropdownMenuLabel>Project tree</DropdownMenuLabel>
+            {hierarchy.map(({ project, treeDepth }) => (
+              <DropdownMenuItem
+                key={project.id}
+                onClick={() => choose(project.id)}
+                style={{ paddingInlineStart: `${0.5 + treeDepth * 1.15}rem` }}
+              >
+                {treeDepth > 0 && <span className="text-border shrink-0" aria-hidden="true">└</span>}
+                <ProjectIcon icon={project.icon} className="size-4" />
+                <span className="min-w-0 flex-1 truncate" title={project.path}>{project.name}</span>
+                {project.pinned && <Pin className="text-muted-foreground" aria-label="Pinned" />}
+                <span className="sr-only">Level {treeDepth + 1}</span>
+              </DropdownMenuItem>
+            ))}
           </DropdownMenuGroup>
         )}
-        {pinned.length + recent.length + hierarchy.length === 0 && (
+        {hierarchy.length === 0 && (
           <p className="text-muted-foreground px-3 py-5 text-center text-sm" role="status">
             No matching projects.
           </p>

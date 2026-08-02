@@ -26,11 +26,13 @@ const project: Project = {
   name: "Thesis",
   icon: "book",
   description: "Research project",
+  resources: null,
   parentId: null,
   pinned: false,
   archived: false,
   path: "Thesis",
   depth: 1,
+  sortOrder: 0,
   lastUsedAt: null,
 };
 
