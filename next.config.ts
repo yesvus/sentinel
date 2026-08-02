@@ -12,7 +12,9 @@ const securityHeaders = [
       "frame-ancestors 'none'",
       "img-src 'self' data: blob:",
       "object-src 'none'",
-      "script-src 'self' 'unsafe-inline'",
+      process.env.NODE_ENV === "development"
+        ? "script-src 'self' 'unsafe-inline' 'unsafe-eval'"
+        : "script-src 'self' 'unsafe-inline'",
       "style-src 'self' 'unsafe-inline'",
     ].join("; "),
   },

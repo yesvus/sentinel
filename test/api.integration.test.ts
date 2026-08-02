@@ -44,7 +44,7 @@ async function register(email: string) {
 
 beforeEach(async () => {
   await ensureDb();
-  for (const table of ["auth_rate_limits", "auth_sessions", "weekly_reports", "social_notifications", "friendships", "notes", "sessions", "projects", "users"]) {
+  for (const table of ["auth_rate_limits", "auth_sessions", "weekly_reports", "social_notifications", "friendships", "notes", "session_tasks", "tasks", "sessions", "projects", "users"]) {
     await db.execute(`DELETE FROM ${table}`);
   }
 });
@@ -197,6 +197,45 @@ describe("Next API", () => {
     const projects = await request("GET", "projects", { cookie });
     expect(projects.body.filter((project: { archived: boolean }) => project.archived)).toHaveLength(3);
     expect((await request("DELETE", `projects/${root.body.id}`, { cookie })).response.status).toBe(409);
+  });
+
+  it("moves only past incomplete tasks into the backlog", async () => {
+    const cookie = await register("backlog@example.test");
+    const project = await request("POST", "projects", {
+      cookie,
+      body: { name: "Thesis" },
+    });
+    const past = await request("POST", "tasks", {
+      cookie,
+      body: { title: "Revise outline", periodStart: "2026-08-01", projectId: project.body.id },
+    });
+    const completed = await request("POST", "tasks", {
+      cookie,
+      body: { title: "Collect sources", periodStart: "2026-07-31", projectId: project.body.id },
+    });
+    await request("PATCH", `tasks/${completed.body.id}`, { cookie, body: { completed: true } });
+    await request("POST", "tasks", {
+      cookie,
+      body: { title: "Write introduction", periodStart: "2026-08-02", projectId: project.body.id },
+    });
+    await request("POST", "tasks", {
+      cookie,
+      body: { title: "Unscheduled reading", periodStart: null },
+    });
+
+    const moved = await request("POST", "tasks/backlog", {
+      cookie,
+      body: { before: "2026-08-02" },
+    });
+    const tasks = await request("GET", "tasks", { cookie });
+
+    expect(moved.response.status).toBe(200);
+    expect(moved.body.moved).toEqual([
+      expect.objectContaining({ id: past.body.id, period_start: null, project_id: project.body.id }),
+    ]);
+    expect(tasks.body.find((task: { id: number }) => task.id === past.body.id).period_start).toBeNull();
+    expect(tasks.body.find((task: { id: number }) => task.id === completed.body.id).period_start).toBe("2026-07-31");
+    expect(tasks.body.find((task: { title: string }) => task.title === "Write introduction").period_start).toBe("2026-08-02");
   });
 
   it("saves the final description when stopping a session", async () => {

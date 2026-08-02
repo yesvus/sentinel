@@ -223,6 +223,10 @@ export type Task = {
   completed_at: string | null;
 };
 
+export type MoveToBacklogResult = {
+  moved: Task[];
+};
+
 export const tasks = {
   list: () => api<Task[]>("/api/tasks"),
   create: (periodStart: string | null, title: string, projectId?: number | null) =>
@@ -232,6 +236,11 @@ export const tasks = {
     }),
   update: (id: number, details: { title?: string; projectId?: number | null; periodStart?: string | null; completed?: boolean }) =>
     api<Task>(`/api/tasks/${id}`, { method: "PATCH", body: JSON.stringify(details) }),
+  movePastToBacklog: (before: string) =>
+    api<MoveToBacklogResult>("/api/tasks/backlog", {
+      method: "POST",
+      body: JSON.stringify({ before }),
+    }),
   remove: (id: number) => api<void>(`/api/tasks/${id}`, { method: "DELETE" }),
 };
 
