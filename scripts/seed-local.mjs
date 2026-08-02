@@ -241,6 +241,20 @@ async function seed() {
     completedAt: null,
   });
   await ensureTask(userId, {
+    title: "Add usernames, public profiles, and session reactions",
+    description: "Expand the social layer with unique usernames, shareable public profiles, and lightweight reactions on user sessions.",
+    periodStart: null,
+    projectId: sentinelProjectId,
+    completedAt: null,
+  });
+  await ensureTask(userId, {
+    title: "Show current and longest streak on public profiles",
+    description: "Bring streak and longest-streak context into the profile experience as the social surface grows.",
+    periodStart: null,
+    projectId: sentinelProjectId,
+    completedAt: null,
+  });
+  await ensureTask(userId, {
     title: "Unfinished mobile review from yesterday",
     periodStart: yesterday,
     projectId: sentinelProjectId,
