@@ -54,7 +54,7 @@ export function PlanningPeriodStats({
   const weeklyScaleSeconds = Math.max(averageSeconds, ...weekDays.map((day) => day.seconds), 1);
 
   return (
-    <Card className={cn(period === "week" ? "h-72" : "h-60", className)}>
+    <Card className={cn(period === "week" ? "h-76" : "h-60", className)}>
       <CardHeader>
         <CardTitle className="flex items-center gap-1">
           {period === "day" ? "Day" : "Week"} activity
@@ -63,7 +63,7 @@ export function PlanningPeriodStats({
       </CardHeader>
       <CardContent className="min-h-0 flex-1 overflow-y-auto overflow-x-hidden">
         {period === "week" ? (
-          <div className="animate-in fade-in slide-in-from-bottom-1 duration-300">
+          <div className="animate-in fade-in duration-300">
             <div className="flex flex-wrap items-baseline justify-between gap-x-4 gap-y-1">
               <p className="whitespace-nowrap">
                 <span className="font-mono text-2xl font-medium tracking-tight tabular-nums">{formatDuration(averageSeconds)}</span>
@@ -75,7 +75,7 @@ export function PlanningPeriodStats({
               </span>
             </div>
 
-            <div className="mt-2 grid grid-cols-7 gap-2 text-center">
+            <div className="mt-2 grid grid-cols-7 gap-1 pr-8 text-center">
               {weekDays.map((day) => (
                 <span key={dayKey(day.date)} className="text-muted-foreground text-[10px] font-medium uppercase">
                   {day.date.toLocaleDateString(undefined, { weekday: "narrow" })}
@@ -83,16 +83,26 @@ export function PlanningPeriodStats({
               ))}
             </div>
             <div className="relative mt-1 h-16">
+              {[25, 50, 75].map((percent) => (
+                <span
+                  key={percent}
+                  className="border-border/60 pointer-events-none absolute right-8 left-0 border-t"
+                  style={{ bottom: `${percent}%` }}
+                  aria-hidden="true"
+                />
+              ))}
               <div
-                className="border-primary/60 pointer-events-none absolute right-0 left-0 z-10 border-t border-dashed"
+                className="border-primary/60 pointer-events-none absolute right-8 left-0 z-10 border-t border-dashed"
                 style={{ bottom: `${averageSeconds / weeklyScaleSeconds * 100}%` }}
                 aria-hidden="true"
-              />
-              <div className="absolute inset-0 grid grid-cols-7 gap-2">
+              >
+                <span className="bg-card text-primary absolute -top-2 left-full ml-1 px-0.5 text-[8px] font-medium uppercase">avg</span>
+              </div>
+              <div className="absolute top-0 right-8 bottom-0 left-0 grid grid-cols-7 gap-1">
                 {weekDays.map((day, dayIndex) => (
                   <div key={dayKey(day.date)} className="flex items-end justify-center">
                     <div
-                      className="animate-in slide-in-from-bottom flex w-7 flex-col-reverse overflow-hidden rounded-sm duration-500 fill-mode-both"
+                      className="activity-bar-grow flex w-6 flex-col-reverse overflow-hidden rounded-sm"
                       style={{
                         height: `${day.seconds / weeklyScaleSeconds * 100}%`,
                         animationDelay: `${dayIndex * 55}ms`,
@@ -124,18 +134,32 @@ export function PlanningPeriodStats({
               </div>
             </div>
 
-            <div className="mt-3 grid grid-cols-2 gap-x-5 gap-y-2 border-t pt-2 sm:grid-cols-4">
-              {breakdown.map((project, index) => (
-                <div key={project.key} className="min-w-0">
-                  <p className="truncate text-xs font-medium" style={{ color: PROJECT_COLORS[index % PROJECT_COLORS.length] }} title={project.name}>
-                    {project.name}
-                  </p>
-                  <p className="mt-0.5 font-mono text-xs tabular-nums">{formatDuration(project.seconds)}</p>
-                </div>
+            <div className="mt-1 grid grid-cols-7 gap-1 pr-8 text-center">
+              {weekDays.map((day) => (
+                <span
+                  key={dayKey(day.date)}
+                  className="text-muted-foreground font-mono text-[9px] leading-none tabular-nums"
+                  title={`${day.date.toLocaleDateString()}: ${formatDuration(day.seconds)}`}
+                >
+                  {day.seconds > 0 ? formatDuration(day.seconds) : "—"}
+                </span>
               ))}
-              <div className="min-w-0 sm:text-right">
-                <p className="text-muted-foreground text-xs">Weekly total</p>
-                <p className="mt-0.5 font-mono text-xs tabular-nums">{formatDuration(trackedSeconds)}</p>
+            </div>
+
+            <div className="mt-2 border-t pt-2">
+              <div className="scrollbar-thin flex gap-4 overflow-x-auto pb-1">
+                {breakdown.map((project, index) => (
+                  <div key={project.key} className="w-24 shrink-0">
+                    <p className="truncate text-xs font-medium" style={{ color: PROJECT_COLORS[index % PROJECT_COLORS.length] }} title={project.name}>
+                      {project.name}
+                    </p>
+                    <p className="mt-0.5 font-mono text-xs tabular-nums">{formatDuration(project.seconds)}</p>
+                  </div>
+                ))}
+              </div>
+              <div className="mt-2 flex items-center justify-between gap-4 border-t pt-2 text-xs">
+                <span className="text-muted-foreground">Weekly total</span>
+                <span className="font-mono tabular-nums">{formatDuration(trackedSeconds)}</span>
               </div>
             </div>
           </div>

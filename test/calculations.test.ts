@@ -2,6 +2,7 @@ import { describe, expect, it } from "vitest";
 import { sessionsToCsv } from "@/lib/export";
 import {
   activityStreak,
+  longestActivityStreak,
   dailyAllocationTotals,
   dailyTotals,
   medianCompletedSessionSeconds,
@@ -83,6 +84,7 @@ describe("statistics and exports", () => {
     };
     expect(medianCompletedSessionSeconds([session, second])).toBe(2700);
     expect(activityStreak([session, second], new Date("2026-07-30T12:00:00.000Z"))).toBe(2);
+    expect(longestActivityStreak([session, second])).toBe(2);
   });
 });
 

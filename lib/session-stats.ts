@@ -100,6 +100,25 @@ export function activityStreak(sessionList: StudySession[], now = new Date()) {
   return current;
 }
 
+export function longestActivityStreak(sessionList: StudySession[]) {
+  const activeDays = Array.from(new Set(
+    sessionList
+      .filter((session) => session.ended_at !== null)
+      .map((session) => dayKey(new Date(session.started_at))),
+  )).sort();
+  let longest = 0;
+  let current = 0;
+  let previous: Date | null = null;
+  for (const key of activeDays) {
+    const date = new Date(`${key}T00:00:00`);
+    const consecutive = previous !== null && Math.round((date.getTime() - previous.getTime()) / 86_400_000) === 1;
+    current = consecutive ? current + 1 : 1;
+    longest = Math.max(longest, current);
+    previous = date;
+  }
+  return longest;
+}
+
 export type WeekStats = {
   weekStart: Date;
   trackedSeconds: number;
