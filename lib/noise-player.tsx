@@ -2,7 +2,7 @@
 
 import { createContext, useCallback, useContext, useEffect, useRef, useState } from "react";
 import { useAuth } from "@/lib/auth-context";
-import type { FocusAudioType } from "@/lib/api";
+import { noiseUsage, type FocusAudioType } from "@/lib/api";
 
 const NOISE_CHANNEL = "sentinel-noise-sync";
 const SESSION_CHANNEL = "sentinel-session-sync";
@@ -71,11 +71,33 @@ export function NoisePlayerProvider({ children }: { children: React.ReactNode })
   const idRef = useRef("");
   const nodesRef = useRef<AudioNodes | null>(null);
   const channelRef = useRef<BroadcastChannel | null>(null);
+  const usageIdRef = useRef<number | null>(null);
+  const usageSequenceRef = useRef(0);
+
+  const stopUsage = useCallback((keepalive = false) => {
+    usageSequenceRef.current += 1;
+    const usageId = usageIdRef.current;
+    usageIdRef.current = null;
+    if (usageId !== null) void noiseUsage.stop(usageId, keepalive).catch(() => {});
+  }, []);
+
+  const startUsage = useCallback((audioType: FocusAudioType) => {
+    const sequence = usageSequenceRef.current + 1;
+    usageSequenceRef.current = sequence;
+    void noiseUsage.start(audioType).then(({ id }) => {
+      if (usageSequenceRef.current !== sequence || !nodesRef.current) {
+        void noiseUsage.stop(id, true).catch(() => {});
+        return;
+      }
+      usageIdRef.current = id;
+    }).catch(() => {});
+  }, []);
 
   const fadeOutLocal = useCallback(() => {
     const nodes = nodesRef.current;
     if (!nodes) return;
     nodesRef.current = null;
+    stopUsage();
     const now = nodes.context.currentTime;
     nodes.gain.gain.cancelScheduledValues(now);
     nodes.gain.gain.setValueAtTime(nodes.gain.gain.value, now);
@@ -86,7 +108,7 @@ export function NoisePlayerProvider({ children }: { children: React.ReactNode })
       }
       void nodes.context.close();
     }, 450);
-  }, []);
+  }, [stopUsage]);
 
   const startLocal = useCallback(() => {
     if (nodesRef.current) return;
@@ -154,8 +176,9 @@ export function NoisePlayerProvider({ children }: { children: React.ReactNode })
     const now = context.currentTime;
     gain.gain.linearRampToValueAtTime(volumeRef.current * level, now + 0.5);
     nodesRef.current = { context, sources, gain, level };
+    startUsage(sound);
     void context.resume();
-  }, []);
+  }, [startUsage]);
 
   const claimAndStart = useCallback(() => {
     const owner = { id: idRef.current, heartbeat: Date.now() };
@@ -228,6 +251,7 @@ export function NoisePlayerProvider({ children }: { children: React.ReactNode })
         } | null;
         if (owner?.id === idRef.current) localStorage.removeItem(OWNER_KEY);
       } catch {}
+      stopUsage(true);
     };
 
     window.addEventListener("pointerdown", resumeAudio);
@@ -264,7 +288,7 @@ export function NoisePlayerProvider({ children }: { children: React.ReactNode })
       channelRef.current = null;
       fadeOutLocal();
     };
-  }, [claimAndStart, fadeOutLocal, startLocal]);
+  }, [claimAndStart, fadeOutLocal, startLocal, stopUsage]);
 
   useEffect(() => {
     const next = user?.focusAudioType ?? "speech-blocker";
@@ -283,12 +307,12 @@ export function NoisePlayerProvider({ children }: { children: React.ReactNode })
     if (!user?.autoStartNoise) return;
     const sessionChannel = new BroadcastChannel(SESSION_CHANNEL);
     const onSession = (event: MessageEvent) => {
-      if (event.data?.type === "started") setPlaying(true);
-      if (event.data?.type === "stopped") stop();
+      if (event.data?.type === "started" || event.data?.type === "resumed") setPlaying(true);
+      if (event.data?.type === "stopped" || event.data?.type === "paused") stop();
     };
     const onLocalSession = (event: Event) => {
-      const action = (event as CustomEvent<"started" | "stopped">).detail;
-      if (action === "started") claimAndStart();
+      const action = (event as CustomEvent<"started" | "stopped" | "paused" | "resumed">).detail;
+      if (action === "started" || action === "resumed") claimAndStart();
       else stop();
     };
     sessionChannel.addEventListener("message", onSession);
@@ -315,6 +339,14 @@ export function NoisePlayerProvider({ children }: { children: React.ReactNode })
     }, 2000);
     return () => window.clearInterval(timer);
   }, [claimAndStart]);
+
+  useEffect(() => {
+    const timer = window.setInterval(() => {
+      const usageId = usageIdRef.current;
+      if (usageId !== null && nodesRef.current) void noiseUsage.heartbeat(usageId).catch(() => {});
+    }, 30_000);
+    return () => window.clearInterval(timer);
+  }, []);
 
   return (
     <NoiseContext.Provider value={{ playing, volume, setVolume, start, stop, toggle: playing ? stop : start }}>

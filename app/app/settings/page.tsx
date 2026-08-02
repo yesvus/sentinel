@@ -87,6 +87,19 @@ export default function SettingsPage() {
     }
   }
 
+  async function updatePauseTimeout(minutes: number) {
+    setSavingSessionDefault(true);
+    setError(null);
+    try {
+      await auth.updateSessionSettings({ sessionPauseTimeoutMinutes: minutes });
+      await refresh();
+    } catch (err) {
+      setError(err instanceof ApiError ? err.message : "Could not save pause timeout");
+    } finally {
+      setSavingSessionDefault(false);
+    }
+  }
+
   async function updateWeeklyReminder(details: { day?: number; hour?: number }) {
     setSavingSessionDefault(true);
     setError(null);
@@ -218,9 +231,28 @@ export default function SettingsPage() {
           )}
           <div className="space-y-2 border-t pt-4">
             <div>
+              <p className="text-sm font-medium">Paused session timeout</p>
+              <p className="text-muted-foreground text-sm">
+                End a session after a real interruption stays paused this long. Paused time is never counted as work.
+              </p>
+            </div>
+            <select
+              value={user?.sessionPauseTimeoutMinutes ?? 30}
+              onChange={(event) => updatePauseTimeout(Number(event.target.value))}
+              disabled={savingSessionDefault}
+              aria-label="Paused session timeout"
+              className="border-input bg-background h-9 rounded-md border px-3 text-sm transition-colors duration-150"
+            >
+              {[5, 10, 15, 30, 45, 60, 90, 120, 180].map((minutes) => (
+                <option key={minutes} value={minutes}>{minutes} minutes</option>
+              ))}
+            </select>
+          </div>
+          <div className="space-y-2 border-t pt-4">
+            <div>
               <p className="text-sm font-medium">Daily planning reminder</p>
               <p className="text-muted-foreground text-sm">
-                A soft nudge on the Plan tab after this time if tomorrow isn&apos;t planned yet. It&apos;s just a
+                A soft nudge on the Calendar tab after this time if tomorrow isn&apos;t planned yet. It&apos;s just a
                 reminder — nothing is blocked.
               </p>
             </div>

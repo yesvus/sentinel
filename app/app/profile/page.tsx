@@ -1,13 +1,24 @@
 "use client";
 
-import { useState, FormEvent } from "react";
+import { useEffect, useState, FormEvent } from "react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Textarea } from "@/components/ui/textarea";
-import { UserRound, KeyRound, Sparkles } from "lucide-react";
+import { UserRound, KeyRound, Sparkles, Target } from "lucide-react";
 import { Card, CardHeader, CardTitle, CardContent } from "@/components/ui/card";
-import { auth, ApiError } from "@/lib/api";
+import { Skeleton } from "@/components/ui/skeleton";
+import { ActivityHeatmap } from "@/components/activity-heatmap";
+import { NoteFocusCard } from "@/components/note-focus-card";
+import {
+  auth,
+  ApiError,
+  LONG_TERM_NOTE_KEY,
+  Note,
+  StudySession,
+  notes as notesApi,
+  sessions as sessionsApi,
+} from "@/lib/api";
 import { useAuth } from "@/lib/auth-context";
 import { Avatar, AVATAR_ICONS, AvatarIconKey } from "@/lib/icons";
 
@@ -27,6 +38,28 @@ export default function ProfilePage() {
   const [savingPlanContext, setSavingPlanContext] = useState(false);
   const [planContextError, setPlanContextError] = useState<string | null>(null);
   const [planContextSaved, setPlanContextSaved] = useState(false);
+  const [activitySessions, setActivitySessions] = useState<StudySession[]>([]);
+  const [longTermNote, setLongTermNote] = useState<Note | undefined>();
+  const [insightsLoading, setInsightsLoading] = useState(true);
+  const [now, setNow] = useState(() => Date.now());
+
+  useEffect(() => {
+    const from = new Date();
+    from.setHours(0, 0, 0, 0);
+    from.setDate(from.getDate() - 97);
+    Promise.all([sessionsApi.list({ from: from.toISOString() }), notesApi.list()])
+      .then(([sessionList, noteList]) => {
+        setActivitySessions(sessionList);
+        setLongTermNote(noteList.find((note) => note.scope === "long-term" && note.date_key === LONG_TERM_NOTE_KEY));
+      })
+      .finally(() => setInsightsLoading(false));
+  }, []);
+
+  useEffect(() => {
+    if (!activitySessions.some((session) => session.ended_at === null)) return;
+    const interval = window.setInterval(() => setNow(Date.now()), 1000);
+    return () => window.clearInterval(interval);
+  }, [activitySessions]);
 
   async function handleSaveProfile(e: FormEvent) {
     e.preventDefault();
@@ -88,8 +121,32 @@ export default function ProfilePage() {
   }
 
   return (
-    <div className="mx-auto w-full max-w-5xl space-y-2">
+    <div className="animate-in fade-in mx-auto w-full max-w-5xl space-y-8 duration-500 fill-mode-both">
       <p className="text-muted-foreground text-sm">{user?.email}</p>
+
+      {insightsLoading ? (
+        <div className="grid gap-8 lg:grid-cols-[minmax(0,1.4fr)_minmax(18rem,0.6fr)]">
+          <Card><CardHeader><Skeleton className="h-5 w-28" /></CardHeader><CardContent><Skeleton className="h-32 w-full" /></CardContent></Card>
+          <Card><CardHeader><Skeleton className="h-5 w-36" /></CardHeader><CardContent><Skeleton className="h-20 w-full" /></CardContent></Card>
+        </div>
+      ) : (
+        <div className="animate-in fade-in slide-in-from-bottom-1 grid items-start gap-8 duration-300 lg:grid-cols-[minmax(0,1.4fr)_minmax(18rem,0.6fr)]">
+          <ActivityHeatmap sessions={activitySessions} now={now} />
+          <NoteFocusCard
+            icon={<Target className="text-muted-foreground size-4" />}
+            title="Long-term goals"
+            scope="long-term"
+            dateKey={LONG_TERM_NOTE_KEY}
+            note={longTermNote}
+            emptyText="Where are you trying to get to? Click to add goals."
+            placeholder="Where are you trying to get to? e.g. Get Sentinel to 100 active users, get comfortable with Rust..."
+            dialogTitle="Long-term goals"
+            dialogDescription="Standing goals — not tied to any week. Shown as context in every AI review."
+            onSaved={setLongTermNote}
+            onDeleted={() => setLongTermNote(undefined)}
+          />
+        </div>
+      )}
 
       <div className="grid gap-8 md:grid-cols-2">
         <Card>
