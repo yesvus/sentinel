@@ -1,14 +1,17 @@
 "use client";
 
 import { useState, FormEvent } from "react";
-import { Inbox, Pencil, Plus, Trash2 } from "lucide-react";
+import { Inbox, Plus, Trash2 } from "lucide-react";
+import { ProjectCreatorPopover } from "@/components/project-creator-popover";
+import { LinkifiedText } from "@/components/linkified-text";
+import { TaskEditorPopover } from "@/components/task-editor-popover";
 import { Button } from "@/components/ui/button";
 import { Checkbox } from "@/components/ui/checkbox";
 import { Input } from "@/components/ui/input";
 import { Spinner } from "@/components/ui/spinner";
 import { ProjectSelector } from "@/components/project-selector";
 import { ProjectIcon, NoProjectIcon } from "@/lib/icons";
-import { tasks as tasksApi, projects as projectsApi, ApiError, Task, Project } from "@/lib/api";
+import { tasks as tasksApi, ApiError, Task, Project } from "@/lib/api";
 import { cn } from "@/lib/utils";
 
 const NO_PROJECT_KEY = "none";
@@ -37,11 +40,6 @@ export function DailyTaskPlanner({
   const [title, setTitle] = useState("");
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
-  const [editingId, setEditingId] = useState<number | null>(null);
-  const [editTitle, setEditTitle] = useState("");
-  const [creatingProject, setCreatingProject] = useState(false);
-  const [newProjectName, setNewProjectName] = useState("");
-  const [creatingBusy, setCreatingBusy] = useState(false);
   const [backlogBusyId, setBacklogBusyId] = useState<number | null>(null);
   const [leavingId, setLeavingId] = useState<number | null>(null);
 
@@ -61,24 +59,6 @@ export function DailyTaskPlanner({
     }
   }
 
-  async function handleCreateProject(e: FormEvent) {
-    e.preventDefault();
-    if (!newProjectName.trim()) return;
-    setCreatingBusy(true);
-    setError(null);
-    try {
-      const created = await projectsApi.create(newProjectName.trim());
-      onProjectCreated(created);
-      setAddProjectId(created.id);
-      setNewProjectName("");
-      setCreatingProject(false);
-    } catch (err) {
-      setError(err instanceof ApiError ? err.message : "Couldn't create project");
-    } finally {
-      setCreatingBusy(false);
-    }
-  }
-
   async function scheduleFromBacklog(task: Task) {
     try {
       const updated = await tasksApi.update(task.id, { periodStart });
@@ -91,25 +71,15 @@ export function DailyTaskPlanner({
   async function toggle(task: Task) {
     try {
       const updated = await tasksApi.update(task.id, { completed: task.completed_at === null });
+      if (updated.completed_at !== null) {
+        setLeavingId(task.id);
+        await new Promise((resolve) => window.setTimeout(resolve, 160));
+      }
       onUpdated(updated);
+      setLeavingId(null);
     } catch {
+      setLeavingId(null);
       // best-effort toggle, not worth surfacing an error for
-    }
-  }
-
-  function startEdit(task: Task) {
-    setEditingId(task.id);
-    setEditTitle(task.title);
-  }
-
-  async function saveEdit(task: Task) {
-    if (!editTitle.trim()) return;
-    try {
-      const updated = await tasksApi.update(task.id, { title: editTitle.trim() });
-      onUpdated(updated);
-      setEditingId(null);
-    } catch {
-      // leave the row in edit mode so the user can retry
     }
   }
 
@@ -138,6 +108,13 @@ export function DailyTaskPlanner({
     }
   }
 
+  async function finishMoveToBacklog(task: Task) {
+    setLeavingId(task.id);
+    await new Promise((resolve) => window.setTimeout(resolve, 160));
+    onUpdated(task);
+    setLeavingId(null);
+  }
+
   const groups = new Map<string, { project: Project | null; tasks: Task[] }>();
   for (const task of tasks) {
     const project = projects.find((p) => p.id === task.project_id) ?? null;
@@ -153,52 +130,32 @@ export function DailyTaskPlanner({
 
   return (
     <div className="space-y-4">
-      {creatingProject ? (
-        <form className="bg-muted/40 flex gap-2 rounded-md p-2" onSubmit={handleCreateProject}>
-          <Input
-            autoFocus
-            value={newProjectName}
-            onChange={(e) => setNewProjectName(e.target.value)}
-            placeholder="New project name"
-            className="min-w-0 flex-1"
+      <form className="flex gap-2" onSubmit={handleAdd}>
+        <div className="w-32 shrink-0 sm:w-36">
+          <ProjectSelector
+            projects={projects}
+            value={addProjectId}
+            onChange={setAddProjectId}
           />
-          <Button type="submit" size="sm" disabled={creatingBusy}>
-            {creatingBusy ? "Adding..." : "Add"}
-          </Button>
-          <Button
-            type="button"
-            size="sm"
-            variant="ghost"
-            onClick={() => {
-              setCreatingProject(false);
-              setNewProjectName("");
-            }}
-          >
-            Cancel
-          </Button>
-        </form>
-      ) : (
-        <form className="flex gap-2" onSubmit={handleAdd}>
-          <div className="w-32 shrink-0 sm:w-36">
-            <ProjectSelector
-              projects={projects}
-              value={addProjectId}
-              onChange={setAddProjectId}
-              onCreate={() => setCreatingProject(true)}
-            />
-          </div>
-          <Input
-            value={title}
-            onChange={(e) => setTitle(e.target.value)}
-            placeholder="Task title"
-            className="min-w-0 flex-1"
-          />
-          <Button type="submit" disabled={busy} size="icon" className="shrink-0" aria-label="Add task">
-            <Plus className="size-4" />
-          </Button>
-        </form>
-      )}
-      {!creatingProject && (() => {
+        </div>
+        <Input
+          value={title}
+          onChange={(e) => setTitle(e.target.value)}
+          placeholder="Task title"
+          className="min-w-0 flex-1"
+        />
+        <Button type="submit" disabled={busy} size="icon" className="shrink-0" aria-label="Add task">
+          <Plus className="size-4" />
+        </Button>
+      </form>
+      <ProjectCreatorPopover
+        compact
+        onCreated={(project) => {
+          onProjectCreated(project);
+          setAddProjectId(project.id);
+        }}
+      />
+      {(() => {
         const suggestions = backlogTasks.filter((task) => task.project_id === addProjectId);
         if (!suggestions.length) return null;
         return (
@@ -236,7 +193,7 @@ export function DailyTaskPlanner({
               ) : (
                 <NoProjectIcon className="size-3.5 shrink-0" />
               )}
-              <span className="truncate">{project?.path ?? "No project"}</span>
+              <span className="truncate" title={project?.path}>{project?.name ?? "No project"}</span>
             </div>
             <div className="space-y-1 pl-1">
               {groupTasks.map((task) => (
@@ -247,55 +204,51 @@ export function DailyTaskPlanner({
                     leavingId === task.id && "animate-out fade-out slide-out-to-right-2 fill-mode-forwards",
                   )}
                 >
-                  {editingId === task.id ? (
-                    <div className="flex flex-1 items-center gap-2" onClick={(e) => e.stopPropagation()}>
-                      <Input autoFocus value={editTitle} onChange={(e) => setEditTitle(e.target.value)} className="flex-1" />
-                      <Button size="sm" type="button" onClick={() => saveEdit(task)}>
-                        Save
+                  <Checkbox
+                    checked={task.completed_at !== null}
+                    onCheckedChange={() => toggle(task)}
+                    className="mt-0.5"
+                    aria-label={`Mark "${task.title}" done`}
+                  />
+                  <div className="flex min-w-0 flex-1 flex-col gap-0.5">
+                    <span className={cn(
+                      "text-sm break-words transition-[color,text-decoration-color] duration-200",
+                      task.completed_at && "text-muted-foreground line-through",
+                    )}>
+                      {task.title}
+                    </span>
+                    {task.description && (
+                      <LinkifiedText text={task.description} as="p" className="text-muted-foreground line-clamp-2 text-xs leading-relaxed" />
+                    )}
+                  </div>
+                  <div className="bg-card absolute top-1 right-1 flex shrink-0 gap-1 rounded-md opacity-100 transition-opacity duration-150 sm:opacity-0 sm:group-hover:opacity-100 sm:group-focus-within:opacity-100">
+                    {!task.completed_at && (
+                      <Button
+                        variant="ghost"
+                        size="icon-xs"
+                        aria-label={`Move "${task.title}" to backlog`}
+                        title="Move to backlog"
+                        disabled={backlogBusyId === task.id}
+                        onClick={() => moveToBacklog(task)}
+                      >
+                        {backlogBusyId === task.id ? <Spinner /> : <Inbox />}
                       </Button>
-                      <Button size="sm" type="button" variant="ghost" onClick={() => setEditingId(null)}>
-                        Cancel
-                      </Button>
-                    </div>
-                  ) : (
-                    <>
-                      <Checkbox
-                        checked={task.completed_at !== null}
-                        onCheckedChange={() => toggle(task)}
-                        className="mt-0.5"
-                        aria-label={`Mark "${task.title}" done`}
-                      />
-                      <span className={`min-w-0 flex-1 text-sm break-words ${task.completed_at ? "text-muted-foreground line-through" : ""}`}>
-                        {task.title}
-                      </span>
-                      <div className="bg-card absolute top-1/2 right-1 flex shrink-0 -translate-y-1/2 gap-1 rounded-md opacity-100 transition-opacity duration-150 sm:opacity-0 sm:group-hover:opacity-100 sm:group-focus-within:opacity-100">
-                        {!task.completed_at && (
-                          <Button
-                            variant="ghost"
-                            size="icon-xs"
-                            aria-label={`Move "${task.title}" to backlog`}
-                            title="Move to backlog"
-                            disabled={backlogBusyId === task.id}
-                            onClick={() => moveToBacklog(task)}
-                          >
-                            {backlogBusyId === task.id ? <Spinner /> : <Inbox />}
-                          </Button>
-                        )}
-                        <Button variant="ghost" size="icon-xs" aria-label="Edit task" onClick={() => startEdit(task)}>
-                          <Pencil />
-                        </Button>
-                        <Button
-                          variant="ghost"
-                          size="icon-xs"
-                          className="text-destructive hover:text-destructive"
-                          aria-label="Delete task"
-                          onClick={() => remove(task.id)}
-                        >
-                          <Trash2 />
-                        </Button>
-                      </div>
-                    </>
-                  )}
+                    )}
+                    <TaskEditorPopover
+                      task={task}
+                      onUpdated={onUpdated}
+                      onMovedToBacklog={finishMoveToBacklog}
+                    />
+                    <Button
+                      variant="ghost"
+                      size="icon-xs"
+                      className="text-destructive hover:text-destructive"
+                      aria-label="Delete task"
+                      onClick={() => remove(task.id)}
+                    >
+                      <Trash2 />
+                    </Button>
+                  </div>
                 </div>
               ))}
             </div>

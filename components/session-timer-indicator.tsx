@@ -7,6 +7,7 @@ import { sessions, StudySession } from "@/lib/api";
 import { ProjectIcon, NoProjectIcon } from "@/lib/icons";
 import { DropdownMenu, DropdownMenuContent, DropdownMenuTrigger } from "@/components/ui/dropdown-menu";
 import { BROADCAST_CHANNEL_NAME, SessionBroadcastMessage } from "@/lib/session-sync";
+import { LinkifiedText } from "@/components/linkified-text";
 
 function formatElapsed(ms: number) {
   const totalSeconds = Math.floor(ms / 1000);
@@ -118,7 +119,7 @@ export function SessionTimerIndicator() {
           </div>
           <p className="font-mono text-3xl font-medium tabular-nums">{formatElapsed(elapsedMs)}</p>
           {active.description && (
-            <p className="text-muted-foreground line-clamp-3 text-sm whitespace-pre-wrap">{active.description}</p>
+            <LinkifiedText text={active.description} as="p" className="text-muted-foreground line-clamp-3 text-sm" />
           )}
           <Link href="/app" className="text-primary block pt-1 text-xs font-medium hover:underline">
             Go to timer →

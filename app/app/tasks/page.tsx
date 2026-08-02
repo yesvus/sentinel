@@ -1,7 +1,10 @@
 "use client";
 
 import { FormEvent, useEffect, useMemo, useState } from "react";
-import { Inbox, Pencil, Plus, RotateCcw, Trash2 } from "lucide-react";
+import { Inbox, Plus, RotateCcw, Trash2 } from "lucide-react";
+import { TaskEditorPopover } from "@/components/task-editor-popover";
+import { HelpTooltip } from "@/components/help-tooltip";
+import { LinkifiedText } from "@/components/linkified-text";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Card, CardAction, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
@@ -47,10 +50,6 @@ export default function TasksPage() {
   const [creating, setCreating] = useState(false);
   const [createError, setCreateError] = useState<string | null>(null);
   const [moving, setMoving] = useState(false);
-  const [editingId, setEditingId] = useState<number | null>(null);
-  const [editTitle, setEditTitle] = useState("");
-  const [editProjectId, setEditProjectId] = useState<number | null>(null);
-  const [savingId, setSavingId] = useState<number | null>(null);
   const [togglingId, setTogglingId] = useState<number | null>(null);
   const [removingIds, setRemovingIds] = useState<number[]>([]);
   const [recentIds, setRecentIds] = useState<number[]>([]);
@@ -146,31 +145,8 @@ export default function TasksPage() {
     }
   }
 
-  function startEditing(task: Task) {
-    setEditingId(task.id);
-    setEditTitle(task.title);
-    setEditProjectId(task.project_id);
-  }
-
-  async function saveTask(task: Task) {
-    if (!editTitle.trim()) return;
-    setSavingId(task.id);
-    try {
-      const updated = await tasksApi.update(task.id, {
-        title: editTitle.trim(),
-        projectId: editProjectId,
-      });
-      setTaskList((current) => current.map((item) => item.id === task.id ? updated : item));
-      setEditingId(null);
-    } catch (error) {
-      toast.add({
-        id: `backlog-save-error-${task.id}`,
-        type: "error",
-        title: error instanceof ApiError ? error.message : "Could not save task.",
-      });
-    } finally {
-      setSavingId(null);
-    }
+  function updateTask(updated: Task) {
+    setTaskList((current) => current.map((item) => item.id === updated.id ? updated : item));
   }
 
   async function toggleTask(task: Task) {
@@ -229,11 +205,9 @@ export default function TasksPage() {
         <div className="flex flex-col gap-1">
           <div className="flex items-center gap-2">
             <h2 className="text-xl font-semibold">Tasks</h2>
+            <HelpTooltip>Backlog holds every task without a date. Pull one into a day when you are ready.</HelpTooltip>
             <Badge variant="secondary">{openTaskCount} open</Badge>
           </div>
-          <p className="text-muted-foreground text-sm">
-            Backlog holds every task without a date. Pull one into a day when you are ready.
-          </p>
         </div>
 
         {pastUndoneTasks.length > 0 ? (
@@ -268,8 +242,10 @@ export default function TasksPage() {
 
       <Card>
         <CardHeader>
-          <CardTitle>Add to backlog</CardTitle>
-          <CardDescription>Create an undated task. Its project stays optional.</CardDescription>
+          <CardTitle className="flex items-center gap-1">
+            Add to backlog
+            <HelpTooltip>Create an undated task. Its project stays optional.</HelpTooltip>
+          </CardTitle>
         </CardHeader>
         <CardContent>
           <form onSubmit={createTask}>
@@ -303,9 +279,9 @@ export default function TasksPage() {
 
       <section className="flex flex-col gap-3" aria-labelledby="backlog-heading">
         <div className="flex items-end justify-between gap-3">
-          <div className="flex flex-col gap-0.5">
+          <div className="flex items-center gap-1">
             <h3 id="backlog-heading" className="font-medium">Backlog</h3>
-            <p className="text-muted-foreground text-sm">Undated tasks, grouped by project.</p>
+            <HelpTooltip>Undated tasks, grouped by project.</HelpTooltip>
           </div>
           <Badge variant="outline">{backlogTasks.length} total</Badge>
         </div>
@@ -333,7 +309,7 @@ export default function TasksPage() {
                   <CardTitle className="flex min-w-0 items-center gap-2">
                     {group.project ? <ProjectIcon icon={group.project.icon} /> : <NoProjectIcon />}
                     <span className="truncate" title={group.project?.path ?? "No project"}>
-                      {group.project?.path ?? "No project"}
+                      {group.project?.name ?? "No project"}
                     </span>
                   </CardTitle>
                   <CardDescription>
@@ -355,80 +331,46 @@ export default function TasksPage() {
                           removing && "animate-out fade-out slide-out-to-right-2 pointer-events-none duration-150 fill-mode-forwards",
                         )}
                       >
-                        {editingId === task.id ? (
-                          <form className="min-w-0 flex-1" onSubmit={(event) => { event.preventDefault(); void saveTask(task); }}>
-                            <FieldGroup className="gap-2">
-                              <Field>
-                                <FieldLabel htmlFor={`backlog-edit-${task.id}`} className="sr-only">Task title</FieldLabel>
-                                <Input
-                                  id={`backlog-edit-${task.id}`}
-                                  autoFocus
-                                  value={editTitle}
-                                  onChange={(event) => setEditTitle(event.target.value)}
-                                  disabled={savingId === task.id}
-                                />
-                              </Field>
-                              <Field>
-                                <FieldLabel className="sr-only">Project</FieldLabel>
-                                <ProjectSelector
-                                  projects={projectList}
-                                  value={editProjectId}
-                                  onChange={setEditProjectId}
-                                  disabled={savingId === task.id}
-                                />
-                              </Field>
-                              <div className="flex justify-end gap-2">
-                                <Button type="button" variant="ghost" size="sm" onClick={() => setEditingId(null)} disabled={savingId === task.id}>
-                                  Cancel
-                                </Button>
-                                <Button type="submit" size="sm" disabled={savingId === task.id || !editTitle.trim()}>
-                                  {savingId === task.id && <Spinner data-icon="inline-start" />}
-                                  {savingId === task.id ? "Saving..." : "Save"}
-                                </Button>
-                              </div>
-                            </FieldGroup>
-                          </form>
-                        ) : (
-                          <>
-                            <Checkbox
-                              className="mt-0.5"
-                              checked={completed}
-                              onCheckedChange={() => toggleTask(task)}
-                              disabled={togglingId === task.id}
-                              aria-label={completed ? `Mark "${task.title}" not done` : `Mark "${task.title}" done`}
-                            />
-                            <span className={cn(
-                              "min-w-0 flex-1 text-sm break-words transition-[color,opacity,text-decoration-color] duration-200",
-                              completed && "text-muted-foreground line-through",
-                            )}>
-                              {task.title}
-                            </span>
-                            <div className="flex shrink-0 gap-1 opacity-100 transition-opacity duration-150 sm:opacity-0 sm:group-hover/task:opacity-100 sm:group-focus-within/task:opacity-100">
-                              <Button variant="ghost" size="icon-xs" aria-label={`Edit ${task.title}`} onClick={() => startEditing(task)}>
-                                <Pencil />
-                              </Button>
-                              <AlertDialog>
-                                <AlertDialogTrigger
-                                  render={<Button variant="ghost" size="icon-xs" aria-label={`Delete ${task.title}`} className="text-destructive hover:text-destructive" />}
-                                >
-                                  <Trash2 />
-                                </AlertDialogTrigger>
-                                <AlertDialogContent size="sm">
-                                  <AlertDialogHeader>
-                                    <AlertDialogTitle>Delete this task?</AlertDialogTitle>
-                                    <AlertDialogDescription>
-                                      “{task.title}” will be permanently removed.
-                                    </AlertDialogDescription>
-                                  </AlertDialogHeader>
-                                  <AlertDialogFooter>
-                                    <AlertDialogCancel>Cancel</AlertDialogCancel>
-                                    <AlertDialogAction variant="destructive" onClick={() => removeTask(task)}>Delete</AlertDialogAction>
-                                  </AlertDialogFooter>
-                                </AlertDialogContent>
-                              </AlertDialog>
-                            </div>
-                          </>
-                        )}
+                        <Checkbox
+                          className="mt-0.5"
+                          checked={completed}
+                          onCheckedChange={() => toggleTask(task)}
+                          disabled={togglingId === task.id}
+                          aria-label={completed ? `Mark "${task.title}" not done` : `Mark "${task.title}" done`}
+                        />
+                        <div className="flex min-w-0 flex-1 flex-col gap-0.5">
+                          <span className={cn(
+                            "text-sm break-words transition-[color,opacity,text-decoration-color] duration-200",
+                            completed && "text-muted-foreground line-through",
+                          )}>
+                            {task.title}
+                          </span>
+                          {task.description && (
+                            <LinkifiedText text={task.description} as="p" className="text-muted-foreground line-clamp-2 text-xs leading-relaxed" />
+                          )}
+                        </div>
+                        <div className="flex shrink-0 gap-1 opacity-100 transition-opacity duration-150 sm:opacity-0 sm:group-hover/task:opacity-100 sm:group-focus-within/task:opacity-100">
+                          <TaskEditorPopover task={task} onUpdated={updateTask} />
+                          <AlertDialog>
+                            <AlertDialogTrigger
+                              render={<Button variant="ghost" size="icon-xs" aria-label={`Delete ${task.title}`} className="text-destructive hover:text-destructive" />}
+                            >
+                              <Trash2 />
+                            </AlertDialogTrigger>
+                            <AlertDialogContent size="sm">
+                              <AlertDialogHeader>
+                                <AlertDialogTitle>Delete this task?</AlertDialogTitle>
+                                <AlertDialogDescription>
+                                  “{task.title}” will be permanently removed.
+                                </AlertDialogDescription>
+                              </AlertDialogHeader>
+                              <AlertDialogFooter>
+                                <AlertDialogCancel>Cancel</AlertDialogCancel>
+                                <AlertDialogAction variant="destructive" onClick={() => removeTask(task)}>Delete</AlertDialogAction>
+                              </AlertDialogFooter>
+                            </AlertDialogContent>
+                          </AlertDialog>
+                        </div>
                       </div>
                     );
                   })}

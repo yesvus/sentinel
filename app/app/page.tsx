@@ -1,8 +1,8 @@
 "use client";
 
-import { useEffect, useRef, useState, FormEvent } from "react";
+import { useEffect, useRef, useState } from "react";
 import Link from "next/link";
-import { Clock3, Info, ListTodo, Pencil, Plus, Play, Square, SquareCheck } from "lucide-react";
+import { Clock3, Info, ListTodo, Pause, Pencil, Play, Square, SquareCheck, Trash2 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
@@ -13,8 +13,11 @@ import { toast } from "@/components/ui/toast";
 import { sessions, projects as projectsApi, tasks as tasksApi, notes as notesApi, ApiError, Note, Project, StudySession, Task } from "@/lib/api";
 import { useAuth } from "@/lib/auth-context";
 import { NOISE_SESSION_EVENT } from "@/lib/noise-player";
-import { ProjectIconPicker } from "@/components/project-icon-picker";
+import { ProjectCreatorPopover } from "@/components/project-creator-popover";
 import { ProjectSelector } from "@/components/project-selector";
+import { TaskCreatorPopover } from "@/components/task-creator-popover";
+import { TaskEditorPopover } from "@/components/task-editor-popover";
+import { LinkifiedText } from "@/components/linkified-text";
 import { ProjectIcon, NoProjectIcon } from "@/lib/icons";
 import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip";
 import { formatDuration, pad, dayKey } from "@/lib/date";
@@ -23,6 +26,7 @@ import { useSidebar } from "@/components/ui/sidebar";
 import { ScrollFade } from "@/components/scroll-fade";
 import { useInitialActiveSession } from "@/lib/active-session-context";
 import { BROADCAST_CHANNEL_NAME, SessionBroadcastMessage } from "@/lib/session-sync";
+import { cn } from "@/lib/utils";
 import {
   Dialog,
   DialogContent,
@@ -38,6 +42,11 @@ function formatElapsed(ms: number) {
   const minutes = Math.floor((totalSeconds % 3600) / 60);
   const seconds = totalSeconds % 60;
   return [hours, minutes, seconds].map((n) => String(n).padStart(2, "0")).join(":");
+}
+
+function activeElapsedMs(startedAt: number, at: number, pausedAt: number | null, pausedSeconds: number) {
+  const effectiveEnd = pausedAt ?? at;
+  return Math.max(0, effectiveEnd - startedAt - pausedSeconds * 1000);
 }
 
 function toTimeInput(date: Date) {
@@ -83,22 +92,27 @@ export default function AppHomePage() {
   const [sidebarsVisible, setSidebarsVisible] = useState(false);
   const [sidebarsExiting, setSidebarsExiting] = useState(false);
   const [selectedTaskIds, setSelectedTaskIds] = useState<number[]>([]);
-  const [newTaskTitle, setNewTaskTitle] = useState("");
-  const [taskSubmitting, setTaskSubmitting] = useState(false);
-  const [taskFormOpen, setTaskFormOpen] = useState(false);
-  const [creatingProject, setCreatingProject] = useState(false);
-  const [newProjectName, setNewProjectName] = useState("");
-  const [newProjectIcon, setNewProjectIcon] = useState<string | null>(null);
-  const [newProjectParentId, setNewProjectParentId] = useState<number | null>(null);
-  const [newProjectPinned, setNewProjectPinned] = useState(false);
+  const [deletingTaskIds, setDeletingTaskIds] = useState<number[]>([]);
+  const [recentTaskIds, setRecentTaskIds] = useState<number[]>([]);
 
   const [sessionId, setSessionId] = useState<number | null>(() => initialActiveSession?.id ?? null);
   const [startedAt, setStartedAt] = useState<number | null>(() =>
     initialActiveSession ? new Date(initialActiveSession.started_at).getTime() : null,
   );
   const [elapsedMs, setElapsedMs] = useState(() =>
-    initialActiveSession ? Math.max(0, Date.now() - new Date(initialActiveSession.started_at).getTime()) : 0,
+    initialActiveSession
+      ? activeElapsedMs(
+          new Date(initialActiveSession.started_at).getTime(),
+          Date.now(),
+          initialActiveSession.paused_at ? new Date(initialActiveSession.paused_at).getTime() : null,
+          initialActiveSession.paused_seconds ?? 0,
+        )
+      : 0,
   );
+  const [pausedAt, setPausedAt] = useState<number | null>(() =>
+    initialActiveSession?.paused_at ? new Date(initialActiveSession.paused_at).getTime() : null,
+  );
+  const [pausedSeconds, setPausedSeconds] = useState(() => initialActiveSession?.paused_seconds ?? 0);
   const [now, setNow] = useState(() => Date.now());
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -113,18 +127,22 @@ export default function AppHomePage() {
   const trackProductionSplit = user?.trackProductionSplit ?? true;
   const defaultProductionPercentage = user?.defaultSessionType === "producing" ? 100 : 0;
   const [productionPercentage, setProductionPercentage] = useState(defaultProductionPercentage);
-  const intervalRef = useRef<ReturnType<typeof setInterval> | null>(null);
   const channelRef = useRef<BroadcastChannel | null>(null);
   const descriptionSaveTimeout = useRef<ReturnType<typeof setTimeout> | null>(null);
 
   const isRunning = sessionId !== null && lastDuration === null;
+  const isPaused = isRunning && pausedAt !== null;
   const wasRunningRef = useRef(isRunning);
 
   useEffect(() => {
-    if (!isRunning) return;
-    const interval = setInterval(() => setNow(Date.now()), 1000);
+    if (!isRunning || startedAt === null) return;
+    const interval = setInterval(() => {
+      const currentTime = Date.now();
+      setNow(currentTime);
+      setElapsedMs(activeElapsedMs(startedAt, currentTime, pausedAt, pausedSeconds));
+    }, 1000);
     return () => clearInterval(interval);
-  }, [isRunning]);
+  }, [isRunning, pausedAt, pausedSeconds, startedAt]);
 
   useEffect(() => {
     if (!isRunning) {
@@ -160,9 +178,14 @@ export default function AppHomePage() {
   }, [isMobile, isRunning]);
 
   function applyActiveSession(active: StudySession) {
+    const nextStartedAt = new Date(active.started_at).getTime();
+    const nextPausedAt = active.paused_at ? new Date(active.paused_at).getTime() : null;
+    const nextPausedSeconds = active.paused_seconds ?? 0;
     setSessionId(active.id);
-    setStartedAt(new Date(active.started_at).getTime());
-    setElapsedMs(Date.now() - new Date(active.started_at).getTime());
+    setStartedAt(nextStartedAt);
+    setPausedAt(nextPausedAt);
+    setPausedSeconds(nextPausedSeconds);
+    setElapsedMs(activeElapsedMs(nextStartedAt, Date.now(), nextPausedAt, nextPausedSeconds));
     setProjectId(active.project_id);
     setDescription(active.description ?? "");
     setLastDuration(null);
@@ -204,21 +227,31 @@ export default function AppHomePage() {
     }
   }
 
-  async function handleAddTask(e: FormEvent) {
-    e.preventDefault();
-    if (!newTaskTitle.trim()) return;
-    setTaskSubmitting(true);
+  function handleTaskUpdated(updated: Task) {
+    setTaskList((list) => list.map((task) => task.id === updated.id ? updated : task));
+  }
+
+  async function deleteTask(task: Task) {
+    setDeletingTaskIds((ids) => [...ids, task.id]);
     try {
-      const created = await tasksApi.create(todayKey, newTaskTitle.trim(), projectId);
-      setTaskList((list) => [...list, created]);
-      if (!isRunning) setSelectedTaskIds((ids) => [...ids, created.id]);
-      setNewTaskTitle("");
-      setTaskFormOpen(false);
-    } catch (err) {
-      setError(err instanceof ApiError ? err.message : "Couldn't add task");
+      await tasksApi.remove(task.id);
+      await new Promise((resolve) => window.setTimeout(resolve, 160));
+      setTaskList((list) => list.filter((item) => item.id !== task.id));
+      setSelectedTaskIds((ids) => ids.filter((id) => id !== task.id));
+    } catch {
+      setError("Could not delete this task.");
     } finally {
-      setTaskSubmitting(false);
+      setDeletingTaskIds((ids) => ids.filter((id) => id !== task.id));
     }
+  }
+
+  function handleTaskCreated(created: Task) {
+    setTaskList((list) => [...list, created]);
+    setRecentTaskIds((ids) => [...ids, created.id]);
+    if (!isRunning) setSelectedTaskIds((ids) => [...ids, created.id]);
+    window.setTimeout(() => {
+      setRecentTaskIds((ids) => ids.filter((id) => id !== created.id));
+    }, 500);
   }
 
   // Same-tab-group sync: other tabs of this browser pick up our mutations instantly.
@@ -232,6 +265,8 @@ export default function AppHomePage() {
         setSessionId(message.id);
         setStartedAt(new Date(message.startedAt).getTime());
         setElapsedMs(0);
+        setPausedAt(null);
+        setPausedSeconds(0);
         setLastDuration(null);
         setProjectId(message.projectId);
         setDescription(message.description ?? "");
@@ -241,16 +276,24 @@ export default function AppHomePage() {
         setSessionId(null);
         setStartedAt(null);
         setElapsedMs(0);
+        setPausedAt(null);
+        setPausedSeconds(0);
         setDescription("");
         setProductionPercentage(defaultProductionPercentage);
         setStopOpen(false);
+      } else if (message.type === "paused") {
+        setPausedAt(new Date(message.pausedAt).getTime());
+        setPausedSeconds(message.pausedSeconds);
+      } else if (message.type === "resumed") {
+        setPausedAt(null);
+        setPausedSeconds(message.pausedSeconds);
       } else if (message.type === "updated") {
         setProjectId(message.projectId);
         setDescription(message.description ?? "");
         if (message.startedAt) {
           const nextStartedAt = new Date(message.startedAt).getTime();
           setStartedAt(nextStartedAt);
-          setElapsedMs(Math.max(0, Date.now() - nextStartedAt));
+          setElapsedMs(activeElapsedMs(nextStartedAt, Date.now(), pausedAt, pausedSeconds));
         }
       }
     }
@@ -261,7 +304,7 @@ export default function AppHomePage() {
       channel.close();
       channelRef.current = null;
     };
-  }, [defaultProductionPercentage]);
+  }, [defaultProductionPercentage, pausedAt, pausedSeconds]);
 
   // Cross-device sync: catch up with whatever happened elsewhere when we come back to this tab.
   useEffect(() => {
@@ -278,6 +321,8 @@ export default function AppHomePage() {
           setLastDuration(null);
           setStartedAt(null);
           setElapsedMs(0);
+          setPausedAt(null);
+          setPausedSeconds(0);
         })
         .catch(() => {})
         .finally(() => setRefreshingActive(false));
@@ -302,17 +347,6 @@ export default function AppHomePage() {
     };
   }, []);
 
-  useEffect(() => {
-    if (isRunning && startedAt !== null) {
-      intervalRef.current = setInterval(() => {
-        setElapsedMs(Date.now() - startedAt);
-      }, 1000);
-    }
-    return () => {
-      if (intervalRef.current) clearInterval(intervalRef.current);
-    };
-  }, [isRunning, startedAt]);
-
   async function handleStart() {
     setError(null);
     setBusy(true);
@@ -321,6 +355,8 @@ export default function AppHomePage() {
       setSessionId(session.id);
       setStartedAt(new Date(session.startedAt).getTime());
       setElapsedMs(0);
+      setPausedAt(null);
+      setPausedSeconds(0);
       setLastDuration(null);
       setSelectedTaskIds([]);
       broadcast({
@@ -356,6 +392,8 @@ export default function AppHomePage() {
       setSessionId(null);
       setStartedAt(null);
       setElapsedMs(0);
+      setPausedAt(null);
+      setPausedSeconds(0);
       setDescription("");
       setProductionPercentage(defaultProductionPercentage);
       setStopOpen(false);
@@ -373,6 +411,70 @@ export default function AppHomePage() {
       setBusy(false);
     }
   }
+
+  async function handlePauseToggle() {
+    if (sessionId === null) return;
+    setBusy(true);
+    setError(null);
+    try {
+      if (isPaused) {
+        const result = await sessions.resume(sessionId);
+        setPausedAt(null);
+        setPausedSeconds(result.pausedSeconds);
+        broadcast({ type: "resumed", pausedSeconds: result.pausedSeconds });
+        window.dispatchEvent(new CustomEvent(NOISE_SESSION_EVENT, { detail: "resumed" }));
+      } else {
+        const result = await sessions.pause(sessionId);
+        setPausedAt(new Date(result.pausedAt).getTime());
+        setPausedSeconds(result.pausedSeconds);
+        broadcast({ type: "paused", pausedAt: result.pausedAt, pausedSeconds: result.pausedSeconds });
+        window.dispatchEvent(new CustomEvent(NOISE_SESSION_EVENT, { detail: "paused" }));
+      }
+    } catch (err) {
+      const active = await sessions.getActive().catch(() => null);
+      if (active) applyActiveSession(active);
+      else {
+        setSessionId(null);
+        setStartedAt(null);
+        setPausedAt(null);
+        setPausedSeconds(0);
+        setElapsedMs(0);
+      }
+      setError(err instanceof ApiError ? err.message : "Could not update the session pause.");
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  useEffect(() => {
+    if (!isPaused || pausedAt === null || sessionId === null) return;
+    const timeoutMinutes = user?.sessionPauseTimeoutMinutes ?? 30;
+    const delay = Math.max(0, pausedAt + timeoutMinutes * 60_000 - Date.now());
+    const timer = window.setTimeout(async () => {
+      try {
+        const result = await sessions.expirePause(sessionId);
+        if (!result.ended) return;
+        const durationSeconds = result.durationSeconds ?? Math.floor(elapsedMs / 1000);
+        setLastDuration(durationSeconds);
+        setSessionId(null);
+        setStartedAt(null);
+        setPausedAt(null);
+        setPausedSeconds(0);
+        setElapsedMs(0);
+        broadcast({ type: "stopped", durationSeconds });
+        window.dispatchEvent(new CustomEvent(NOISE_SESSION_EVENT, { detail: "stopped" }));
+        loadSidebars();
+        toast.add({
+          type: "info",
+          title: "Session ended after a long pause",
+          description: `${formatDuration(durationSeconds)} logged. The interruption was excluded.`,
+        });
+      } catch {
+        // Reconciled on the next focus/active-session request if the device is offline at the deadline.
+      }
+    }, Math.min(delay + 50, 2_147_483_647));
+    return () => window.clearTimeout(timer);
+  }, [elapsedMs, isPaused, pausedAt, sessionId, user?.sessionPauseTimeoutMinutes]);
 
   useEffect(() => {
     if (!viewingSession) return;
@@ -408,7 +510,7 @@ export default function AppHomePage() {
     try {
       await sessions.update(sessionId, { startedAt: new Date(nextStartedAt).toISOString() });
       setStartedAt(nextStartedAt);
-      setElapsedMs(Math.max(0, now - nextStartedAt));
+      setElapsedMs(activeElapsedMs(nextStartedAt, now, pausedAt, pausedSeconds));
       broadcast({
         type: "updated",
         projectId,
@@ -420,29 +522,6 @@ export default function AppHomePage() {
       setEditStartError(err instanceof ApiError ? err.message : "Something went wrong");
     } finally {
       setEditStartBusy(false);
-    }
-  }
-
-  async function handleCreateProject() {
-    if (!newProjectName.trim()) return;
-
-    try {
-      const project = await projectsApi.create(
-        newProjectName.trim(),
-        newProjectIcon,
-        null,
-        newProjectParentId,
-        newProjectPinned,
-      );
-      setProjectList((list) => [...list, project].sort((a, b) => a.name.localeCompare(b.name)));
-      setNewProjectName("");
-      setNewProjectIcon(null);
-      setNewProjectParentId(null);
-      setNewProjectPinned(false);
-      setCreatingProject(false);
-      await handleDetailsChange({ projectId: project.id });
-    } catch (err) {
-      setError(err instanceof ApiError ? err.message : "Something went wrong");
     }
   }
 
@@ -490,6 +569,7 @@ export default function AppHomePage() {
   const todayNote = noteList.find((note) => note.scope === "day" && note.date_key === todayKey);
   const todayProjectTasks = taskList.filter((task) => task.period_start === todayKey && task.project_id === projectId);
   const availableTasks = todayProjectTasks.filter((task) => task.completed_at === null);
+  const activeProject = projectList.find((project) => project.id === projectId) ?? null;
   const todayTasks = taskList.filter((task) => task.period_start === todayKey);
   const todayTaskGroups = new Map<string, { project: Project | null; tasks: Task[] }>();
   for (const task of todayTasks) {
@@ -525,43 +605,50 @@ export default function AppHomePage() {
             </div>
           )}
           {sidebarDataLoaded && orderedTodayTaskGroups.map(({ project, tasks }) => (
-            <button
+            <div
               key={project?.id ?? "none"}
-              type="button"
-              disabled={isRunning || refreshingActive}
-              onClick={() => handleDetailsChange({ projectId: project?.id ?? null })}
-              className="hover:bg-muted/50 -mx-1 block w-[calc(100%+0.5rem)] cursor-pointer space-y-1 rounded px-1 py-0.5 text-left disabled:cursor-default disabled:hover:bg-transparent"
+              className="-mx-1 flex w-[calc(100%+0.5rem)] flex-col gap-1 rounded px-1 py-0.5"
             >
-              <p className="text-muted-foreground/80 flex items-center gap-1.5 text-xs">
+              <button
+                type="button"
+                disabled={isRunning || refreshingActive}
+                onClick={() => handleDetailsChange({ projectId: project?.id ?? null })}
+                className="text-muted-foreground/80 hover:text-foreground flex items-center gap-1.5 rounded text-left text-xs transition-colors duration-150 disabled:cursor-default"
+              >
                 {project ? (
                   <ProjectIcon icon={project.icon} className="size-3" />
                 ) : (
                   <NoProjectIcon className="size-3" />
                 )}
-                {project?.path ?? "No project"}
-              </p>
+                <span className="truncate" title={project?.path}>{project?.name ?? "No project"}</span>
+              </button>
               {tasks.map((task) => (
-                <div key={task.id} className="flex items-start gap-1.5 text-sm">
+                <div key={task.id} className="flex items-start gap-1.5 rounded py-0.5 text-sm transition-colors duration-150 hover:bg-muted/50">
                   {task.completed_at ? (
                     <SquareCheck className="text-muted-foreground/50 mt-0.5 size-3.5 shrink-0" aria-hidden="true" />
                   ) : (
                     <Square className="text-muted-foreground/40 mt-0.5 size-3.5 shrink-0" aria-hidden="true" />
                   )}
-                  <span className={`min-w-0 flex-1 break-words ${task.completed_at ? "text-muted-foreground/70 line-through" : "text-foreground/90"}`}>
-                    {task.title}
-                    {task.completed_at && <span className="sr-only"> (done)</span>}
+                  <span className="flex min-w-0 flex-1 flex-col gap-0.5">
+                    <span className={`break-words ${task.completed_at ? "text-muted-foreground/70 line-through" : "text-foreground/90"}`}>
+                      {task.title}
+                      {task.completed_at && <span className="sr-only"> (done)</span>}
+                    </span>
+                    {task.description && (
+                      <LinkifiedText text={task.description} className="text-muted-foreground line-clamp-2 text-xs leading-relaxed" />
+                    )}
                   </span>
                 </div>
               ))}
-            </button>
+            </div>
           ))}
           {sidebarDataLoaded && todayTasks.length === 0 && (
             <p className="text-muted-foreground text-sm">Nothing planned for today.</p>
           )}
           {sidebarDataLoaded && todayNote?.content && (
-            <p className="text-muted-foreground border-t pt-2 text-xs whitespace-pre-wrap">{todayNote.content}</p>
+            <LinkifiedText text={todayNote.content} as="p" className="text-muted-foreground border-t pt-2 text-xs" />
           )}
-          <Link href={`/app/plan?day=${todayKey}`} className="text-primary block pt-1 text-xs font-medium hover:underline">
+          <Link href={`/app/calendar/${todayKey}`} className="text-primary block pt-1 text-xs font-medium hover:underline">
             Open today&apos;s plan →
           </Link>
         </div>
@@ -775,7 +862,7 @@ export default function AppHomePage() {
                 {viewingSession.description && (
                   <div className="space-y-1">
                     <p className="text-muted-foreground text-xs font-medium">Notes</p>
-                    <p className="text-sm whitespace-pre-wrap">{viewingSession.description}</p>
+                    <LinkifiedText text={viewingSession.description} as="p" className="text-sm" />
                   </div>
                 )}
               </div>
@@ -787,12 +874,49 @@ export default function AppHomePage() {
       <Card className="w-full max-w-sm">
         <CardContent className="space-y-4">
           <div className="flex flex-col items-center gap-5 border-b pt-4 pb-4">
+            {isRunning && (
+              <div className="animate-in fade-in slide-in-from-top-1 flex max-w-full flex-wrap items-center justify-center gap-2 duration-300">
+                <div
+                  className="bg-muted/60 text-muted-foreground flex max-w-full items-center gap-1.5 rounded-full border px-3 py-1 text-xs font-medium"
+                  title={activeProject?.path ?? "No project"}
+                >
+                  {activeProject ? (
+                    <ProjectIcon icon={activeProject.icon} className="size-3.5 shrink-0" />
+                  ) : (
+                    <NoProjectIcon className="size-3.5 shrink-0" />
+                  )}
+                  <span className="truncate">{activeProject?.path ?? "No project"}</span>
+                </div>
+                {isPaused && (
+                  <span className="border-amber-500/30 bg-amber-500/10 text-amber-700 animate-in fade-in zoom-in-95 rounded-full border px-2.5 py-1 text-xs font-medium duration-200 dark:text-amber-300">
+                    Paused · time excluded
+                  </span>
+                )}
+              </div>
+            )}
             <p className="font-mono text-7xl font-medium tracking-tight tabular-nums">
               {formatElapsed(elapsedMs)}
             </p>
 
             <div className="flex items-center gap-3">
-              <div className="size-7 shrink-0" aria-hidden="true" />
+              {isRunning ? (
+                <Button
+                  type="button"
+                  size="icon"
+                  variant="outline"
+                  className={cn(
+                    "size-10 shrink-0 rounded-full transition-[color,background-color,border-color,transform] duration-150 active:scale-95",
+                    isPaused && "border-primary/40 bg-primary/10 text-primary",
+                  )}
+                  aria-label={isPaused ? "Resume session" : "Pause for an interruption"}
+                  onClick={handlePauseToggle}
+                  disabled={busy}
+                >
+                  {isPaused ? <Play className="ml-0.5 size-4 fill-current" /> : <Pause className="size-4 fill-current" />}
+                </Button>
+              ) : (
+                <div className="size-10 shrink-0" aria-hidden="true" />
+              )}
 
               <Button
                 size="icon"
@@ -820,16 +944,16 @@ export default function AppHomePage() {
               {isRunning ? (
                 <Button
                   type="button"
-                  size="icon-sm"
-                  variant="ghost"
-                  className="text-muted-foreground shrink-0"
+                  size="icon"
+                  variant="outline"
+                  className="text-muted-foreground size-10 shrink-0 rounded-full transition-transform duration-150 active:scale-95"
                   aria-label="Edit start time"
                   onClick={openEditStart}
                 >
                   <Pencil className="size-3.5" />
                 </Button>
               ) : (
-                <div className="size-7 shrink-0" aria-hidden="true" />
+                <div className="size-10 shrink-0" aria-hidden="true" />
               )}
             </div>
 
@@ -840,104 +964,40 @@ export default function AppHomePage() {
             {error && !stopOpen && <p className="text-destructive text-sm">{error}</p>}
           </div>
 
-          <div className="space-y-1.5">
-            <p className="text-muted-foreground text-xs font-medium">Project</p>
-            <ProjectSelector
-              projects={projectList}
-              value={projectId}
-              onChange={(nextProjectId) => handleDetailsChange({ projectId: nextProjectId })}
-              onCreate={() => setCreatingProject(true)}
-              disabled={isRunning || refreshingActive}
-            />
-          </div>
-
-          {creatingProject && (
-            <div className="space-y-3 rounded-md border p-3">
-              <div className="flex gap-2">
-                <Input
-                  autoFocus
-                  placeholder="Project name"
-                  value={newProjectName}
-                  onChange={(e) => setNewProjectName(e.target.value)}
-                  onKeyDown={(e) => {
-                    if (e.key === "Enter") {
-                      e.preventDefault();
-                      handleCreateProject();
-                    }
-                  }}
-                />
-                <Button onClick={handleCreateProject}>Add</Button>
-                <Button
-                  variant="ghost"
-                  onClick={() => {
-                    setCreatingProject(false);
-                    setNewProjectName("");
-                    setNewProjectIcon(null);
-                  }}
-                >
-                  Cancel
-                </Button>
-              </div>
-              <ProjectIconPicker value={newProjectIcon} onChange={setNewProjectIcon} />
-              <select
-                value={newProjectParentId ?? ""}
-                onChange={(event) => setNewProjectParentId(event.target.value ? Number(event.target.value) : null)}
-                aria-label="Parent project"
-                className="border-input bg-background h-9 w-full rounded-md border px-3 text-sm"
-              >
-                <option value="">Root project</option>
-                {projectList.filter((project) => !project.archived && project.depth < 3).map((project) => (
-                  <option key={project.id} value={project.id}>{project.path}</option>
-                ))}
-              </select>
-              <Button type="button" variant={newProjectPinned ? "default" : "outline"} onClick={() => setNewProjectPinned((value) => !value)}>
-                {newProjectPinned ? "Pinned" : "Pin project"}
-              </Button>
+          {!isRunning && (
+            <div className="animate-in fade-in slide-in-from-top-1 space-y-1.5 duration-300">
+              <p className="text-muted-foreground text-xs font-medium">Project</p>
+              <ProjectSelector
+                projects={projectList}
+                value={projectId}
+                onChange={(nextProjectId) => handleDetailsChange({ projectId: nextProjectId })}
+                disabled={refreshingActive}
+              />
+              <ProjectCreatorPopover
+                compact
+                disabled={refreshingActive}
+                onCreated={(project) => {
+                  setProjectList((list) => [...list, project].sort((a, b) => a.name.localeCompare(b.name)));
+                  void handleDetailsChange({ projectId: project.id });
+                }}
+              />
             </div>
           )}
 
           <div className="space-y-1.5">
             <div className="flex items-center justify-between">
               <p className="text-muted-foreground text-xs font-medium">{isRunning ? "Tasks" : "Working on"}</p>
-              {isRunning && !taskFormOpen && (
-                <Button
-                  type="button"
-                  size="icon-sm"
-                  variant="ghost"
-                  className="text-muted-foreground -my-1"
-                  aria-label="Add a task"
-                  onClick={() => setTaskFormOpen(true)}
-                >
-                  <Plus className="size-4" />
-                </Button>
+              {isRunning && sessionId !== null && (
+                <TaskCreatorPopover
+                  periodStart={todayKey}
+                  projects={projectList}
+                  defaultProjectId={projectId}
+                  sessionId={sessionId}
+                  onCreated={handleTaskCreated}
+                />
               )}
             </div>
-            {taskFormOpen && (
-              <form className="flex gap-2" onSubmit={handleAddTask}>
-                <Input
-                  autoFocus
-                  value={newTaskTitle}
-                  onChange={(e) => setNewTaskTitle(e.target.value)}
-                  placeholder="Add a task"
-                  className="h-8 flex-1 text-sm"
-                />
-                <Button type="submit" size="sm" disabled={taskSubmitting}>
-                  {taskSubmitting ? "Adding..." : "Add"}
-                </Button>
-                <Button
-                  type="button"
-                  size="sm"
-                  variant="ghost"
-                  onClick={() => {
-                    setTaskFormOpen(false);
-                    setNewTaskTitle("");
-                  }}
-                >
-                  Cancel
-                </Button>
-              </form>
-            )}
-            {!isRunning && !taskFormOpen && (
+            {!isRunning && (
               <ScrollFade className="flex max-h-28 flex-wrap gap-1.5 overflow-y-auto pr-1">
                 {availableTasks.map((task) => {
                   const selected = selectedTaskIds.includes(task.id);
@@ -957,30 +1017,52 @@ export default function AppHomePage() {
                     </button>
                   );
                 })}
-                <button
-                  type="button"
-                  onClick={() => setTaskFormOpen(true)}
-                  aria-label="Add a task"
-                  className="border-border text-muted-foreground hover:bg-muted/50 rounded-full border border-dashed px-3 py-1 text-sm"
-                >
-                  <Plus className="size-3.5" />
-                </button>
+                <TaskCreatorPopover
+                  periodStart={todayKey}
+                  projects={projectList}
+                  defaultProjectId={projectId}
+                  onCreated={handleTaskCreated}
+                  trigger="chip"
+                />
               </ScrollFade>
             )}
             {isRunning && todayProjectTasks.length > 0 && (
               <ScrollFade className="flex max-h-28 flex-col gap-1 overflow-y-auto pr-1">
                 {todayProjectTasks.map((task) => (
-                  <label key={task.id} className="flex cursor-pointer items-start gap-2 text-sm">
-                    <input
-                      type="checkbox"
-                      checked={task.completed_at !== null}
-                      onChange={() => toggleTaskCompletion(task)}
-                      className="accent-primary mt-0.5 size-4 shrink-0"
-                    />
-                    <span className={task.completed_at ? "text-muted-foreground line-through" : ""}>
-                      {task.title}
-                    </span>
-                  </label>
+                  <div
+                    key={task.id}
+                    className={cn(
+                      "group/task flex min-w-0 items-start gap-1 rounded-md px-1 py-0.5 transition-[background-color,opacity,transform] duration-150 hover:bg-muted/50",
+                      recentTaskIds.includes(task.id) && "animate-in fade-in slide-in-from-top-1 duration-300",
+                      deletingTaskIds.includes(task.id) && "animate-out fade-out slide-out-to-right-2 pointer-events-none fill-mode-forwards",
+                    )}
+                  >
+                    <label className="flex min-w-0 flex-1 cursor-pointer items-start gap-2 text-sm">
+                      <input
+                        type="checkbox"
+                        checked={task.completed_at !== null}
+                        onChange={() => toggleTaskCompletion(task)}
+                        className="accent-primary mt-0.5 size-4 shrink-0"
+                      />
+                      <span className={task.completed_at ? "text-muted-foreground line-through" : ""}>
+                        {task.title}
+                      </span>
+                    </label>
+                    <div className="flex gap-0.5 opacity-100 transition-opacity duration-150 sm:opacity-0 sm:group-hover/task:opacity-100 sm:group-focus-within/task:opacity-100">
+                      <TaskEditorPopover task={task} onUpdated={handleTaskUpdated} />
+                      <Button
+                        type="button"
+                        variant="ghost"
+                        size="icon-xs"
+                        className="text-destructive hover:text-destructive"
+                        aria-label={`Delete ${task.title}`}
+                        onClick={() => deleteTask(task)}
+                        disabled={deletingTaskIds.includes(task.id)}
+                      >
+                        <Trash2 />
+                      </Button>
+                    </div>
+                  </div>
                 ))}
               </ScrollFade>
             )}
@@ -1023,13 +1105,15 @@ export default function AppHomePage() {
             </div>
           )}
           {sidebarDataLoaded && recentSessions.map((session) => (
-            <button
+            <div
               key={session.id}
-              type="button"
-              onClick={() => setViewingSession(session)}
-              className="hover:bg-muted/50 -mx-1 flex w-[calc(100%+0.5rem)] min-w-0 cursor-pointer items-start justify-between gap-2 rounded px-1 py-0.5 text-left text-sm"
+              className="hover:bg-muted/50 -mx-1 flex w-[calc(100%+0.5rem)] min-w-0 flex-col gap-0.5 rounded px-1 py-0.5 text-sm transition-colors duration-150"
             >
-              <div className="min-w-0">
+              <button
+                type="button"
+                onClick={() => setViewingSession(session)}
+                className="flex min-w-0 cursor-pointer items-start justify-between gap-2 text-left"
+              >
                 <p className="text-foreground/90 flex items-center gap-1.5 truncate">
                   {session.project_id ? (
                     <ProjectIcon icon={session.project_icon} className="text-muted-foreground size-3.5 shrink-0" />
@@ -1038,15 +1122,19 @@ export default function AppHomePage() {
                   )}
                   <span className="truncate">{session.project_name ?? "No project"}</span>
                 </p>
-                <p className="text-muted-foreground mt-0.5 truncate text-xs">
-                  {session.description || new Date(session.started_at).toLocaleDateString(undefined, { month: "short", day: "numeric" })}
+                <span className="text-muted-foreground shrink-0 font-mono text-xs">{formatDuration(session.duration_seconds ?? 0)}</span>
+              </button>
+              {session.description ? (
+                <LinkifiedText text={session.description} as="p" className="text-muted-foreground line-clamp-1 text-xs" />
+              ) : (
+                <p className="text-muted-foreground truncate text-xs">
+                  {new Date(session.started_at).toLocaleDateString(undefined, { month: "short", day: "numeric" })}
                 </p>
-              </div>
-              <span className="text-muted-foreground shrink-0 font-mono text-xs">{formatDuration(session.duration_seconds ?? 0)}</span>
-            </button>
+              )}
+            </div>
           ))}
           {sidebarDataLoaded && recentSessions.length === 0 && <p className="text-muted-foreground text-sm">Your completed sessions will show here.</p>}
-          <Link href="/app/stats" className="text-primary block pt-1 text-xs font-medium hover:underline">
+          <Link href="/app/calendar/history" className="text-primary block pt-1 text-xs font-medium hover:underline">
             View all activity →
           </Link>
         </div>
