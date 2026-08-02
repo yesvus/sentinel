@@ -11,17 +11,17 @@ const handlers = { GET, POST, PUT, PATCH, DELETE };
 async function request(
   method: Method,
   path: string,
-  options: { body?: unknown; cookie?: string; origin?: string; contentLength?: number } = {},
+  options: { body?: unknown; rawBody?: string; cookie?: string; origin?: string; contentLength?: number } = {},
 ) {
   const headers = new Headers();
-  if (options.body !== undefined) headers.set("content-type", "application/json");
+  if (options.body !== undefined || options.rawBody !== undefined) headers.set("content-type", "application/json");
   if (options.cookie) headers.set("cookie", options.cookie);
   if (options.origin) headers.set("origin", options.origin);
   if (options.contentLength !== undefined) headers.set("content-length", String(options.contentLength));
   const nextRequest = new NextRequest(`http://localhost:3000/api/${path}`, {
     method,
     headers,
-    body: options.body === undefined ? undefined : JSON.stringify(options.body),
+    body: options.rawBody ?? (options.body === undefined ? undefined : JSON.stringify(options.body)),
   });
   const response = await handlers[method](nextRequest, {
     params: Promise.resolve({ path: path.split("?")[0].split("/") }),
@@ -50,6 +50,44 @@ beforeEach(async () => {
 });
 
 describe("Next API", () => {
+  it("keeps public and authenticated dispatcher behavior stable", async () => {
+    const health = await request("GET", "health");
+    expect(health.response.status).toBe(200);
+    expect(health.body).toEqual({ ok: true });
+    expect(health.response.headers.get("cache-control")).toBe("no-store");
+
+    const anonymousUnknown = await request("GET", "unknown");
+    expect(anonymousUnknown.response.status).toBe(401);
+    expect(anonymousUnknown.body).toEqual({ error: "Not authenticated" });
+
+    const cookie = await register("dispatcher@example.test");
+    const authenticatedUnknown = await request("GET", "unknown", { cookie });
+    expect(authenticatedUnknown.response.status).toBe(404);
+    expect(authenticatedUnknown.body).toEqual({ error: "Not found" });
+    expect(authenticatedUnknown.response.headers.get("cache-control")).toBe("no-store");
+  });
+
+  it("treats malformed JSON like an empty request body", async () => {
+    const malformed = await request("POST", "auth/login", { rawBody: "{" });
+    const empty = await request("POST", "auth/login", { body: {} });
+
+    expect(malformed.response.status).toBe(400);
+    expect(malformed.body).toEqual({ error: "Email and password are required" });
+    expect(malformed.body).toEqual(empty.body);
+    expect(malformed.response.headers.get("cache-control")).toBe("no-store");
+  });
+
+  it("serves calendar feeds without an authenticated cookie", async () => {
+    const cookie = await register("calendar-dispatch@example.test");
+    const token = await request("POST", "calendar/token", { cookie });
+    const feed = await request("GET", `calendar/feed?token=${token.body.token}`);
+
+    expect(feed.response.status).toBe(200);
+    expect(feed.response.headers.get("content-type")).toBe("text/calendar; charset=utf-8");
+    expect(feed.response.headers.get("cache-control")).toBe("no-store");
+    expect(feed.body).toContain("BEGIN:VCALENDAR\r\n");
+  });
+
   it("registers a user and authenticates the cookie", async () => {
     const cookie = await register("person@example.test");
     const me = await request("GET", "auth/me", { cookie });
