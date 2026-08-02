@@ -271,8 +271,10 @@ export const tasks = {
     description?: string | null;
     periodStart?: string | null;
     completed?: boolean;
+    sessionId?: number;
   }) =>
     api<Task>(`/api/tasks/${id}`, { method: "PATCH", body: JSON.stringify(details) }),
+  backlog: () => api<Task[]>("/api/tasks/backlog"),
   movePastToBacklog: (before: string) =>
     api<MoveToBacklogResult>("/api/tasks/backlog", {
       method: "POST",

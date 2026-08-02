@@ -1155,6 +1155,16 @@ async function taskRoutes(request: NextRequest, parts: string[], userId: number)
     });
   }
 
+  if (parts[1] === "backlog" && request.method === "GET") {
+    const result = await db.execute({
+      sql: `SELECT ${TASK_COLUMNS} FROM tasks
+            WHERE user_id = ? AND period_start IS NULL AND completed_at IS NULL
+            ORDER BY created_at`,
+      args: [userId],
+    });
+    return NextResponse.json(result.rows);
+  }
+
   const id = parts[1] ? Number(parts[1]) : null;
 
   if (id === null && request.method === "GET") {
@@ -1241,6 +1251,27 @@ async function taskRoutes(request: NextRequest, parts: string[], userId: number)
     });
     if (data.completed === false && data.periodStart === null) {
       await db.execute({ sql: "DELETE FROM session_tasks WHERE task_id = ?", args: [id] });
+    }
+    if (data.sessionId !== undefined) {
+      const attachedSessionId = Number(data.sessionId);
+      if (!Number.isInteger(attachedSessionId)) return error("sessionId must be an integer");
+      const selectedSession = await db.execute({
+        sql: "SELECT ended_at FROM sessions WHERE id = ? AND user_id = ?",
+        args: [attachedSessionId, userId],
+      });
+      const sessionRow = selectedSession.rows[0];
+      if (!sessionRow) return error("Session not found", 404);
+      if (sessionRow.ended_at !== null) return error("Only an active session can accept tasks");
+      const attached = await db.execute({
+        sql: "SELECT 1 FROM session_tasks WHERE session_id = ? AND task_id = ?",
+        args: [attachedSessionId, id],
+      });
+      if (!attached.rows.length) {
+        await db.execute({
+          sql: "INSERT INTO session_tasks (session_id, task_id) VALUES (?, ?)",
+          args: [attachedSessionId, id],
+        });
+      }
     }
     const updated = await db.execute({
       sql: `SELECT ${TASK_COLUMNS} FROM tasks WHERE id = ?`,

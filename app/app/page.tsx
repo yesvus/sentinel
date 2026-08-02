@@ -2,7 +2,7 @@
 
 import { useEffect, useRef, useState } from "react";
 import Link from "next/link";
-import { Clock3, Info, ListTodo, Pause, Pencil, Play, Square, SquareCheck, Trash2 } from "lucide-react";
+import { Check, Clock3, Info, ListTodo, Pause, Pencil, Play, Square, SquareCheck, Trash2 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
@@ -13,7 +13,6 @@ import { toast } from "@/components/ui/toast";
 import { sessions, projects as projectsApi, tasks as tasksApi, notes as notesApi, ApiError, Note, Project, StudySession, Task } from "@/lib/api";
 import { useAuth } from "@/lib/auth-context";
 import { NOISE_SESSION_EVENT } from "@/lib/noise-player";
-import { ProjectCreatorPopover } from "@/components/project-creator-popover";
 import { ProjectSelector } from "@/components/project-selector";
 import { TaskCreatorPopover } from "@/components/task-creator-popover";
 import { TaskEditorPopover } from "@/components/task-editor-popover";
@@ -23,7 +22,7 @@ import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip
 import { formatDuration, pad, dayKey } from "@/lib/date";
 import { sessionDurationSeconds } from "@/lib/session-stats";
 import { useSidebar } from "@/components/ui/sidebar";
-import { ScrollFade } from "@/components/scroll-fade";
+import { LongContentFade } from "@/components/long-content-fade";
 import { useInitialActiveSession } from "@/lib/active-session-context";
 import { BROADCAST_CHANNEL_NAME, SessionBroadcastMessage } from "@/lib/session-sync";
 import { cn } from "@/lib/utils";
@@ -94,6 +93,7 @@ export default function AppHomePage() {
   const [selectedTaskIds, setSelectedTaskIds] = useState<number[]>([]);
   const [deletingTaskIds, setDeletingTaskIds] = useState<number[]>([]);
   const [recentTaskIds, setRecentTaskIds] = useState<number[]>([]);
+  const [sessionTaskIds, setSessionTaskIds] = useState<number[]>([]);
 
   const [sessionId, setSessionId] = useState<number | null>(() => initialActiveSession?.id ?? null);
   const [startedAt, setStartedAt] = useState<number | null>(() =>
@@ -214,10 +214,6 @@ export default function AppHomePage() {
     ]).finally(() => setSidebarDataLoaded(true));
   }, []);
 
-  function toggleTask(id: number) {
-    setSelectedTaskIds((current) => (current.includes(id) ? current.filter((t) => t !== id) : [...current, id]));
-  }
-
   async function toggleTaskCompletion(task: Task) {
     try {
       const updated = await tasksApi.update(task.id, { completed: task.completed_at === null });
@@ -246,9 +242,14 @@ export default function AppHomePage() {
   }
 
   function handleTaskCreated(created: Task) {
-    setTaskList((list) => [...list, created]);
+    setTaskList((list) =>
+      list.some((task) => task.id === created.id)
+        ? list.map((task) => (task.id === created.id ? created : task))
+        : [...list, created],
+    );
     setRecentTaskIds((ids) => [...ids, created.id]);
     if (!isRunning) setSelectedTaskIds((ids) => [...ids, created.id]);
+    else setSessionTaskIds((ids) => (ids.includes(created.id) ? ids : [...ids, created.id]));
     window.setTimeout(() => {
       setRecentTaskIds((ids) => ids.filter((id) => id !== created.id));
     }, 500);
@@ -271,9 +272,11 @@ export default function AppHomePage() {
         setProjectId(message.projectId);
         setDescription(message.description ?? "");
         setSelectedTaskIds([]);
+        setSessionTaskIds([]);
       } else if (message.type === "stopped") {
         setLastDuration(message.durationSeconds);
         setSessionId(null);
+        setSessionTaskIds([]);
         setStartedAt(null);
         setElapsedMs(0);
         setPausedAt(null);
@@ -306,6 +309,20 @@ export default function AppHomePage() {
     };
   }, [defaultProductionPercentage, pausedAt, pausedSeconds]);
 
+  useEffect(() => {
+    if (sessionId === null) return;
+    let cancelled = false;
+    sessions
+      .tasks(sessionId)
+      .then((items) => {
+        if (!cancelled) setSessionTaskIds(items.map((task) => task.id));
+      })
+      .catch(() => {});
+    return () => {
+      cancelled = true;
+    };
+  }, [sessionId]);
+
   // Cross-device sync: catch up with whatever happened elsewhere when we come back to this tab.
   useEffect(() => {
     function refetchActive() {
@@ -318,6 +335,7 @@ export default function AppHomePage() {
             return;
           }
           setSessionId((current) => (current !== null ? null : current));
+          setSessionTaskIds([]);
           setLastDuration(null);
           setStartedAt(null);
           setElapsedMs(0);
@@ -390,6 +408,7 @@ export default function AppHomePage() {
       const result = await sessions.stop(sessionId, description || null, trackProductionSplit ? productionPercentage : null);
       setLastDuration(result.durationSeconds);
       setSessionId(null);
+      setSessionTaskIds([]);
       setStartedAt(null);
       setElapsedMs(0);
       setPausedAt(null);
@@ -567,8 +586,13 @@ export default function AppHomePage() {
   const todayKey = dayKey(new Date());
   const todayLabel = new Date().toLocaleDateString(undefined, { weekday: "long", month: "long", day: "numeric" });
   const todayNote = noteList.find((note) => note.scope === "day" && note.date_key === todayKey);
-  const todayProjectTasks = taskList.filter((task) => task.period_start === todayKey && task.project_id === projectId);
-  const availableTasks = todayProjectTasks.filter((task) => task.completed_at === null);
+  const runningProjectTasks = taskList.filter((task) => sessionTaskIds.includes(task.id));
+  const todaySuggestions = taskList.filter(
+    (task) => task.period_start === todayKey && task.project_id === projectId && task.completed_at === null && !sessionTaskIds.includes(task.id),
+  );
+  const backlogSuggestions = taskList.filter(
+    (task) => task.period_start === null && task.completed_at === null && !sessionTaskIds.includes(task.id),
+  );
   const activeProject = projectList.find((project) => project.id === projectId) ?? null;
   const todayTasks = taskList.filter((task) => task.period_start === todayKey);
   const todayTaskGroups = new Map<string, { project: Project | null; tasks: Task[] }>();
@@ -587,8 +611,8 @@ export default function AppHomePage() {
   const todayTrackedSeconds = todaySessions.reduce((total, session) => total + sessionDurationSeconds(session, now), 0);
 
   return (
-    <div className="mx-auto grid min-h-full w-full max-w-6xl items-center justify-center gap-8 px-4 py-8 lg:grid-cols-[minmax(13rem,15rem)_minmax(24rem,30rem)_minmax(13rem,15rem)] lg:gap-10">
-      {sidebarsVisible && <aside className={`${sidebarsExiting ? "animate-out fade-out slide-out-to-left-2 animation-duration-250 fill-mode-forwards" : "animate-in fade-in slide-in-from-left-2 animation-duration-500 fill-mode-both"} order-2 space-y-3 motion-reduce:transition-none lg:order-1`}>
+    <div className="mx-auto grid min-h-full w-full max-w-6xl items-center justify-center gap-8 px-4 py-8 lg:h-full lg:min-h-0 lg:grid-cols-[minmax(13rem,15rem)_minmax(24rem,30rem)_minmax(13rem,15rem)] lg:grid-rows-[minmax(0,1fr)] lg:gap-10">
+      {sidebarsVisible && <aside className={`${sidebarsExiting ? "animate-out fade-out slide-out-to-left-2 animation-duration-250 fill-mode-forwards" : "animate-in fade-in slide-in-from-left-2 animation-duration-500 fill-mode-both"} order-2 flex h-[min(32rem,calc(100vh-8rem))] min-h-0 flex-col space-y-3 overflow-hidden motion-reduce:transition-none lg:order-1 lg:h-full lg:max-h-[32rem]`}>
         <div className="flex items-center justify-between px-1">
           <div className="text-muted-foreground flex items-center gap-1.5 text-xs font-medium tracking-wide uppercase">
             <ListTodo className="size-3.5" />
@@ -596,7 +620,8 @@ export default function AppHomePage() {
           </div>
           {todayTrackedSeconds > 0 && <span className="text-muted-foreground font-mono text-xs">{formatDuration(todayTrackedSeconds)}</span>}
         </div>
-        <div className="space-y-3 px-1">
+        <div className="min-h-0 flex-1">
+          <LongContentFade wrapperClassName="h-full" fadeColor="from-background" className="h-full space-y-3 overflow-y-auto px-1">
           {!sidebarDataLoaded && (
             <div className="space-y-2">
               <Skeleton className="h-3 w-20" />
@@ -622,37 +647,158 @@ export default function AppHomePage() {
                 )}
                 <span className="truncate" title={project?.path}>{project?.name ?? "No project"}</span>
               </button>
-              {tasks.map((task) => (
-                <div key={task.id} className="flex items-start gap-1.5 rounded py-0.5 text-sm transition-colors duration-150 hover:bg-muted/50">
-                  {task.completed_at ? (
-                    <SquareCheck className="text-muted-foreground/50 mt-0.5 size-3.5 shrink-0" aria-hidden="true" />
-                  ) : (
-                    <Square className="text-muted-foreground/40 mt-0.5 size-3.5 shrink-0" aria-hidden="true" />
-                  )}
-                  <span className="flex min-w-0 flex-1 flex-col gap-0.5">
-                    <span className={`break-words ${task.completed_at ? "text-muted-foreground/70 line-through" : "text-foreground/90"}`}>
-                      {task.title}
-                      {task.completed_at && <span className="sr-only"> (done)</span>}
-                    </span>
+              {tasks.map((task) => {
+                const completed = task.completed_at !== null;
+                const selected = !completed && selectedTaskIds.includes(task.id);
+                return (
+                  <div key={task.id} className="rounded py-0.5 text-sm">
+                    <button
+                      type="button"
+                      aria-pressed={selected}
+                      onClick={() => {
+                        if (selected) {
+                          setSelectedTaskIds((ids) => ids.filter((id) => id !== task.id));
+                        } else {
+                          const nextProjectId = task.project_id ?? null;
+                          if (nextProjectId !== projectId) handleDetailsChange({ projectId: nextProjectId });
+                          if (!completed) setSelectedTaskIds((ids) => [...ids, task.id]);
+                        }
+                      }}
+                      className={cn(
+                        "flex w-full items-start gap-1.5 rounded text-left transition-colors duration-150 hover:bg-muted/50 focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-inset",
+                        selected && "bg-primary/10",
+                      )}
+                    >
+                      {completed ? (
+                        <SquareCheck className="text-muted-foreground/50 mt-0.5 size-3.5 shrink-0" aria-hidden="true" />
+                      ) : (
+                        <Square className="text-muted-foreground/40 mt-0.5 size-3.5 shrink-0" aria-hidden="true" />
+                      )}
+                      <span className="flex min-w-0 flex-1 flex-col">
+                        <span className={cn("break-words", completed ? "text-muted-foreground/70 line-through" : selected ? "text-primary" : "text-foreground/90")}>
+                          {task.title}
+                          {completed && <span className="sr-only"> (done)</span>}
+                        </span>
+                      </span>
+                      {selected && <Check className="text-primary mt-0.5 size-3.5 shrink-0" aria-hidden="true" />}
+                    </button>
                     {task.description && (
-                      <LinkifiedText text={task.description} className="text-muted-foreground line-clamp-2 text-xs leading-relaxed" />
+                      <div className="ml-5 max-h-20 overflow-y-auto pr-0.5">
+                        <LinkifiedText text={task.description} className="text-muted-foreground text-xs leading-relaxed" />
+                      </div>
                     )}
-                  </span>
-                </div>
-              ))}
+                  </div>
+                );
+              })}
             </div>
           ))}
           {sidebarDataLoaded && todayTasks.length === 0 && (
             <p className="text-muted-foreground text-sm">Nothing planned for today.</p>
           )}
-          {sidebarDataLoaded && todayNote?.content && (
-            <LinkifiedText text={todayNote.content} as="p" className="text-muted-foreground border-t pt-2 text-xs" />
+          {sidebarDataLoaded && (
+            <TaskCreatorPopover
+              periodStart={todayKey}
+              projects={projectList}
+              defaultProjectId={projectId}
+              backlogSuggestions={backlogSuggestions}
+              onCreated={handleTaskCreated}
+              trigger="chip"
+            />
           )}
-          <Link href={`/app/calendar/${todayKey}`} className="text-primary block pt-1 text-xs font-medium hover:underline">
-            Open today in Calendar →
-          </Link>
+          </LongContentFade>
         </div>
+        {sidebarDataLoaded && todayNote?.content && (
+          <div className="max-h-24 overflow-y-auto border-t px-1 pt-2 pr-1.5">
+            <LinkifiedText text={todayNote.content} as="p" className="text-muted-foreground text-xs" />
+          </div>
+        )}
+        <Link href={`/app/calendar/${todayKey}`} className="text-primary block px-1 pt-1 text-xs font-medium hover:underline">
+          Open today in Calendar →
+        </Link>
       </aside>}
+
+      {isRunning && (
+        <aside className={cn(
+          "animate-in fade-in slide-in-from-left-2 animation-duration-500 fill-mode-both order-2 flex h-[min(32rem,calc(100vh-8rem))] min-h-0 flex-col space-y-3 overflow-hidden motion-reduce:transition-none lg:order-1 lg:h-full lg:max-h-[32rem]",
+          runningProjectTasks.length === 0 && "justify-center",
+        )}>
+          <div className="flex items-center justify-between px-1">
+            <div className="text-muted-foreground flex items-center gap-1.5 text-xs font-medium tracking-wide uppercase">
+              <ListTodo className="size-3.5" />
+              Tasks
+              {runningProjectTasks.length > 0 && <span className="font-mono">{runningProjectTasks.length}</span>}
+            </div>
+            <TaskCreatorPopover
+              periodStart={todayKey}
+              projects={projectList}
+              defaultProjectId={projectId}
+              sessionId={sessionId}
+              todaySuggestions={todaySuggestions}
+              backlogSuggestions={backlogSuggestions}
+              onCreated={handleTaskCreated}
+            />
+          </div>
+          <div className={cn("min-h-0", runningProjectTasks.length > 0 && "flex-1")}>
+            <LongContentFade wrapperClassName="h-full" fadeColor="from-background" className="flex h-full flex-col gap-1 overflow-y-auto px-1">
+              {runningProjectTasks.length > 0 ? (
+                runningProjectTasks.map((task) => (
+                  <div
+                    key={task.id}
+                    className={cn(
+                      "group/task flex min-w-0 items-start gap-1 rounded-md px-1 py-0.5 transition-[background-color,opacity,transform] duration-150 hover:bg-muted/50",
+                      recentTaskIds.includes(task.id) && "animate-in fade-in slide-in-from-top-1 duration-300",
+                      deletingTaskIds.includes(task.id) && "animate-out fade-out slide-out-to-right-2 pointer-events-none fill-mode-forwards",
+                    )}
+                  >
+                    <label className="flex min-w-0 flex-1 cursor-pointer items-start gap-2 text-sm">
+                      <input
+                        type="checkbox"
+                        checked={task.completed_at !== null}
+                        onChange={() => toggleTaskCompletion(task)}
+                        className="accent-primary mt-0.5 size-4 shrink-0"
+                      />
+                      <span className="flex min-w-0 flex-1 flex-col">
+                        <span className={task.completed_at ? "text-muted-foreground line-through" : ""}>
+                          {task.title}
+                        </span>
+                        {task.description && (
+                          <div className="mt-0.5 max-h-16 overflow-y-auto pr-0.5">
+                            <LinkifiedText text={task.description} className="text-muted-foreground text-xs leading-relaxed" />
+                          </div>
+                        )}
+                      </span>
+                    </label>
+                    <div className="flex gap-0.5 opacity-100 transition-opacity duration-150 sm:opacity-0 sm:group-hover/task:opacity-100 sm:group-focus-within/task:opacity-100">
+                      <TaskEditorPopover task={task} onUpdated={handleTaskUpdated} />
+                      <Button
+                        type="button"
+                        variant="ghost"
+                        size="icon-xs"
+                        className="text-destructive hover:text-destructive"
+                        aria-label={`Delete ${task.title}`}
+                        onClick={() => deleteTask(task)}
+                        disabled={deletingTaskIds.includes(task.id)}
+                      >
+                        <Trash2 />
+                      </Button>
+                    </div>
+                  </div>
+                ))
+              ) : (
+                <div className="flex flex-1 flex-col items-center justify-center gap-2 px-2 py-2 text-center">
+                  <span className="bg-muted/60 border-border/60 flex size-10 items-center justify-center rounded-full border border-dashed">
+                    <ListTodo className="text-muted-foreground size-5" aria-hidden="true" />
+                  </span>
+                  <p className="text-sm font-medium">Select tasks to work on first</p>
+                  <p className="text-muted-foreground max-w-52 text-xs leading-relaxed">
+                    Pick today&apos;s tasks before starting the session, or add them mid-session with the + button above.
+                  </p>
+                </div>
+              )}
+            </LongContentFade>
+          </div>
+        </aside>
+      )}
 
       <main className={`animate-in fade-in fill-mode-both animation-duration-500 delay-75 order-1 flex flex-col items-center gap-6 ${!sidebarsVisible ? "lg:col-start-2" : "lg:order-2"}`}>
       <div className="w-full max-w-sm">
@@ -873,6 +1019,16 @@ export default function AppHomePage() {
 
       <Card className="w-full max-w-sm">
         <CardContent className="space-y-4">
+          {!isRunning && (
+            <div className="animate-in fade-in slide-in-from-top-1 space-y-1.5 pt-4 duration-300">
+              <ProjectSelector
+                projects={projectList}
+                value={projectId}
+                onChange={(nextProjectId) => handleDetailsChange({ projectId: nextProjectId })}
+                disabled={refreshingActive}
+              />
+            </div>
+          )}
           <div className="flex flex-col items-center gap-5 border-b pt-4 pb-4">
             {isRunning && (
               <div className="animate-in fade-in slide-in-from-top-1 flex max-w-full flex-wrap items-center justify-center gap-2 duration-300">
@@ -962,110 +1118,6 @@ export default function AppHomePage() {
             )}
 
             {error && !stopOpen && <p className="text-destructive text-sm">{error}</p>}
-          </div>
-
-          {!isRunning && (
-            <div className="animate-in fade-in slide-in-from-top-1 space-y-1.5 duration-300">
-              <p className="text-muted-foreground text-xs font-medium">Project</p>
-              <ProjectSelector
-                projects={projectList}
-                value={projectId}
-                onChange={(nextProjectId) => handleDetailsChange({ projectId: nextProjectId })}
-                disabled={refreshingActive}
-              />
-              <ProjectCreatorPopover
-                compact
-                disabled={refreshingActive}
-                onCreated={(project) => {
-                  setProjectList((list) => [...list, project].sort((a, b) => a.name.localeCompare(b.name)));
-                  void handleDetailsChange({ projectId: project.id });
-                }}
-              />
-            </div>
-          )}
-
-          <div className="space-y-1.5">
-            <div className="flex items-center justify-between">
-              <p className="text-muted-foreground text-xs font-medium">{isRunning ? "Tasks" : "Working on"}</p>
-              {isRunning && sessionId !== null && (
-                <TaskCreatorPopover
-                  periodStart={todayKey}
-                  projects={projectList}
-                  defaultProjectId={projectId}
-                  sessionId={sessionId}
-                  onCreated={handleTaskCreated}
-                />
-              )}
-            </div>
-            {!isRunning && (
-              <ScrollFade className="flex max-h-28 flex-wrap gap-1.5 overflow-y-auto pr-1">
-                {availableTasks.map((task) => {
-                  const selected = selectedTaskIds.includes(task.id);
-                  return (
-                    <button
-                      key={task.id}
-                      type="button"
-                      onClick={() => toggleTask(task.id)}
-                      aria-pressed={selected}
-                      className={`rounded-full border px-3 py-1 text-sm transition-colors ${
-                        selected
-                          ? "border-primary bg-primary/10 text-primary"
-                          : "border-border text-muted-foreground hover:bg-muted/50"
-                      }`}
-                    >
-                      {task.title}
-                    </button>
-                  );
-                })}
-                <TaskCreatorPopover
-                  periodStart={todayKey}
-                  projects={projectList}
-                  defaultProjectId={projectId}
-                  onCreated={handleTaskCreated}
-                  trigger="chip"
-                />
-              </ScrollFade>
-            )}
-            {isRunning && todayProjectTasks.length > 0 && (
-              <ScrollFade className="flex max-h-28 flex-col gap-1 overflow-y-auto pr-1">
-                {todayProjectTasks.map((task) => (
-                  <div
-                    key={task.id}
-                    className={cn(
-                      "group/task flex min-w-0 items-start gap-1 rounded-md px-1 py-0.5 transition-[background-color,opacity,transform] duration-150 hover:bg-muted/50",
-                      recentTaskIds.includes(task.id) && "animate-in fade-in slide-in-from-top-1 duration-300",
-                      deletingTaskIds.includes(task.id) && "animate-out fade-out slide-out-to-right-2 pointer-events-none fill-mode-forwards",
-                    )}
-                  >
-                    <label className="flex min-w-0 flex-1 cursor-pointer items-start gap-2 text-sm">
-                      <input
-                        type="checkbox"
-                        checked={task.completed_at !== null}
-                        onChange={() => toggleTaskCompletion(task)}
-                        className="accent-primary mt-0.5 size-4 shrink-0"
-                      />
-                      <span className={task.completed_at ? "text-muted-foreground line-through" : ""}>
-                        {task.title}
-                      </span>
-                    </label>
-                    <div className="flex gap-0.5 opacity-100 transition-opacity duration-150 sm:opacity-0 sm:group-hover/task:opacity-100 sm:group-focus-within/task:opacity-100">
-                      <TaskEditorPopover task={task} onUpdated={handleTaskUpdated} />
-                      <Button
-                        type="button"
-                        variant="ghost"
-                        size="icon-xs"
-                        className="text-destructive hover:text-destructive"
-                        aria-label={`Delete ${task.title}`}
-                        onClick={() => deleteTask(task)}
-                        disabled={deletingTaskIds.includes(task.id)}
-                      >
-                        <Trash2 />
-                      </Button>
-                    </div>
-                  </div>
-                ))}
-              </ScrollFade>
-            )}
           </div>
 
           <div className="space-y-1">

@@ -46,6 +46,7 @@ vi.mock("@/lib/api", () => {
       start,
       stop,
       update: vi.fn().mockResolvedValue({}),
+      tasks: vi.fn().mockResolvedValue([]),
     },
   };
 });

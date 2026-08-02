@@ -370,6 +370,43 @@ describe("Next API", () => {
     ]);
   });
 
+  it("attaches an existing backlog task to an active session", async () => {
+    const cookie = await register("attach-backlog@example.test");
+    const started = await request("POST", "sessions/start", { cookie });
+    const task = await request("POST", "tasks", {
+      cookie,
+      body: { title: "Pull from backlog" },
+    });
+    expect(task.body.period_start).toBeNull();
+
+    const attached = await request("PATCH", `tasks/${task.body.id}`, {
+      cookie,
+      body: { sessionId: started.body.id, periodStart: "2026-08-02" },
+    });
+    expect(attached.response.status).toBe(200);
+    expect(attached.body.period_start).toBe("2026-08-02");
+    expect((await request("GET", `sessions/${started.body.id}/tasks`, { cookie })).body).toEqual([
+      expect.objectContaining({ id: task.body.id, title: "Pull from backlog" }),
+    ]);
+  });
+
+  it("rejects attaching a task to a completed session", async () => {
+    const cookie = await register("attach-completed@example.test");
+    const session = await request("POST", "sessions", {
+      cookie,
+      body: { startedAt: "2026-08-02T08:00:00.000Z", endedAt: "2026-08-02T09:00:00.000Z" },
+    });
+    const task = await request("POST", "tasks", {
+      cookie,
+      body: { title: "Too late" },
+    });
+    const attached = await request("PATCH", `tasks/${task.body.id}`, {
+      cookie,
+      body: { sessionId: session.body.id },
+    });
+    expect(attached.response.status).toBe(400);
+  });
+
   it("assigns completed tasks while editing a completed session", async () => {
     const cookie = await register("completed-session-tasks@example.test");
     const session = await request("POST", "sessions", {

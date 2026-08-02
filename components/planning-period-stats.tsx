@@ -123,8 +123,8 @@ export function PlanningPeriodStats({
                               />
                             }
                           />
-                          <TooltipContent>
-                            {day.date.toLocaleDateString(undefined, { weekday: "short" })} · {project.name} · {formatDuration(project.seconds)}
+                          <TooltipContent side="right" sideOffset={10}>
+                            <span className="max-w-40 truncate">{project.name}</span> · {formatDuration(project.seconds)}
                           </TooltipContent>
                         </Tooltip>
                       ))}
