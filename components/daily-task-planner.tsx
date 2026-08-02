@@ -1,12 +1,15 @@
 "use client";
 
 import { useState, FormEvent } from "react";
-import { Pencil, Plus, Trash2 } from "lucide-react";
+import { Inbox, Pencil, Plus, Trash2 } from "lucide-react";
 import { Button } from "@/components/ui/button";
+import { Checkbox } from "@/components/ui/checkbox";
 import { Input } from "@/components/ui/input";
+import { Spinner } from "@/components/ui/spinner";
 import { ProjectSelector } from "@/components/project-selector";
 import { ProjectIcon, NoProjectIcon } from "@/lib/icons";
 import { tasks as tasksApi, projects as projectsApi, ApiError, Task, Project } from "@/lib/api";
+import { cn } from "@/lib/utils";
 
 const NO_PROJECT_KEY = "none";
 
@@ -39,6 +42,8 @@ export function DailyTaskPlanner({
   const [creatingProject, setCreatingProject] = useState(false);
   const [newProjectName, setNewProjectName] = useState("");
   const [creatingBusy, setCreatingBusy] = useState(false);
+  const [backlogBusyId, setBacklogBusyId] = useState<number | null>(null);
+  const [leavingId, setLeavingId] = useState<number | null>(null);
 
   async function handleAdd(e: FormEvent) {
     e.preventDefault();
@@ -114,6 +119,22 @@ export function DailyTaskPlanner({
       onDeleted(id);
     } catch {
       // best-effort; leave the task in place if the delete failed
+    }
+  }
+
+  async function moveToBacklog(task: Task) {
+    setBacklogBusyId(task.id);
+    setError(null);
+    try {
+      const updated = await tasksApi.update(task.id, { periodStart: null });
+      setLeavingId(task.id);
+      await new Promise((resolve) => window.setTimeout(resolve, 160));
+      onUpdated(updated);
+    } catch (err) {
+      setError(err instanceof ApiError ? err.message : "Couldn't move task to backlog");
+    } finally {
+      setBacklogBusyId(null);
+      setLeavingId(null);
     }
   }
 
@@ -219,7 +240,13 @@ export function DailyTaskPlanner({
             </div>
             <div className="space-y-1 pl-1">
               {groupTasks.map((task) => (
-                <div key={task.id} className="group hover:bg-muted/50 relative flex items-start gap-2 rounded-md px-1.5 py-0.5">
+                <div
+                  key={task.id}
+                  className={cn(
+                    "group hover:bg-muted/50 relative flex items-start gap-2 rounded-md px-1.5 py-1 transition-[background-color,opacity,transform] duration-150",
+                    leavingId === task.id && "animate-out fade-out slide-out-to-right-2 fill-mode-forwards",
+                  )}
+                >
                   {editingId === task.id ? (
                     <div className="flex flex-1 items-center gap-2" onClick={(e) => e.stopPropagation()}>
                       <Input autoFocus value={editTitle} onChange={(e) => setEditTitle(e.target.value)} className="flex-1" />
@@ -232,19 +259,30 @@ export function DailyTaskPlanner({
                     </div>
                   ) : (
                     <>
-                      <input
-                        type="checkbox"
+                      <Checkbox
                         checked={task.completed_at !== null}
-                        onChange={() => toggle(task)}
-                        className="accent-primary mt-0.5 size-4 shrink-0"
+                        onCheckedChange={() => toggle(task)}
+                        className="mt-0.5"
                         aria-label={`Mark "${task.title}" done`}
                       />
                       <span className={`min-w-0 flex-1 text-sm break-words ${task.completed_at ? "text-muted-foreground line-through" : ""}`}>
                         {task.title}
                       </span>
-                      <div className="absolute top-1/2 right-1 flex shrink-0 -translate-y-1/2 gap-1 rounded-md opacity-0 group-hover:opacity-100">
+                      <div className="bg-card absolute top-1/2 right-1 flex shrink-0 -translate-y-1/2 gap-1 rounded-md opacity-100 transition-opacity duration-150 sm:opacity-0 sm:group-hover:opacity-100 sm:group-focus-within:opacity-100">
+                        {!task.completed_at && (
+                          <Button
+                            variant="ghost"
+                            size="icon-xs"
+                            aria-label={`Move "${task.title}" to backlog`}
+                            title="Move to backlog"
+                            disabled={backlogBusyId === task.id}
+                            onClick={() => moveToBacklog(task)}
+                          >
+                            {backlogBusyId === task.id ? <Spinner /> : <Inbox />}
+                          </Button>
+                        )}
                         <Button variant="ghost" size="icon-xs" aria-label="Edit task" onClick={() => startEdit(task)}>
-                          <Pencil className="size-3" />
+                          <Pencil />
                         </Button>
                         <Button
                           variant="ghost"
@@ -253,7 +291,7 @@ export function DailyTaskPlanner({
                           aria-label="Delete task"
                           onClick={() => remove(task.id)}
                         >
-                          <Trash2 className="size-3" />
+                          <Trash2 />
                         </Button>
                       </div>
                     </>

@@ -4,8 +4,13 @@ import { useEffect, useState } from "react";
 import { useRouter, useSearchParams } from "next/navigation";
 import { ChevronLeft, ChevronRight, Clock3, Copy, Square, SquareCheck, Target } from "lucide-react";
 import { Button } from "@/components/ui/button";
+import {
+  Breadcrumb,
+  BreadcrumbItem,
+  BreadcrumbList,
+  BreadcrumbPage,
+} from "@/components/ui/breadcrumb";
 import { Skeleton } from "@/components/ui/skeleton";
-import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription } from "@/components/ui/dialog";
 import {
   tasks as tasksApi,
   notes as notesApi,
@@ -17,24 +22,26 @@ import {
   StudySession,
   Project,
 } from "@/lib/api";
-import { AlwaysOpenNote } from "@/components/always-open-note";
-import { DailyTaskPlanner } from "@/components/daily-task-planner";
 import { NoteFocusCard } from "@/components/note-focus-card";
 import { toast } from "@/components/ui/toast";
-import { buildAiPrompt, buildWeeklyAiPrompt } from "@/lib/export";
-import { weekStatsFor, partialWeekStats, sessionDurationSeconds } from "@/lib/session-stats";
+import { buildWeeklyAiPrompt } from "@/lib/export";
+import { weekStatsFor, sessionDurationSeconds } from "@/lib/session-stats";
 import { useAuth } from "@/lib/auth-context";
-import { dayKey, weekKey, addDays, startOfWeek, formatDuration, formatWeekRangeLabel, parseDateKey } from "@/lib/date";
+import { PageHeaderActions } from "@/lib/page-header-actions-context";
+import { dayKey, addDays, startOfWeek, formatDuration, formatWeekRangeLabel, parseDateKey } from "@/lib/date";
+
+function initialWeekOffset(value: string | null) {
+  if (!value || !/^\d{4}-\d{2}-\d{2}$/.test(value)) return 0;
+  const target = startOfWeek(parseDateKey(value));
+  const current = startOfWeek(new Date());
+  return Math.round((target.getTime() - current.getTime()) / (7 * 86_400_000));
+}
 
 export default function PlanPage() {
   const { user } = useAuth();
   const router = useRouter();
   const searchParams = useSearchParams();
-  const [weekOffset, setWeekOffset] = useState(0);
-  const [focusedDayKey, setFocusedDayKey] = useState<string | null>(() => {
-    const day = searchParams.get("day");
-    return day && /^\d{4}-\d{2}-\d{2}$/.test(day) ? day : null;
-  });
+  const [weekOffset, setWeekOffset] = useState(() => initialWeekOffset(searchParams.get("week")));
   const [taskList, setTaskList] = useState<Task[]>([]);
   const [noteList, setNoteList] = useState<Note[]>([]);
   const [sessionList, setSessionList] = useState<StudySession[]>([]);
@@ -54,21 +61,12 @@ export default function PlanPage() {
       .finally(() => setLoading(false));
   }, []);
 
-  function handleTaskCreated(task: Task) {
-    setTaskList((list) => [...list, task]);
-  }
-
-  function handleTaskUpdated(task: Task) {
-    setTaskList((list) => list.map((t) => (t.id === task.id ? task : t)));
-  }
-
-  function handleTaskDeleted(id: number) {
-    setTaskList((list) => list.filter((t) => t.id !== id));
-  }
-
-  function handleProjectCreated(project: Project) {
-    setProjectList((list) => [...list, project].sort((a, b) => a.path.localeCompare(b.path)));
-  }
+  useEffect(() => {
+    const legacyDay = searchParams.get("day");
+    if (legacyDay && /^\d{4}-\d{2}-\d{2}$/.test(legacyDay)) {
+      router.replace(`/app/plan/${legacyDay}`);
+    }
+  }, [router, searchParams]);
 
   function handleNoteSaved(note: Note) {
     setNoteList((list) => [...list.filter((n) => !(n.scope === note.scope && n.date_key === note.date_key)), note]);
@@ -90,8 +88,37 @@ export default function PlanPage() {
 
   const selectedWeekStart = addDays(weekStart, weekOffset * 7);
   const selectedWeekKey = dayKey(selectedWeekStart);
+  const selectedWeekLabel = formatWeekRangeLabel(selectedWeekStart);
   const selectedWeekDays = Array.from({ length: 7 }, (_, i) => addDays(selectedWeekStart, i));
   const selectedWeekNote = noteList.find((n) => n.scope === "week" && n.date_key === selectedWeekKey);
+
+  const weekNavigation = (
+    <PageHeaderActions>
+      <div className="animate-in fade-in slide-in-from-left-1 flex min-w-0 items-center gap-1 duration-300">
+        <Button
+          variant="outline"
+          size="sm"
+          className="hidden rounded-full px-5 sm:inline-flex"
+          onClick={() => setWeekOffset(0)}
+        >
+          Today
+        </Button>
+        <Button variant="ghost" size="icon-sm" aria-label="Previous week" onClick={() => setWeekOffset((offset) => offset - 1)}>
+          <ChevronLeft />
+        </Button>
+        <Button variant="ghost" size="icon-sm" aria-label="Next week" onClick={() => setWeekOffset((offset) => offset + 1)}>
+          <ChevronRight />
+        </Button>
+        <Breadcrumb className="hidden pl-1 lg:block">
+          <BreadcrumbList className="flex-nowrap">
+            <BreadcrumbItem>
+              <BreadcrumbPage className="whitespace-nowrap">{selectedWeekLabel}</BreadcrumbPage>
+            </BreadcrumbItem>
+          </BreadcrumbList>
+        </Breadcrumb>
+      </div>
+    </PageHeaderActions>
+  );
 
   const tomorrowTasks = taskList.filter((t) => t.period_start === tomorrowKey);
   const longTermNote = noteList.find((n) => n.scope === "long-term" && n.date_key === LONG_TERM_NOTE_KEY);
@@ -104,24 +131,6 @@ export default function PlanPage() {
   const nextWeekNote = noteList.find((n) => n.scope === "week" && n.date_key === dayKey(addDays(weekStart, 7)));
   const showWeeklyReminder =
     nowDate.getDay() === weeklyReminderDay && nowDate.getHours() >= weeklyReminderHour && !nextWeekNote?.content;
-
-  function copyDailyPromptFor(key: string, date: Date) {
-    const sessionsForDay = sessionList.filter((s) => dayKey(new Date(s.started_at)) === key);
-    const dayWeekStart = startOfWeek(date);
-    const dayWeekNote = noteList.find((n) => n.scope === "week" && n.date_key === weekKey(date));
-    const prompt = buildAiPrompt({
-      userContext: user?.planContext ?? null,
-      date,
-      sessionList: sessionsForDay,
-      dayTasks: taskList.filter((t) => t.period_start === key),
-      projectList,
-      weekGoalsText: dayWeekNote?.content ?? null,
-      weekSoFar: partialWeekStats(sessionList, dayWeekStart, key, now),
-      dayNote: noteList.find((n) => n.scope === "day" && n.date_key === key),
-      now,
-    });
-    copyPrompt(`plan-daily-prompt-${key}`, prompt);
-  }
 
   function copySelectedWeeklyPrompt() {
     const currentWeek = weekStatsFor(sessionList, selectedWeekStart, now);
@@ -138,7 +147,9 @@ export default function PlanPage() {
 
   if (loading) {
     return (
-      <div className="w-full space-y-4">
+      <>
+        {weekNavigation}
+        <div className="w-full space-y-4">
         <div className="grid grid-cols-1 items-start gap-4 md:grid-cols-2">
           {[0, 1].map((i) => (
             <div key={i} className="space-y-2 rounded-lg border p-4">
@@ -157,18 +168,19 @@ export default function PlanPage() {
             </div>
           ))}
         </div>
-      </div>
+        </div>
+      </>
     );
   }
 
-  const focusedDate = focusedDayKey ? parseDateKey(focusedDayKey) : null;
-
   return (
-    <div className="animate-in fade-in duration-500 fill-mode-both w-full space-y-4">
+    <>
+      {weekNavigation}
+      <div className="animate-in fade-in duration-500 fill-mode-both w-full space-y-4">
       {showDailyReminder && (
         <button
           type="button"
-          onClick={() => setFocusedDayKey(tomorrowKey)}
+          onClick={() => router.push(`/app/plan/${tomorrowKey}`)}
           className="border-primary/30 bg-primary/5 hover:bg-primary/10 flex w-full items-center gap-2 rounded-md border px-4 py-3 text-left text-sm"
         >
           <Clock3 className="text-primary size-4 shrink-0" />
@@ -189,20 +201,8 @@ export default function PlanPage() {
       <div className="grid grid-cols-1 items-start gap-4 md:grid-cols-2">
         <NoteFocusCard
           icon={null}
-          title={
-            <div className="flex items-center gap-1">
-              <Button variant="outline" size="sm" className="rounded-full" onClick={() => setWeekOffset(0)}>
-                This Week
-              </Button>
-              <Button variant="ghost" size="icon-sm" aria-label="Previous week" onClick={() => setWeekOffset((o) => o - 1)}>
-                <ChevronLeft className="size-4" />
-              </Button>
-              <Button variant="ghost" size="icon-sm" aria-label="Next week" onClick={() => setWeekOffset((o) => o + 1)}>
-                <ChevronRight className="size-4" />
-              </Button>
-            </div>
-          }
-          titleExtra={<span className="text-base font-medium">{formatWeekRangeLabel(selectedWeekStart)}</span>}
+          title="Week goals"
+          titleExtra={<span className="text-base font-medium">{selectedWeekLabel}</span>}
           scope="week"
           dateKey={selectedWeekKey}
           note={selectedWeekNote}
@@ -248,7 +248,7 @@ export default function PlanPage() {
             <button
               key={key}
               type="button"
-              onClick={() => setFocusedDayKey(key)}
+              onClick={() => router.push(`/app/plan/${key}`)}
               className={`hover:border-primary/40 hover:bg-muted/30 flex min-h-40 min-w-0 flex-col items-start gap-1.5 rounded-lg border p-2.5 text-left transition-[color,background-color,border-color,transform] duration-150 active:scale-[0.97] ${
                 isToday ? "border-primary/50 bg-primary/5" : "border-border"
               }`}
@@ -300,57 +300,7 @@ export default function PlanPage() {
         })}
       </div>
 
-      <Dialog open={focusedDayKey !== null} onOpenChange={(open) => {
-        if (!open) {
-          setFocusedDayKey(null);
-          router.replace("/app/plan");
-        }
-      }}>
-        <DialogContent className="max-w-2xl">
-          {focusedDayKey && focusedDate && (
-            <>
-              <DialogHeader>
-                <div className="flex items-center justify-between gap-2">
-                  <DialogTitle>
-                    {focusedDate.toLocaleDateString(undefined, { weekday: "long", month: "short", day: "numeric" })}
-                    {focusedDayKey === todayKey && " (Today)"}
-                  </DialogTitle>
-                  <Button
-                    variant="outline"
-                    size="icon-sm"
-                    aria-label="Copy AI prompt"
-                    onClick={() => copyDailyPromptFor(focusedDayKey, focusedDate)}
-                  >
-                    <Copy className="size-3.5" />
-                  </Button>
-                </div>
-                <DialogDescription>Tasks and notes for this day.</DialogDescription>
-              </DialogHeader>
-              <div className="space-y-4">
-                <DailyTaskPlanner
-                  periodStart={focusedDayKey}
-                  tasks={taskList.filter((t) => t.period_start === focusedDayKey)}
-                  projects={projectList}
-                  backlogTasks={taskList.filter((t) => t.period_start === null)}
-                  onCreated={handleTaskCreated}
-                  onProjectCreated={handleProjectCreated}
-                  onUpdated={handleTaskUpdated}
-                  onDeleted={handleTaskDeleted}
-                />
-                <AlwaysOpenNote
-                  scope="day"
-                  dateKey={focusedDayKey}
-                  note={noteList.find((n) => n.scope === "day" && n.date_key === focusedDayKey)}
-                  placeholder="Updates as the day goes — what happened, what changed..."
-                  className="min-h-24"
-                  onSaved={handleNoteSaved}
-                  onDeleted={() => handleNoteDeleted("day", focusedDayKey)}
-                />
-              </div>
-            </>
-          )}
-        </DialogContent>
-      </Dialog>
-    </div>
+      </div>
+    </>
   );
 }

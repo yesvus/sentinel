@@ -13,6 +13,8 @@ import { FriendsControl } from "@/components/friends-control";
 import { NotificationsControl } from "@/components/notifications-control";
 import { SessionTimerIndicator } from "@/components/session-timer-indicator";
 import { Toaster } from "@/components/ui/toast";
+import { PageHeaderActionsProvider, PageHeaderActionsSlot } from "@/lib/page-header-actions-context";
+import { Separator } from "@/components/ui/separator";
 
 function Splash() {
   return (
@@ -62,6 +64,7 @@ export function AppShell({
   const currentPage = NAV_ITEMS.find((item) => item.url === pathname);
   const pageTitle =
     currentPage?.title ??
+    (pathname.startsWith("/app/plan/") ? "Plan" : undefined) ??
     ({
       "/app/friends": "Friends",
       "/app/profile": "Profile",
@@ -71,22 +74,29 @@ export function AppShell({
   return (
     <NoisePlayerProvider>
       <ActiveSessionProvider activeSession={activeSession}>
-        <SidebarProvider defaultOpen={activeSession ? false : defaultSidebarOpen}>
-          <AppSidebar />
-          <main className="flex h-svh min-w-0 flex-1 flex-col overflow-hidden">
-            <header className="bg-sidebar z-20 flex h-14 shrink-0 items-center gap-3 border-b px-4">
-              <SidebarTrigger />
-              <SessionTimerIndicator />
-              <h1 className="flex-1 text-sm font-medium">{pageTitle}</h1>
-              <FriendsControl />
-              <NotificationsControl userId={user.id} />
-              <NoiseControl />
-            </header>
-            <div className="flex min-h-0 min-w-0 flex-1 flex-col overflow-y-auto px-4 py-6 sm:px-6">
-              {children}
-            </div>
-          </main>
-        </SidebarProvider>
+        <PageHeaderActionsProvider>
+          <SidebarProvider defaultOpen={activeSession ? false : defaultSidebarOpen}>
+            <AppSidebar />
+            <main className="flex h-svh min-w-0 flex-1 flex-col overflow-hidden">
+              <header className="bg-sidebar z-20 flex h-14 shrink-0 items-center gap-2 border-b px-3 sm:gap-3 sm:px-4">
+                <SidebarTrigger />
+                <SessionTimerIndicator />
+                <h1 className="shrink-0 text-sm font-medium">{pageTitle}</h1>
+                <PageHeaderActionsSlot />
+                <div className="min-w-0 flex-1" />
+                <Separator orientation="vertical" className="mx-1" />
+                <div className="bg-muted/40 flex shrink-0 items-center gap-0.5 rounded-lg px-0.5">
+                  <FriendsControl />
+                  <NotificationsControl userId={user.id} />
+                  <NoiseControl />
+                </div>
+              </header>
+              <div className="flex min-h-0 min-w-0 flex-1 flex-col overflow-y-auto px-4 py-6 sm:px-6">
+                {children}
+              </div>
+            </main>
+          </SidebarProvider>
+        </PageHeaderActionsProvider>
       </ActiveSessionProvider>
       <Toaster />
     </NoisePlayerProvider>

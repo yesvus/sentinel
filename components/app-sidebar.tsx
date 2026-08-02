@@ -86,7 +86,7 @@ export function AppSidebar() {
                 <SidebarMenuItem key={item.url}>
                   <SidebarMenuButton
                     render={<Link href={item.url} />}
-                    isActive={pathname === item.url}
+                    isActive={pathname === item.url || (item.url !== "/app" && pathname.startsWith(`${item.url}/`))}
                     tooltip={item.title}
                     onClick={handleNavigate}
                   >
