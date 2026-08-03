@@ -1,5 +1,5 @@
 import { StudySession, Note, Project, Task } from "./api";
-import { addDateKeyDays, addDays, dayKey, formatDuration, formatTime, formatWeekRangeLabel } from "./date";
+import { addDays, dayKey, elapsedDaysInWeek, formatDuration, formatTime, formatWeekRangeLabel } from "./date";
 import { splitSessionDuration, projectTotals, NO_PROJECT_LABEL, WeekStats, PartialWeekStats } from "./session-stats";
 
 const CSV_HEADER = [
@@ -487,14 +487,7 @@ export function buildWeeklyAiPrompt({
   now?: number;
 }) {
   const weekEnd = addDays(currentWeek.weekStart, 6, timeZone);
-  const todayKey = dayKey(new Date(now), timeZone);
-  const weekStartKey = dayKey(currentWeek.weekStart, timeZone);
-  let elapsedDays = 0;
-  for (let i = 0; i < 7; i++) {
-    if (addDateKeyDays(weekStartKey, i) > todayKey) break;
-    elapsedDays++;
-  }
-  const daysInWeek = Math.max(1, elapsedDays);
+  const daysInWeek = elapsedDaysInWeek(currentWeek.weekStart, now, timeZone);
   return `You are reviewing one week of my tracked work. The data comes first, the instructions come last.
 Read everything before you respond.
 

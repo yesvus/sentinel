@@ -60,6 +60,23 @@ describe("planning period comparisons", () => {
     expect(screen.getByRole("button", { name: /Monday, Algebra/ })).toBeInTheDocument();
     expect(screen.queryByText(/vs previous week/)).not.toBeInTheDocument();
   });
+
+  it("averages the partial week over elapsed days, not a fixed 7, so per-day matches the total on day one", () => {
+    render(
+      <PlanningPeriodStats
+        period="week"
+        sessions={[session]}
+        previousSessions={[]}
+        now={Date.parse("2026-08-03T10:00:00.000Z")}
+        date={new Date(2026, 7, 3)}
+      />,
+    );
+
+    const perDay = screen.getByText("per day").previousSibling;
+    const weeklyTotal = screen.getByText("Weekly total").nextSibling;
+    expect(perDay).toHaveTextContent("1h 0m");
+    expect(weeklyTotal).toHaveTextContent("1h 0m");
+  });
 });
 
 describe("weekly planning day card", () => {

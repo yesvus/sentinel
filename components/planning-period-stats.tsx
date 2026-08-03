@@ -5,7 +5,7 @@ import { HelpTooltip } from "@/components/help-tooltip";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip";
 import { StudySession } from "@/lib/api";
-import { addDays, dayKey, formatDuration, startOfWeek } from "@/lib/date";
+import { addDays, dayKey, elapsedDaysInWeek, formatDuration, startOfWeek } from "@/lib/date";
 import { projectTotals, sessionDurationSeconds } from "@/lib/session-stats";
 import { cn } from "@/lib/utils";
 
@@ -58,8 +58,10 @@ export function PlanningPeriodStats({
       seconds: projects.reduce((total, project) => total + project.seconds, 0),
     };
   });
-  const averageSeconds = Math.round(trackedSeconds / 7);
-  const previousAverageSeconds = Math.round(previousTrackedSeconds / 7);
+  const daysElapsed = elapsedDaysInWeek(weekStart, now, timeZone);
+  const previousDaysElapsed = elapsedDaysInWeek(addDays(weekStart, -7, timeZone), now, timeZone);
+  const averageSeconds = Math.round(trackedSeconds / daysElapsed);
+  const previousAverageSeconds = Math.round(previousTrackedSeconds / previousDaysElapsed);
   const averageDelta = averageSeconds - previousAverageSeconds;
   const weeklyScaleSeconds = Math.max(averageSeconds, ...weekDays.map((day) => day.seconds), 1);
 

@@ -5,6 +5,7 @@ import {
   addDays,
   dayKey,
   effectiveTimeZone,
+  elapsedDaysInWeek,
   formatDayLabel,
   formatTime,
   isValidTimeZone,
@@ -92,5 +93,20 @@ describe("timezone calendar helpers", () => {
 
     const weekStart = startOfWeek(new Date("2026-03-09T16:00:00.000Z"), "America/New_York");
     expect(weekStatsFor(sessions, weekStart, Date.now(), "America/New_York").trackedSeconds).toBe(3600);
+  });
+
+  it("counts elapsed days in a partial week instead of always assuming 7", () => {
+    const monday = new Date("2026-08-03T00:00:00.000Z");
+    const mondayNoon = new Date("2026-08-03T12:00:00.000Z").getTime();
+    expect(elapsedDaysInWeek(monday, mondayNoon)).toBe(1);
+
+    const wednesdayNoon = new Date("2026-08-05T12:00:00.000Z").getTime();
+    expect(elapsedDaysInWeek(monday, wednesdayNoon)).toBe(3);
+
+    const nextMondayNoon = new Date("2026-08-10T12:00:00.000Z").getTime();
+    expect(elapsedDaysInWeek(monday, nextMondayNoon)).toBe(7);
+
+    // A week that hasn't started yet still yields at least 1, to keep averages from dividing by zero.
+    expect(elapsedDaysInWeek(monday, new Date("2026-07-27T12:00:00.000Z").getTime())).toBe(1);
   });
 });
