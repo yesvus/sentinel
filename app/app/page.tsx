@@ -115,7 +115,7 @@ export default function AppHomePage() {
           projectId={session.projectId}
           sessionId={session.sessionId}
           todaySuggestions={model.todaySuggestions}
-          backlogSuggestions={model.backlogSuggestions}
+          backlogSuggestions={model.activeBacklogSuggestions}
           recentTaskIds={tasks.recentTaskIds}
           detachingTaskIds={tasks.detachingTaskIds}
           loadStatus={tasks.sessionTasksLoadStatus}
