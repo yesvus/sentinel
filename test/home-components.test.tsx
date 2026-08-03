@@ -215,7 +215,7 @@ describe("TimerCard", () => {
       />,
     );
     expect(screen.getByText("01:01:01")).toBeInTheDocument();
-    fireEvent.click(screen.getByRole("button", { name: "Pause for an interruption" }));
+    fireEvent.click(screen.getByRole("button", { name: "Pause session" }));
     fireEvent.click(screen.getByRole("button", { name: "Stop session" }));
     fireEvent.click(screen.getByRole("button", { name: "Edit start time" }));
     expect(callbacks.onPauseToggle).toHaveBeenCalledOnce();
