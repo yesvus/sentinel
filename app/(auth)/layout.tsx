@@ -8,7 +8,9 @@ export default function AuthLayout({
 }) {
   return (
     <AuthProvider>
-      <TooltipProvider>{children}</TooltipProvider>
+      <TooltipProvider>
+        <div className="flex flex-1">{children}</div>
+      </TooltipProvider>
     </AuthProvider>
   );
 }
