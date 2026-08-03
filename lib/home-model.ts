@@ -59,6 +59,13 @@ export function buildHomeModel({
     backlogSuggestions: tasks.filter(
       (task) => task.period_start === null && task.completed_at === null && !sessionTaskIdSet.has(task.id),
     ),
+    activeBacklogSuggestions: tasks.filter(
+      (task) =>
+        task.period_start === null &&
+        task.project_id === projectId &&
+        task.completed_at === null &&
+        !sessionTaskIdSet.has(task.id),
+    ),
     todayTrackedSeconds: todaySessions.reduce(
       (total, session) => total + sessionDurationSeconds(session, now),
       0,

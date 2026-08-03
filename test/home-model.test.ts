@@ -15,6 +15,7 @@ const tasks: Task[] = [
   { id: 4, period_start: null, project_id: 1, title: "Backlog", description: null, completed_at: null },
   { id: 5, period_start: null, project_id: 1, title: "Done backlog", description: null, completed_at: "2026-08-01T12:00:00.000Z" },
   { id: 6, period_start: "2026-08-02", project_id: 1, title: "Done today", description: null, completed_at: "2026-08-02T12:00:00.000Z" },
+  { id: 7, period_start: null, project_id: 2, title: "Other project backlog", description: null, completed_at: null },
 ];
 
 const notes: Note[] = [
@@ -40,7 +41,8 @@ describe("Home model", () => {
 
     expect(model.runningProjectTasks.map((task) => task.id)).toEqual([2, 4, 6]);
     expect(model.todaySuggestions).toEqual([]);
-    expect(model.backlogSuggestions).toEqual([]);
+    expect(model.backlogSuggestions.map((task) => task.id)).toEqual([7]);
+    expect(model.activeBacklogSuggestions).toEqual([]);
     expect(model.activeProject?.name).toBe("Research");
   });
 
