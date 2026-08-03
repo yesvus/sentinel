@@ -71,13 +71,20 @@ function ProjectTreeRow({
       style={{ marginInlineStart: `${item.treeDepth * 1.5}rem` }}
     >
       {item.treeDepth > 0 && !dragging && (
-        <div className="absolute pointer-events-none" style={{ left: "-1rem", top: -4, bottom: -4, width: "1rem" }}>
+        <motion.div
+          initial={{ opacity: 0, scaleY: 0 }}
+          animate={{ opacity: 1, scaleY: 1 }}
+          exit={{ opacity: 0, scaleY: 0 }}
+          transition={{ duration: 0.2, ease: [0.25, 0.1, 0.25, 1] }}
+          className="absolute pointer-events-none origin-top"
+          style={{ left: "-1rem", top: -4, bottom: -4, width: "1rem" }}
+        >
           <div className="absolute border-l border-border" style={{
             left: 0, top: -4,
             ...(lastChild ? { height: 22 } : { bottom: 4 }),
           }} />
           <div className="absolute border-b border-border" style={{ left: 0, top: 18, width: 12 }} />
-        </div>
+        </motion.div>
       )}
       {dropIntent?.position === "before" && <span className="bg-primary animate-in fade-in slide-in-from-top-1 absolute -inset-x-1 -top-1 z-10 h-0.5 rounded-full duration-150" aria-hidden="true" />}
       {dropIntent?.position === "after" && <span className="bg-primary animate-in fade-in slide-in-from-bottom-1 absolute -inset-x-1 -bottom-1 z-10 h-0.5 rounded-full duration-150" aria-hidden="true" />}
