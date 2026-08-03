@@ -70,10 +70,15 @@ function ProjectTreeRow({
       style={{ marginInlineStart: `${item.treeDepth * 1.5}rem` }}
     >
       {item.treeDepth > 0 && !dragging && (
-        <span aria-hidden="true" className="border-border absolute -left-4 top-0 h-7 w-3 rounded-bl-md border-b border-l" />
+        <>
+          {item.treeDepth > 1 && (
+            <span aria-hidden="true" className="border-border absolute -left-4 -top-2 bottom-0 border-l" />
+          )}
+          <span aria-hidden="true" className="border-border absolute -left-4 top-6 h-[calc(100%-1.5rem)] w-3 rounded-bl-md border-b border-l" />
+        </>
       )}
-      {dropIntent?.position === "before" && <span className="bg-primary animate-in fade-in slide-in-from-top-1 absolute inset-x-0 -top-1 z-10 h-0.5 rounded-full duration-150" aria-hidden="true" />}
-      {dropIntent?.position === "after" && <span className="bg-primary animate-in fade-in slide-in-from-bottom-1 absolute inset-x-0 -bottom-1 z-10 h-0.5 rounded-full duration-150" aria-hidden="true" />}
+      {dropIntent?.position === "before" && <span className="bg-primary animate-in fade-in slide-in-from-top-1 absolute -inset-x-1 -top-1 z-10 h-0.5 rounded-full duration-150" aria-hidden="true" />}
+      {dropIntent?.position === "after" && <span className="bg-primary animate-in fade-in slide-in-from-bottom-1 absolute -inset-x-1 -bottom-1 z-10 h-0.5 rounded-full duration-150" aria-hidden="true" />}
       <div className={cn(
         "bg-card flex min-w-0 items-start gap-3 rounded-lg p-3 ring-1 ring-foreground/10 transition-[opacity,background-color] duration-150",
         dropIntent?.position === "inside" && "bg-primary/10 ring-2 ring-primary/60",
@@ -243,7 +248,7 @@ export function ActiveProjectTree({
       onDragEnd={(event) => void handleDragEnd(event)}
     >
       <DropRootHint active={activeId !== null} />
-      <div className="flex max-w-full flex-col gap-2 overflow-x-clip">
+      <div className="flex max-w-full flex-col gap-2">
         <AnimatePresence>
           {ordered.map((item) => (
             <motion.div
