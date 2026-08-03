@@ -63,7 +63,7 @@ export function TimerCard({
         isRunning && "shadow-[0_0_80px_-16px_var(--primary)]"
       )}
     >
-      <div className="px-6 pt-6 pb-3">
+      <div className="px-6 py-6">
         <div className={cn("transition-opacity duration-200", isRunning && "opacity-50 pointer-events-none")}>
           <ProjectSelector
             projects={projects}
@@ -74,8 +74,9 @@ export function TimerCard({
           />
         </div>
       </div>
+      <div className="border-t" />
 
-      <div className="flex flex-col items-center gap-6 px-6 pt-4 pb-4">
+      <div className="flex flex-col items-center gap-6 px-6 pt-9 pb-6">
         <p className="font-mono text-4xl font-medium tracking-tight tabular-nums sm:text-5xl md:text-6xl select-none">
           {formatElapsed(elapsedMs)}
         </p>
@@ -159,8 +160,8 @@ export function TimerCard({
         )}
       </div>
 
-      <div className="border-t bg-muted/30 px-5 py-4">
-        <div className="space-y-1.5">
+      <div className="border-t bg-muted/30 px-6 py-6">
+        <div className="space-y-2">
           <Textarea
             placeholder="Include more details about your session (optional)"
             value={description}
