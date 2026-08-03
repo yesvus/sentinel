@@ -71,9 +71,9 @@ function ProjectTreeRow({
       style={{ marginInlineStart: `${item.treeDepth * 1.5}rem` }}
     >
       {item.treeDepth > 0 && !dragging && (
-        <div className="absolute pointer-events-none" style={{ left: "-1rem", top: 0, bottom: 0, width: "1rem" }}>
-          <div className="absolute border-l border-border" style={{ left: 0, top: 0, bottom: lastChild ? "calc(100% - 14px)" : 0 }} />
-          <div className="absolute border-b border-border" style={{ left: 0, top: 14, width: 12 }} />
+        <div className="absolute pointer-events-none" style={{ left: "-1rem", top: -4, bottom: -4, width: "1rem" }}>
+          <div className="absolute border-l border-border" style={{ left: 0, top: 0, bottom: lastChild ? "calc(100% - 10px)" : 0 }} />
+          <div className="absolute border-b border-border" style={{ left: 0, top: 18, width: 12 }} />
         </div>
       )}
       {dropIntent?.position === "before" && <span className="bg-primary animate-in fade-in slide-in-from-top-1 absolute -inset-x-1 -top-1 z-10 h-0.5 rounded-full duration-150" aria-hidden="true" />}
