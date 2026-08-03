@@ -72,9 +72,9 @@ function ProjectTreeRow({
       {item.treeDepth > 0 && !dragging && (
         <>
           {item.treeDepth > 1 && (
-            <span aria-hidden="true" className="border-border absolute -left-4 -top-2 bottom-0 border-l" />
+            <span aria-hidden="true" className="border-border absolute -left-4 -top-[12px] h-[calc(100%+12px)] border-l" />
           )}
-          <span aria-hidden="true" className="border-border absolute -left-4 top-6 h-[calc(100%-1.5rem)] w-3 rounded-bl-md border-b border-l" />
+          <span aria-hidden="true" className="border-border absolute -left-4 top-0 h-7 w-3 rounded-bl-md border-b border-l" />
         </>
       )}
       {dropIntent?.position === "before" && <span className="bg-primary animate-in fade-in slide-in-from-top-1 absolute -inset-x-1 -top-1 z-10 h-0.5 rounded-full duration-150" aria-hidden="true" />}
