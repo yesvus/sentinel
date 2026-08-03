@@ -14,11 +14,11 @@ import { useHomeSession } from "@/hooks/use-home-session";
 import { useHomeTasks } from "@/hooks/use-home-tasks";
 import { useActiveSession } from "@/lib/active-session-context";
 import { useAuth } from "@/lib/auth-context";
-import { dayKey } from "@/lib/date";
+import { dayKey, hourInTimeZone } from "@/lib/date";
 import { buildHomeModel } from "@/lib/home-model";
 
-function greeting() {
-  const hour = new Date().getHours();
+function greeting(timeZone?: string) {
+  const hour = hourInTimeZone(new Date(), timeZone);
   if (hour < 5) return "Still up";
   if (hour < 12) return "Good morning";
   if (hour < 18) return "Good afternoon";
@@ -27,9 +27,10 @@ function greeting() {
 
 export default function AppHomePage() {
   const { user } = useAuth();
+  const timeZone = user?.timezone ?? undefined;
   const active = useActiveSession();
   const { isMobile, setOpen, setOpenMobile } = useSidebar();
-  const data = useHomeData(active.activeSession, active.sessionRevision);
+  const data = useHomeData(active.activeSession, active.sessionRevision, timeZone);
   const trackProductionSplit = user?.trackProductionSplit ?? true;
   const defaultProductionPercentage = user?.defaultSessionType === "producing" ? 100 : 0;
   const session = useHomeSession({
@@ -46,15 +47,15 @@ export default function AppHomePage() {
     onProjectChange: (projectId) => session.changeDetails({ projectId }),
     onError: session.setError,
   });
-  const { visible: sidebarsVisible, exiting: sidebarsExiting } = useHomeRailVisibility({
+  const layout = useHomeRailVisibility({
     isRunning: session.isRunning,
     isMobile,
     setSidebarOpen: setOpen,
     setMobileSidebarOpen: setOpenMobile,
   });
 
-  const todayKey = dayKey(new Date());
-  const todayLabel = new Date().toLocaleDateString(undefined, { weekday: "long", month: "long", day: "numeric" });
+  const todayKey = dayKey(new Date(), timeZone);
+  const todayLabel = new Date().toLocaleDateString(undefined, { timeZone, weekday: "long", month: "long", day: "numeric" });
   const model = buildHomeModel({
     projects: data.projectList,
     tasks: data.taskList,
@@ -67,18 +68,26 @@ export default function AppHomePage() {
   });
 
   async function startSession() {
-    if (await session.start(tasks.selectedTaskIds)) tasks.clearSelectedTasks();
+    const selectedTaskIds = [...tasks.selectedTaskIds];
+    await layout.start(() => session.start(selectedTaskIds), {
+      before: () => tasks.seedSessionTasks(selectedTaskIds),
+      success: tasks.clearSelectedTasks,
+      failure: tasks.clearOptimisticSessionTasks,
+    });
   }
 
   async function stopSession() {
-    if (await session.stop()) tasks.clearSessionTasks();
+    await layout.stop(session.stop, { success: tasks.clearSessionTasks });
   }
+
+  const layoutIsRunning = layout.showActive;
+  const timerIsRunning = session.isRunning || layout.activeExiting;
 
   return (
     <div className="mx-auto grid min-h-full w-full max-w-6xl items-center justify-center gap-8 px-4 py-8 lg:h-full lg:min-h-0 lg:grid-cols-[minmax(13rem,15rem)_minmax(24rem,30rem)_minmax(13rem,15rem)] lg:grid-rows-[minmax(0,1fr)] lg:gap-10">
-      {sidebarsVisible && (
+      {layout.showPlanning && (
         <TodayRail
-          exiting={sidebarsExiting}
+          exiting={layout.planningExiting}
           loaded={data.sidebarDataLoaded}
           isRunning={session.isRunning}
           refreshingActive={active.reconciling}
@@ -91,13 +100,15 @@ export default function AppHomePage() {
           projectId={session.projectId}
           selectedTaskIds={tasks.selectedTaskIds}
           backlogSuggestions={model.backlogSuggestions}
-          onProjectSelect={tasks.selectProject}
+          onProjectSelect={tasks.selectProjectTasks}
           onTaskSelect={tasks.selectTask}
+          onTaskUpdated={tasks.taskUpdated}
           onTaskCreated={tasks.todayTaskCreated}
         />
       )}
-      {session.isRunning && session.sessionId !== null && (
+      {layout.showActive && (
         <ActiveTaskRail
+          exiting={layout.activeExiting}
           tasks={model.runningProjectTasks}
           projects={data.projectList}
           todayKey={todayKey}
@@ -106,19 +117,19 @@ export default function AppHomePage() {
           todaySuggestions={model.todaySuggestions}
           backlogSuggestions={model.backlogSuggestions}
           recentTaskIds={tasks.recentTaskIds}
-          deletingTaskIds={tasks.deletingTaskIds}
+          detachingTaskIds={tasks.detachingTaskIds}
           loadStatus={tasks.sessionTasksLoadStatus}
           onRetry={tasks.retrySessionTasks}
           onTaskCreated={tasks.activeTaskCreated}
           onTaskUpdated={tasks.taskUpdated}
           onToggleTask={(task) => void tasks.toggleTask(task)}
-          onDeleteTask={(task) => void tasks.deleteTask(task)}
+          onDetachTask={(task) => void tasks.detachTask(task)}
         />
       )}
-      <main className={`animate-in fade-in fill-mode-both animation-duration-500 delay-75 order-1 flex flex-col items-center gap-6 ${!sidebarsVisible ? "lg:col-start-2" : "lg:order-2"}`}>
+      <main className="animate-in fade-in fill-mode-both animation-duration-500 delay-75 order-1 flex flex-col items-center gap-6 lg:order-2">
         <div className="w-full max-w-sm">
-          {session.isRunning ? <p className="text-muted-foreground text-sm font-medium">{todayLabel}</p> : (
-            <p className="text-2xl font-semibold tracking-tight">{greeting()}{user?.name ? `, ${user.name}` : user?.email ? `, ${user.email.split("@")[0]}` : ""}</p>
+          {layoutIsRunning ? <p className="text-muted-foreground text-sm font-medium">{todayLabel}</p> : (
+            <p className="text-2xl font-semibold tracking-tight">{greeting(timeZone)}{user?.name ? `, ${user.name}` : user?.email ? `, ${user.email.split("@")[0]}` : ""}</p>
           )}
         </div>
         <EditStartDialog
@@ -138,13 +149,18 @@ export default function AppHomePage() {
           error={session.error}
           trackProductionSplit={trackProductionSplit}
           productionPercentage={session.productionPercentage}
+          elapsedMs={active.elapsedMs}
+          projectName={model.activeProject?.path ?? "No project"}
+          taskCount={model.runningProjectTasks.length}
+          completedTaskCount={model.runningProjectTasks.filter((task) => task.completed_at !== null).length}
+          description={session.description}
           onOpenChange={session.setStopOpen}
           onProductionPercentageChange={session.setProductionPercentage}
           onFinish={() => void stopSession()}
         />
-        <SessionDetailDialog session={data.viewingSession} tasks={data.viewingSessionTasks} tasksStatus={data.viewingSessionTasksStatus} onRetryTasks={data.retryViewingSessionTasks} onClose={() => data.setViewingSession(null)} />
+        <SessionDetailDialog session={data.viewingSession} tasks={data.viewingSessionTasks} tasksStatus={data.viewingSessionTasksStatus} timeZone={timeZone} onRetryTasks={data.retryViewingSessionTasks} onClose={() => data.setViewingSession(null)} />
         <TimerCard
-          isRunning={session.isRunning}
+          isRunning={timerIsRunning}
           isPaused={session.isPaused}
           busy={session.busy}
           refreshingActive={active.reconciling}
@@ -168,11 +184,12 @@ export default function AppHomePage() {
           onEditStart={session.openEditStart}
         />
       </main>
-      {sidebarsVisible && (
+      {layout.showPlanning && (
         <RecentRail
-          exiting={sidebarsExiting}
+          exiting={layout.planningExiting}
           loaded={data.sidebarDataLoaded}
           sessions={data.recentSessions}
+          timeZone={timeZone}
           onViewSession={data.setViewingSession}
         />
       )}

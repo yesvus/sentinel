@@ -2,7 +2,7 @@ import { FormEvent, useState } from "react";
 import type { Project, StudySession } from "@/lib/api";
 import { ApiError } from "@/lib/api";
 import { dateInputValue, timeInputValue } from "@/lib/date";
-import { sessionFormDates, validateSessionFormDates } from "@/lib/session-form";
+import { ongoingSessionAgeError, sessionFormDates, validateSessionFormDates } from "@/lib/session-form";
 import { orderProjectsAsTree } from "@/lib/project-tree";
 import { NoProjectIcon, ProjectIcon } from "@/lib/icons";
 import { useActiveSession } from "@/lib/active-session-context";
@@ -61,6 +61,13 @@ export function HistorySessionDialog({
     if (validationError) {
       setError(validationError);
       return;
+    }
+    if (session?.ended_at !== null && ongoing) {
+      const ageError = ongoingSessionAgeError(startedAt);
+      if (ageError) {
+        setError(ageError);
+        return;
+      }
     }
 
     const project = projects.find((item) => item.id === projectId) ?? null;
@@ -140,7 +147,7 @@ export function HistorySessionDialog({
               : "For time you forgot to track live. It's added as an already-finished session."}
           </DialogDescription>
         </DialogHeader>
-        <form className="space-y-4" onSubmit={save}>
+        <form id="history-session-form" className="space-y-4" onSubmit={save}>
           {session && (
             <label htmlFor="edit-ongoing" className="border-border flex cursor-pointer items-center justify-between gap-4 rounded-lg border px-3 py-2.5">
               <span>
@@ -223,10 +230,10 @@ export function HistorySessionDialog({
             </div>
           )}
           {error && <p className="text-destructive text-sm">{error}</p>}
-          <DialogFooter>
-            <Button type="submit" disabled={busy}>{busy ? "Saving..." : session ? "Save changes" : "Add session"}</Button>
-          </DialogFooter>
         </form>
+        <DialogFooter>
+          <Button type="submit" form="history-session-form" disabled={busy}>{busy ? "Saving..." : session ? "Save changes" : "Add session"}</Button>
+        </DialogFooter>
       </DialogContent>
     </Dialog>
   );

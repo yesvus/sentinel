@@ -34,9 +34,13 @@ function Harness({ sessionId, running = true }: { sessionId: number | null; runn
     <div>
       <span data-testid="status">{tasks.sessionTasksLoadStatus}</span>
       <span data-testid="ids">{tasks.sessionTaskIds.join(",")}</span>
+      <span data-testid="selected-ids">{tasks.selectedTaskIds.join(",")}</span>
       <button type="button" onClick={tasks.retrySessionTasks}>Retry</button>
       <button type="button" onClick={() => tasks.todayTaskCreated(createdTask)}>Create today</button>
       <button type="button" onClick={() => tasks.activeTaskCreated(createdTask)}>Create active</button>
+      <button type="button" onClick={() => tasks.selectProjectTasks(1, [createdTask])}>Select project tasks</button>
+      <button type="button" onClick={() => tasks.seedSessionTasks([createdTask.id])}>Seed session tasks</button>
+      <button type="button" onClick={tasks.clearOptimisticSessionTasks}>Clear seed</button>
     </div>
   );
 }
@@ -80,5 +84,25 @@ describe("useHomeTasks session membership", () => {
     expect(screen.getByTestId("ids")).toBeEmptyDOMElement();
     fireEvent.click(screen.getByRole("button", { name: "Create active" }));
     expect(screen.getByTestId("ids")).toHaveTextContent("12");
+  });
+
+  it("selects every project task and deselects them on the second click", () => {
+    render(<Harness sessionId={null} running={false} />);
+    const trigger = screen.getByRole("button", { name: "Select project tasks" });
+
+    fireEvent.click(trigger);
+    expect(screen.getByTestId("selected-ids")).toHaveTextContent("12");
+    fireEvent.click(trigger);
+    expect(screen.getByTestId("selected-ids")).toBeEmptyDOMElement();
+  });
+
+  it("exposes and clears optimistic task membership before a session is available", () => {
+    render(<Harness sessionId={null} running={false} />);
+
+    fireEvent.click(screen.getByRole("button", { name: "Seed session tasks" }));
+    expect(screen.getByTestId("status")).toHaveTextContent("idle");
+    expect(screen.getByTestId("ids")).toHaveTextContent("12");
+    fireEvent.click(screen.getByRole("button", { name: "Clear seed" }));
+    expect(screen.getByTestId("ids")).toBeEmptyDOMElement();
   });
 });

@@ -19,6 +19,7 @@ import {
   optionalTextError,
   validEmail,
 } from "./validation";
+import { isValidTimeZone } from "@/lib/date";
 
 const AVATAR_TYPES = new Set(["cat", "dog", "bird", "fish", "rabbit", "rocket", "star", "ghost", "bot", "coffee", "gamepad", "sparkles"]);
 
@@ -52,6 +53,7 @@ export async function authRoutes(request: NextRequest, parts: string[]) {
       planWeeklyReminderDay: 0,
       planWeeklyReminderHour: 19,
       planContext: null,
+      timezone: null,
     }, { status: 201 });
     response.cookies.set("token", await createSession(id), COOKIE_OPTIONS);
     return response;
@@ -64,7 +66,7 @@ export async function authRoutes(request: NextRequest, parts: string[]) {
     const attemptKey = rateLimitKey("login", `${clientAddress(request)}:${email}`);
     if (await rateLimited(attemptKey, 5)) return error("Too many sign-in attempts. Try again later.", 429);
     const result = await db.execute({
-      sql: "SELECT id, email, password_hash, name, avatar, share_session_descriptions, auto_start_noise, focus_audio_type, default_session_type, track_production_split, session_pause_timeout_minutes, plan_reminder_hour, plan_weekly_reminder_day, plan_weekly_reminder_hour, plan_context FROM users WHERE lower(email) = ?",
+      sql: "SELECT id, email, password_hash, name, avatar, share_session_descriptions, auto_start_noise, focus_audio_type, default_session_type, track_production_split, session_pause_timeout_minutes, plan_reminder_hour, plan_weekly_reminder_day, plan_weekly_reminder_hour, plan_context, timezone FROM users WHERE lower(email) = ?",
       args: [email],
     });
     const user = result.rows[0];
@@ -85,6 +87,7 @@ export async function authRoutes(request: NextRequest, parts: string[]) {
       planWeeklyReminderDay: Number(user.plan_weekly_reminder_day ?? 0),
       planWeeklyReminderHour: Number(user.plan_weekly_reminder_hour ?? 19),
       planContext: user.plan_context ?? null,
+      timezone: user.timezone ?? null,
     });
     response.cookies.set("token", await createSession(Number(user.id)), COOKIE_OPTIONS);
     return response;
@@ -100,7 +103,7 @@ export async function authRoutes(request: NextRequest, parts: string[]) {
   if (!userId) return unauthorized();
   if (action === "me" && request.method === "GET") {
     const result = await db.execute({
-      sql: "SELECT id, email, name, avatar, share_session_descriptions, auto_start_noise, focus_audio_type, default_session_type, track_production_split, session_pause_timeout_minutes, plan_reminder_hour, plan_weekly_reminder_day, plan_weekly_reminder_hour, plan_context FROM users WHERE id = ?",
+      sql: "SELECT id, email, name, avatar, share_session_descriptions, auto_start_noise, focus_audio_type, default_session_type, track_production_split, session_pause_timeout_minutes, plan_reminder_hour, plan_weekly_reminder_day, plan_weekly_reminder_hour, plan_context, timezone FROM users WHERE id = ?",
       args: [userId],
     });
     const user = result.rows[0];
@@ -117,6 +120,7 @@ export async function authRoutes(request: NextRequest, parts: string[]) {
       planWeeklyReminderDay: Number(user.plan_weekly_reminder_day ?? 0),
       planWeeklyReminderHour: Number(user.plan_weekly_reminder_hour ?? 19),
       planContext: user.plan_context ?? null,
+      timezone: user.timezone ?? null,
     });
   }
   if (action === "me" && request.method === "PATCH") {
@@ -162,12 +166,14 @@ export async function authRoutes(request: NextRequest, parts: string[]) {
     if (data.planReminderHour !== undefined && (!Number.isInteger(data.planReminderHour) || Number(data.planReminderHour) < 0 || Number(data.planReminderHour) > 23)) return error("planReminderHour must be an integer from 0 to 23");
     if (data.planWeeklyReminderDay !== undefined && (!Number.isInteger(data.planWeeklyReminderDay) || Number(data.planWeeklyReminderDay) < 0 || Number(data.planWeeklyReminderDay) > 6)) return error("planWeeklyReminderDay must be an integer from 0 (Sunday) to 6 (Saturday)");
     if (data.planWeeklyReminderHour !== undefined && (!Number.isInteger(data.planWeeklyReminderHour) || Number(data.planWeeklyReminderHour) < 0 || Number(data.planWeeklyReminderHour) > 23)) return error("planWeeklyReminderHour must be an integer from 0 to 23");
-    if (data.defaultSessionType === undefined && data.trackProductionSplit === undefined && data.sessionPauseTimeoutMinutes === undefined && data.planReminderHour === undefined && data.planWeeklyReminderDay === undefined && data.planWeeklyReminderHour === undefined) return error("At least one session setting is required");
+    if (data.timezone !== undefined && data.timezone !== null && typeof data.timezone !== "string") return error("timezone must be a valid IANA time zone or null");
+    if (typeof data.timezone === "string" && !isValidTimeZone(data.timezone)) return error("timezone must be a valid IANA time zone or null");
+    if (data.defaultSessionType === undefined && data.trackProductionSplit === undefined && data.sessionPauseTimeoutMinutes === undefined && data.planReminderHour === undefined && data.planWeeklyReminderDay === undefined && data.planWeeklyReminderHour === undefined && data.timezone === undefined) return error("At least one session setting is required");
     await db.execute({
-      sql: `UPDATE users SET default_session_type = COALESCE(?, default_session_type), track_production_split = COALESCE(?, track_production_split), session_pause_timeout_minutes = COALESCE(?, session_pause_timeout_minutes), plan_reminder_hour = COALESCE(?, plan_reminder_hour), plan_weekly_reminder_day = COALESCE(?, plan_weekly_reminder_day), plan_weekly_reminder_hour = COALESCE(?, plan_weekly_reminder_hour) WHERE id = ?`,
-      args: [data.defaultSessionType as string | null ?? null, data.trackProductionSplit === undefined ? null : data.trackProductionSplit ? 1 : 0, data.sessionPauseTimeoutMinutes === undefined ? null : Number(data.sessionPauseTimeoutMinutes), data.planReminderHour === undefined ? null : Number(data.planReminderHour), data.planWeeklyReminderDay === undefined ? null : Number(data.planWeeklyReminderDay), data.planWeeklyReminderHour === undefined ? null : Number(data.planWeeklyReminderHour), userId],
+      sql: `UPDATE users SET default_session_type = COALESCE(?, default_session_type), track_production_split = COALESCE(?, track_production_split), session_pause_timeout_minutes = COALESCE(?, session_pause_timeout_minutes), plan_reminder_hour = COALESCE(?, plan_reminder_hour), plan_weekly_reminder_day = COALESCE(?, plan_weekly_reminder_day), plan_weekly_reminder_hour = COALESCE(?, plan_weekly_reminder_hour), timezone = CASE WHEN ? THEN ? ELSE timezone END WHERE id = ?`,
+      args: [data.defaultSessionType as string | null ?? null, data.trackProductionSplit === undefined ? null : data.trackProductionSplit ? 1 : 0, data.sessionPauseTimeoutMinutes === undefined ? null : Number(data.sessionPauseTimeoutMinutes), data.planReminderHour === undefined ? null : Number(data.planReminderHour), data.planWeeklyReminderDay === undefined ? null : Number(data.planWeeklyReminderDay), data.planWeeklyReminderHour === undefined ? null : Number(data.planWeeklyReminderHour), data.timezone !== undefined ? 1 : 0, data.timezone as string | null ?? null, userId],
     });
-    const result = await db.execute({ sql: "SELECT default_session_type, track_production_split, session_pause_timeout_minutes, plan_reminder_hour, plan_weekly_reminder_day, plan_weekly_reminder_hour FROM users WHERE id = ?", args: [userId] });
+    const result = await db.execute({ sql: "SELECT default_session_type, track_production_split, session_pause_timeout_minutes, plan_reminder_hour, plan_weekly_reminder_day, plan_weekly_reminder_hour, timezone FROM users WHERE id = ?", args: [userId] });
     return NextResponse.json({
       defaultSessionType: result.rows[0].default_session_type,
       trackProductionSplit: Boolean(result.rows[0].track_production_split),
@@ -175,6 +181,7 @@ export async function authRoutes(request: NextRequest, parts: string[]) {
       planReminderHour: Number(result.rows[0].plan_reminder_hour),
       planWeeklyReminderDay: Number(result.rows[0].plan_weekly_reminder_day),
       planWeeklyReminderHour: Number(result.rows[0].plan_weekly_reminder_hour),
+      timezone: result.rows[0].timezone ?? null,
     });
   }
   if (action === "change-password" && request.method === "POST") {

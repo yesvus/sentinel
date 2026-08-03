@@ -26,7 +26,7 @@ export function buildHomeModel({
 }: HomeModelInput) {
   const projectsById = new Map(projects.map((project) => [project.id, project]));
   const sessionTaskIdSet = new Set(sessionTaskIds);
-  const todayTasks = tasks.filter((task) => task.period_start === todayKey);
+  const todayTasks = tasks.filter((task) => task.period_start === todayKey && task.completed_at === null);
   const groups = new Map<string, HomeTaskGroup>();
 
   for (const task of todayTasks) {

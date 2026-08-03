@@ -100,6 +100,7 @@ export default function CalendarHistoryPage() {
         </Card>
       ) : (
         <HistorySection
+          mode="page"
           sessions={canonicalSessions}
           projects={projectList}
           notes={noteList}

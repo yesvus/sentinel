@@ -23,6 +23,7 @@ export function ProjectBreakdownCard({
   onSelectProject,
   period,
   compact = false,
+  timeZone,
 }: {
   sessions: StudySession[];
   now: number;
@@ -30,20 +31,21 @@ export function ProjectBreakdownCard({
   onSelectProject?: (projectId: string) => void;
   period?: { kind: "day" | "week"; date: Date };
   compact?: boolean;
+  timeZone?: string;
 }) {
-  const currentWeekStart = startOfWeek(new Date(now));
+  const currentWeekStart = startOfWeek(new Date(now), timeZone);
   const [selectedWeekStart, setSelectedWeekStart] = useState(currentWeekStart);
 
-  const selectedWeekKey = weekKey(selectedWeekStart);
+  const selectedWeekKey = weekKey(selectedWeekStart, timeZone);
   const scopedSessions = period?.kind === "day"
-    ? sessionList.filter((session) => dayKey(new Date(session.started_at)) === dayKey(period.date))
+    ? sessionList.filter((session) => dayKey(new Date(session.started_at), timeZone) === dayKey(period.date, timeZone))
     : period?.kind === "week"
-      ? sessionList.filter((session) => weekKey(new Date(session.started_at)) === weekKey(period.date))
-      : sessionList.filter((session) => weekKey(new Date(session.started_at)) === selectedWeekKey);
+      ? sessionList.filter((session) => weekKey(new Date(session.started_at), timeZone) === weekKey(period.date, timeZone))
+      : sessionList.filter((session) => weekKey(new Date(session.started_at), timeZone) === selectedWeekKey);
   const breakdown = projectTotals(scopedSessions, now);
   const totalSeconds = breakdown.reduce((sum, p) => sum + p.seconds, 0);
   const topProject = breakdown.filter((p) => p.name !== NO_PROJECT_LABEL)[0] ?? null;
-  const isCurrentWeek = selectedWeekKey === weekKey(currentWeekStart);
+  const isCurrentWeek = selectedWeekKey === weekKey(currentWeekStart, timeZone);
 
   return (
     <Card className={cn(period && "h-64", className)}>
@@ -55,27 +57,27 @@ export function ProjectBreakdownCard({
         {period ? (
           <span className="text-muted-foreground text-xs">
             {period.kind === "day"
-              ? period.date.toLocaleDateString(undefined, { month: "short", day: "numeric" })
-              : formatWeekRangeLabel(period.date)}
+              ? period.date.toLocaleDateString(undefined, { timeZone, month: "short", day: "numeric" })
+              : formatWeekRangeLabel(period.date, timeZone)}
           </span>
         ) : <div className="flex items-center gap-1">
           <Button
             variant="ghost"
             size="icon-sm"
             className="text-muted-foreground"
-            onClick={() => setSelectedWeekStart((d) => addDays(d, -7))}
+            onClick={() => setSelectedWeekStart((d) => addDays(d, -7, timeZone))}
           >
             <ChevronLeft />
           </Button>
           <span className="text-muted-foreground min-w-32 text-center text-sm whitespace-nowrap">
-            {formatWeekRangeLabel(selectedWeekStart)}
+            {formatWeekRangeLabel(selectedWeekStart, timeZone)}
           </span>
           <Button
             variant="ghost"
             size="icon-sm"
             className="text-muted-foreground"
             disabled={isCurrentWeek}
-            onClick={() => setSelectedWeekStart((d) => addDays(d, 7))}
+            onClick={() => setSelectedWeekStart((d) => addDays(d, 7, timeZone))}
           >
             <ChevronRight />
           </Button>
@@ -123,7 +125,7 @@ export function ProjectBreakdownCard({
               config={chartConfig}
               className="h-56 w-full"
               role="img"
-              aria-label={`Project duration distribution for ${period?.kind === "day" ? period.date.toLocaleDateString() : formatWeekRangeLabel(period?.date ?? selectedWeekStart)}`}
+              aria-label={`Project duration distribution for ${period?.kind === "day" ? period.date.toLocaleDateString(undefined, { timeZone }) : formatWeekRangeLabel(period?.date ?? selectedWeekStart, timeZone)}`}
             >
               <BarChart data={breakdown} layout="vertical" accessibilityLayer margin={{ left: 8 }}>
                 <CartesianGrid horizontal={false} />

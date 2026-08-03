@@ -1,11 +1,11 @@
 import { useCallback, useEffect, useMemo, useState } from "react";
 import { notes, projects, sessions, tasks, type Note, type Project, type StudySession, type Task } from "@/lib/api";
-import { dayKey } from "@/lib/date";
+import { dayKey, startOfDay } from "@/lib/date";
 import { mergeActiveSession } from "@/lib/session-list";
 
 export type HomeDataLoadStatus = "idle" | "loading" | "loaded" | "error";
 
-export function useHomeData(activeSession: StudySession | null = null, sessionRevision = 0) {
+export function useHomeData(activeSession: StudySession | null = null, sessionRevision = 0, timeZone?: string) {
   const [projectList, setProjectList] = useState<Project[]>([]);
   const [taskList, setTaskList] = useState<Task[]>([]);
   const [noteList, setNoteList] = useState<Note[]>([]);
@@ -22,15 +22,14 @@ export function useHomeData(activeSession: StudySession | null = null, sessionRe
   const [viewingSessionTasksRetry, setViewingSessionTasksRetry] = useState(0);
 
   const loadSidebars = useCallback(() => {
-    const today = new Date();
-    today.setHours(0, 0, 0, 0);
+    const today = startOfDay(new Date(), timeZone);
     return Promise.all([
       sessions.list({ from: today.toISOString() }).then(setTodaySessions).catch(() => {}),
       sessions.page(null, 5)
         .then((page) => setRecentSessions(page.items.filter((session) => session.ended_at !== null).slice(0, 4)))
         .catch(() => {}),
     ]);
-  }, []);
+  }, [timeZone]);
 
   useEffect(() => {
     Promise.all([
@@ -74,13 +73,13 @@ export function useHomeData(activeSession: StudySession | null = null, sessionRe
     : currentViewingSessionTasksResult?.status ?? "loading";
 
   const mergedTodaySessions = useMemo(() => {
-    const today = dayKey(new Date());
+    const today = dayKey(new Date(), timeZone);
     return mergeActiveSession(
       todaySessions,
       activeSession,
-      (session) => dayKey(new Date(session.started_at)) === today,
+      (session) => dayKey(new Date(session.started_at), timeZone) === today,
     );
-  }, [activeSession, todaySessions]);
+  }, [activeSession, timeZone, todaySessions]);
 
   const addProject = useCallback((project: Project) => {
     setProjectList((list) => [...list.filter((item) => item.id !== project.id), project]

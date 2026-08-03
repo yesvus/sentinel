@@ -47,13 +47,17 @@ describe("database migrations", () => {
 
     const applied = await client.execute("SELECT version FROM schema_migrations ORDER BY version");
     expect(applied.rows.map((row) => Number(row.version))).toEqual(
-      Array.from({ length: 14 }, (_, index) => index + 1),
+      Array.from({ length: 15 }, (_, index) => index + 1),
     );
     const indexes = await client.execute(
       "SELECT name FROM sqlite_master WHERE type = 'index' AND name = 'idx_one_open_focus_noise_usage_per_user'",
     );
     expect(indexes.rows).toHaveLength(1);
     expect((await client.execute("PRAGMA foreign_keys")).rows[0].foreign_keys).toBe(1);
+    const userColumns = await client.execute("PRAGMA table_info(users)");
+    expect(userColumns.rows).toEqual(expect.arrayContaining([
+      expect.objectContaining({ name: "timezone", notnull: 0 }),
+    ]));
   });
 
   it("can initialize an already-current database again without changing data", async () => {
@@ -66,7 +70,7 @@ describe("database migrations", () => {
 
     await initializeDatabase(client, url);
 
-    expect((await client.execute("SELECT COUNT(*) AS count FROM schema_migrations")).rows[0].count).toBe(14);
+    expect((await client.execute("SELECT COUNT(*) AS count FROM schema_migrations")).rows[0].count).toBe(15);
     expect((await client.execute("SELECT email FROM users")).rows[0].email).toBe("repeat@example.test");
   });
 

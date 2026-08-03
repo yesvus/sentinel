@@ -2,7 +2,7 @@
 
 import { useEffect, useState } from "react";
 import { useRouter, useSearchParams } from "next/navigation";
-import { Clock3, Copy, History, Square, SquareCheck } from "lucide-react";
+import { Clock3, Copy, History } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import {
   Breadcrumb,
@@ -25,31 +25,32 @@ import {
   Project,
 } from "@/lib/api";
 import { NoteFocusCard } from "@/components/note-focus-card";
-import { PlanningPeriodStats } from "@/components/planning-period-stats";
+import { PlanningPeriodStats, shouldShowPlanningComparison } from "@/components/planning-period-stats";
+import { PlanningWeekDayCard } from "@/components/planning-week-day-card";
 import { StreakSummaryCard } from "@/components/streak-summary-card";
-import { LinkifiedText } from "@/components/linkified-text";
 import { toast } from "@/components/ui/toast";
 import { buildWeeklyAiPrompt } from "@/lib/export";
 import { activityStreak, longestActivityStreak, weekStatsFor, sessionDurationSeconds } from "@/lib/session-stats";
 import { useAuth } from "@/lib/auth-context";
 import { useActiveSession } from "@/lib/active-session-context";
 import { PageHeaderActions } from "@/lib/page-header-actions-context";
-import { dayKey, addDays, startOfWeek, weekKey, formatDuration, formatWeekRangeLabel, parseDateKey } from "@/lib/date";
+import { dayKey, addDays, startOfWeek, weekKey, formatWeekRangeLabel, hourInTimeZone, parseDateKey, weekdayInTimeZone } from "@/lib/date";
 import { mergeActiveSession } from "@/lib/session-list";
 
-function initialWeekOffset(value: string | null, now: number) {
+function initialWeekOffset(value: string | null, now: number, timeZone?: string) {
   if (!value || !/^\d{4}-\d{2}-\d{2}$/.test(value)) return 0;
-  const target = startOfWeek(parseDateKey(value));
-  const current = startOfWeek(new Date(now));
+  const target = startOfWeek(parseDateKey(value, timeZone), timeZone);
+  const current = startOfWeek(new Date(now), timeZone);
   return Math.round((target.getTime() - current.getTime()) / (7 * 86_400_000));
 }
 
 export default function PlanPage() {
   const { user } = useAuth();
+  const timeZone = user?.timezone ?? undefined;
   const { activeSession, now, sessionRevision } = useActiveSession();
   const router = useRouter();
   const searchParams = useSearchParams();
-  const [weekOffset, setWeekOffset] = useState(() => initialWeekOffset(searchParams.get("week"), now));
+  const [weekOffset, setWeekOffset] = useState(() => initialWeekOffset(searchParams.get("week"), now, timeZone));
   const [taskList, setTaskList] = useState<Task[]>([]);
   const [noteList, setNoteList] = useState<Note[]>([]);
   const [sessionList, setSessionList] = useState<StudySession[]>([]);
@@ -97,21 +98,21 @@ export default function PlanPage() {
 
   const canonicalSessions = mergeActiveSession(sessionList, activeSession);
   const nowDate = new Date(now);
-  const todayKey = dayKey(nowDate);
-  const tomorrowKey = dayKey(addDays(nowDate, 1));
-  const weekStart = startOfWeek(nowDate);
+  const todayKey = dayKey(nowDate, timeZone);
+  const tomorrowKey = dayKey(addDays(nowDate, 1, timeZone), timeZone);
+  const weekStart = startOfWeek(nowDate, timeZone);
 
-  const selectedWeekStart = addDays(weekStart, weekOffset * 7);
-  const selectedWeekKey = dayKey(selectedWeekStart);
-  const selectedWeekLabel = formatWeekRangeLabel(selectedWeekStart);
-  const selectedWeekDays = Array.from({ length: 7 }, (_, i) => addDays(selectedWeekStart, i));
-  const selectedWeekSessions = canonicalSessions.filter((session) => weekKey(new Date(session.started_at)) === selectedWeekKey);
-  const previousWeekStart = addDays(selectedWeekStart, -7);
-  const previousWeekKey = weekKey(previousWeekStart);
-  const previousWeekSessions = canonicalSessions.filter((session) => weekKey(new Date(session.started_at)) === previousWeekKey);
+  const selectedWeekStart = addDays(weekStart, weekOffset * 7, timeZone);
+  const selectedWeekKey = dayKey(selectedWeekStart, timeZone);
+  const selectedWeekLabel = formatWeekRangeLabel(selectedWeekStart, timeZone);
+  const selectedWeekDays = Array.from({ length: 7 }, (_, i) => addDays(selectedWeekStart, i, timeZone));
+  const selectedWeekSessions = canonicalSessions.filter((session) => weekKey(new Date(session.started_at), timeZone) === selectedWeekKey);
+  const previousWeekStart = addDays(selectedWeekStart, -7, timeZone);
+  const previousWeekKey = weekKey(previousWeekStart, timeZone);
+  const previousWeekSessions = canonicalSessions.filter((session) => weekKey(new Date(session.started_at), timeZone) === previousWeekKey);
   const selectedWeekNote = noteList.find((n) => n.scope === "week" && n.date_key === selectedWeekKey);
-  const currentStreak = activityStreak(canonicalSessions, nowDate);
-  const longestStreak = longestActivityStreak(canonicalSessions);
+  const currentStreak = activityStreak(canonicalSessions, nowDate, timeZone);
+  const longestStreak = longestActivityStreak(canonicalSessions, timeZone);
 
   const weekNavigation = (
     <>
@@ -151,23 +152,24 @@ export default function PlanPage() {
   const longTermNote = noteList.find((n) => n.scope === "long-term" && n.date_key === LONG_TERM_NOTE_KEY);
 
   const reminderHour = user?.planReminderHour ?? 19;
-  const showDailyReminder = nowDate.getHours() >= reminderHour && tomorrowTasks.length === 0;
+  const showDailyReminder = hourInTimeZone(nowDate, timeZone) >= reminderHour && tomorrowTasks.length === 0;
 
   const weeklyReminderDay = user?.planWeeklyReminderDay ?? 0;
   const weeklyReminderHour = user?.planWeeklyReminderHour ?? 19;
-  const nextWeekNote = noteList.find((n) => n.scope === "week" && n.date_key === dayKey(addDays(weekStart, 7)));
+  const nextWeekNote = noteList.find((n) => n.scope === "week" && n.date_key === dayKey(addDays(weekStart, 7, timeZone), timeZone));
   const showWeeklyReminder =
-    nowDate.getDay() === weeklyReminderDay && nowDate.getHours() >= weeklyReminderHour && !nextWeekNote?.content;
+    weekdayInTimeZone(nowDate, timeZone) === weeklyReminderDay && hourInTimeZone(nowDate, timeZone) >= weeklyReminderHour && !nextWeekNote?.content;
 
   function copySelectedWeeklyPrompt() {
-    const currentWeek = weekStatsFor(canonicalSessions, selectedWeekStart, now);
-    const previousWeeks = [4, 3, 2, 1].map((n) => weekStatsFor(canonicalSessions, addDays(selectedWeekStart, -7 * n), now));
+    const currentWeek = weekStatsFor(canonicalSessions, selectedWeekStart, now, timeZone);
+    const previousWeeks = [4, 3, 2, 1].map((n) => weekStatsFor(canonicalSessions, addDays(selectedWeekStart, -7 * n, timeZone), now, timeZone));
     const prompt = buildWeeklyAiPrompt({
       userContext: user?.planContext ?? null,
       longTermGoalsText: longTermNote?.content ?? null,
       previousWeeks,
       currentWeek,
       weekNote: selectedWeekNote,
+      timeZone,
     });
     copyPrompt("plan-weekly-prompt", prompt);
   }
@@ -186,14 +188,16 @@ export default function PlanPage() {
             </div>
           ))}
         </div>
-        <div className="grid grid-cols-7 items-start gap-2">
+        <div className="scrollbar-thin overflow-x-auto pb-2">
+        <div className="grid min-w-[56rem] grid-cols-7 items-start gap-2">
           {Array.from({ length: 7 }, (_, i) => (
-            <div key={i} className="min-h-40 space-y-2 rounded-lg border p-2.5">
+            <div key={i} className="h-[30rem] space-y-2 rounded-lg border p-2.5">
               <Skeleton className="h-4 w-12" />
               <Skeleton className="h-3 w-full" />
               <Skeleton className="h-3 w-4/5" />
             </div>
           ))}
+        </div>
         </div>
         </div>
       </>
@@ -252,7 +256,7 @@ export default function PlanPage() {
           note={selectedWeekNote}
           emptyText="No goals set for this week yet — click to add some."
           placeholder="What are you aiming for this week? Vague is fine — e.g. finish chapters 1-4 of Probability. This is also where you wrap up how the week went."
-          dialogTitle={`Week of ${formatWeekRangeLabel(selectedWeekStart)}`}
+          dialogTitle={`Week of ${formatWeekRangeLabel(selectedWeekStart, timeZone)}`}
           dialogDescription="Set goals ahead, or wrap up how the week went — same note either way."
           cardClassName="h-76"
           collapsible={false}
@@ -265,87 +269,39 @@ export default function PlanPage() {
           previousSessions={previousWeekSessions}
           now={now}
           date={selectedWeekStart}
+          showComparison={shouldShowPlanningComparison("week", selectedWeekStart, now, timeZone)}
+          timeZone={timeZone}
         />
         <StreakSummaryCard current={currentStreak} longest={longestStreak} />
       </section>
 
-      <div className="grid grid-cols-7 items-start gap-2">
+      <div className="scrollbar-thin overflow-x-auto pb-2">
+      <div className="grid min-w-[56rem] grid-cols-7 items-start gap-2">
         {selectedWeekDays.map((date) => {
-          const key = dayKey(date);
+          const key = dayKey(date, timeZone);
           const isToday = key === todayKey;
           const dayTasksForDate = taskList.filter((t) => t.period_start === key);
           const dayNoteForDate = noteList.find((n) => n.scope === "day" && n.date_key === key);
-          const trackedSeconds = canonicalSessions
-            .filter((s) => dayKey(new Date(s.started_at)) === key)
-            .reduce((sum, s) => sum + sessionDurationSeconds(s, now), 0);
+          const daySessionsForDate = canonicalSessions.filter((s) => dayKey(new Date(s.started_at), timeZone) === key);
+          const trackedSeconds = daySessionsForDate.reduce((sum, s) => sum + sessionDurationSeconds(s, now), 0);
 
           return (
-            <div
+            <PlanningWeekDayCard
               key={key}
-              role="link"
-              tabIndex={0}
-              onClick={(event) => {
-                if ((event.target as HTMLElement).closest("a,button,input,textarea,select")) return;
-                router.push(`/app/calendar/${key}`);
-              }}
-              onKeyDown={(event) => {
-                if ((event.target as HTMLElement).closest("a,button,input,textarea,select")) return;
-                if (event.key === "Enter" || event.key === " ") {
-                  event.preventDefault();
-                  router.push(`/app/calendar/${key}`);
-                }
-              }}
-              className={`hover:border-primary/40 hover:bg-muted/20 focus-visible:border-ring focus-visible:ring-ring/50 flex h-64 min-w-0 cursor-pointer select-none flex-col items-start overflow-hidden rounded-xl border text-left outline-none transition-[color,background-color,border-color,box-shadow,transform] duration-150 focus-visible:ring-3 active:scale-[0.995] ${
-                isToday ? "border-primary/50 bg-primary/5" : "border-border"
-              }`}
-            >
-              <div className="bg-muted/20 flex w-full items-center justify-between gap-1 border-b px-2.5 py-2 text-left transition-colors duration-150">
-                <span className="truncate text-sm font-medium">
-                  {date.toLocaleDateString(undefined, { weekday: "short" })}{" "}
-                  <span className="text-muted-foreground font-normal">{date.getDate()}</span>
-                </span>
-                {isToday && (
-                  <span className="bg-primary/15 text-primary shrink-0 rounded-full px-1.5 py-0.5 text-[10px] font-medium">
-                    Today
-                  </span>
-                )}
-              </div>
-              <div className="flex min-h-0 w-full flex-1 flex-col items-start gap-1.5 overflow-y-auto p-2.5">
-                {trackedSeconds > 0 && (
-                  <span className="text-muted-foreground font-mono text-xs">{formatDuration(trackedSeconds)}</span>
-                )}
-                {dayTasksForDate.length > 0 ? (
-                  <ul className="w-full space-y-1">
-                    {dayTasksForDate.map((task) => {
-                      const project = projectList.find((p) => p.id === task.project_id);
-                      return (
-                        <li
-                          key={task.id}
-                          className={`flex items-start gap-1 text-xs ${task.completed_at ? "text-muted-foreground line-through" : ""}`}
-                        >
-                          {task.completed_at ? (
-                            <SquareCheck className="mt-0.5 size-3 shrink-0" />
-                          ) : (
-                            <Square className="mt-0.5 size-3 shrink-0" />
-                          )}
-                          <span className="min-w-0 break-words">
-                            {task.title}
-                            {project && <span className="text-muted-foreground/70"> · {project.name}</span>}
-                          </span>
-                        </li>
-                      );
-                    })}
-                  </ul>
-                ) : (
-                  <span className="text-muted-foreground/60 text-xs">No tasks</span>
-                )}
-                {dayNoteForDate?.content && (
-                  <LinkifiedText text={dayNoteForDate.content} as="p" className="text-muted-foreground w-full text-xs" />
-                )}
-              </div>
-            </div>
+              date={date}
+              isToday={isToday}
+              tasks={dayTasksForDate}
+              note={dayNoteForDate}
+              projects={projectList}
+              sessions={daySessionsForDate}
+              trackedSeconds={trackedSeconds}
+              now={now}
+              timeZone={timeZone}
+              onOpen={() => router.push(`/app/calendar/${key}`)}
+            />
           );
         })}
+      </div>
       </div>
 
       </div>

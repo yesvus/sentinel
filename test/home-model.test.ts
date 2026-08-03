@@ -14,6 +14,7 @@ const tasks: Task[] = [
   { id: 3, period_start: "2026-08-02", project_id: null, title: "Admin", description: null, completed_at: null },
   { id: 4, period_start: null, project_id: 1, title: "Backlog", description: null, completed_at: null },
   { id: 5, period_start: null, project_id: 1, title: "Done backlog", description: null, completed_at: "2026-08-01T12:00:00.000Z" },
+  { id: 6, period_start: "2026-08-02", project_id: 1, title: "Done today", description: null, completed_at: "2026-08-02T12:00:00.000Z" },
 ];
 
 const notes: Note[] = [
@@ -29,14 +30,15 @@ describe("Home model", () => {
     const model = buildHomeModel({ projects, tasks, notes, todaySessions, todayKey: "2026-08-02", projectId: 1, sessionTaskIds: [], now: Date.now() });
 
     expect(model.todayTaskGroups.map((group) => group.project?.name ?? "none")).toEqual(["Research", "Writing", "none"]);
+    expect(model.todayTasks.map((task) => task.id)).not.toContain(6);
     expect(model.todayNote?.content).toBe("Keep it focused");
     expect(model.todayTrackedSeconds).toBe(1800);
   });
 
   it("keeps active tasks out of session suggestions and completed tasks out of backlog suggestions", () => {
-    const model = buildHomeModel({ projects, tasks, notes, todaySessions, todayKey: "2026-08-02", projectId: 1, sessionTaskIds: [2, 4], now: Date.now() });
+    const model = buildHomeModel({ projects, tasks, notes, todaySessions, todayKey: "2026-08-02", projectId: 1, sessionTaskIds: [2, 4, 6], now: Date.now() });
 
-    expect(model.runningProjectTasks.map((task) => task.id)).toEqual([2, 4]);
+    expect(model.runningProjectTasks.map((task) => task.id)).toEqual([2, 4, 6]);
     expect(model.todaySuggestions).toEqual([]);
     expect(model.backlogSuggestions).toEqual([]);
     expect(model.activeProject?.name).toBe("Research");

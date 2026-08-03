@@ -17,12 +17,14 @@ import { removeTask as removeTaskFromList, upsertTask } from "@/lib/task-collect
 import { taskMutations } from "@/lib/task-mutations";
 import { useActiveSession } from "@/lib/active-session-context";
 import { mergeActiveSession } from "@/lib/session-list";
+import { useAuth } from "@/lib/auth-context";
 
 export default function ProjectDetailPage() {
   const params = useParams<{ id: string }>();
   const router = useRouter();
   const projectId = Number(params.id);
   const { activeSession, now, sessionRevision } = useActiveSession();
+  const { user } = useAuth();
   const [projectList, setProjectList] = useState<Project[]>([]);
   const [taskList, setTaskList] = useState<Task[]>([]);
   const [sessionList, setSessionList] = useState<StudySession[]>([]);
@@ -218,6 +220,7 @@ export default function ProjectDetailPage() {
           trackedSeconds={model.trackedSeconds} sessionCount={model.projectSessions.length}
           completedTaskCount={model.completedTaskCount} backlogCount={model.backlogTasks.length}
           lastSessionStartedAt={model.lastSession?.started_at ?? null}
+          timeZone={user?.timezone ?? undefined}
         />
       </div>
     </div>

@@ -35,10 +35,16 @@ async function finalizeExpiredPause(userId: number, sessionId?: number) {
   if (endedAt > Date.now()) return null;
   const pausedSeconds = Number(session.paused_seconds ?? 0) + timeoutSeconds;
   const durationSeconds = Math.max(0, Math.round((endedAt - new Date(session.started_at as string).getTime()) / 1000) - pausedSeconds);
-  await db.execute({
-    sql: "UPDATE sessions SET ended_at = ?, duration_seconds = ?, paused_at = NULL, paused_seconds = ? WHERE id = ? AND user_id = ? AND ended_at IS NULL",
-    args: [new Date(endedAt).toISOString(), durationSeconds, pausedSeconds, Number(session.id), userId],
-  });
+  await db.batch([
+    {
+      sql: "UPDATE sessions SET ended_at = ?, duration_seconds = ?, paused_at = NULL, paused_seconds = ? WHERE id = ? AND user_id = ? AND ended_at IS NULL",
+      args: [new Date(endedAt).toISOString(), durationSeconds, pausedSeconds, Number(session.id), userId],
+    },
+    {
+      sql: "DELETE FROM session_tasks WHERE session_id = ? AND task_id IN (SELECT id FROM tasks WHERE user_id = ? AND completed_at IS NULL)",
+      args: [Number(session.id), userId],
+    },
+  ], "write");
   return { id: Number(session.id), endedAt: new Date(endedAt).toISOString(), durationSeconds };
 }
 
@@ -92,8 +98,10 @@ export async function sessionRoutes(request: NextRequest, parts: string[], userI
           args: [userId, startedAt, data.description as string | null ?? null, data.projectId == null ? null : Number(data.projectId)],
         },
         ...(taskIds.length ? [{
-          sql: `INSERT INTO session_tasks (session_id, task_id) SELECT last_insert_rowid(), id FROM tasks WHERE id IN (${taskIds.map(() => "?").join(",")})`,
-          args: taskIds,
+          sql: `INSERT INTO session_tasks (session_id, task_id)
+                SELECT (SELECT id FROM sessions WHERE user_id = ? AND ended_at IS NULL), id
+                FROM tasks WHERE user_id = ? AND id IN (${taskIds.map(() => "?").join(",")})`,
+          args: [userId, userId, ...taskIds],
         }] : []),
       ], "write");
       const sessionId = Number(results[0].lastInsertRowid);
@@ -216,7 +224,16 @@ export async function sessionRoutes(request: NextRequest, parts: string[], userI
     const pausedSeconds = Number(existing.rows[0].paused_seconds ?? 0) + currentPauseSeconds;
     const durationSeconds = Math.max(0, Math.round((endedAt.getTime() - new Date(existing.rows[0].started_at as string).getTime()) / 1000) - pausedSeconds);
     const description = data.description !== undefined ? data.description : existing.rows[0].description;
-    await db.execute({ sql: "UPDATE sessions SET ended_at = ?, duration_seconds = ?, description = ?, production_percentage = ?, paused_at = NULL, paused_seconds = ? WHERE id = ? AND user_id = ?", args: [endedAt.toISOString(), durationSeconds, description as string | null ?? null, data.productionPercentage as number | null ?? null, pausedSeconds, id, userId] });
+    await db.batch([
+      {
+        sql: "UPDATE sessions SET ended_at = ?, duration_seconds = ?, description = ?, production_percentage = ?, paused_at = NULL, paused_seconds = ? WHERE id = ? AND user_id = ?",
+        args: [endedAt.toISOString(), durationSeconds, description as string | null ?? null, data.productionPercentage as number | null ?? null, pausedSeconds, id, userId],
+      },
+      {
+        sql: "DELETE FROM session_tasks WHERE session_id = ? AND task_id IN (SELECT id FROM tasks WHERE user_id = ? AND completed_at IS NULL)",
+        args: [id, userId],
+      },
+    ], "write");
     return NextResponse.json({ id, endedAt: endedAt.toISOString(), durationSeconds, description: description ?? null, productionPercentage: data.productionPercentage ?? null });
   }
   if (request.method === "DELETE") {
@@ -250,6 +267,9 @@ async function updateSession(request: NextRequest, id: number, userId: number) {
   const end = data.endedAt === null ? null : data.endedAt !== undefined ? new Date(data.endedAt as string) : wasActive ? null : new Date(session.ended_at as string);
   if (Number.isNaN(start.getTime()) || (end && Number.isNaN(end.getTime()))) return error("startedAt and endedAt must be valid dates");
   if (end === null && start.getTime() > Date.now()) return error("startedAt cannot be in the future");
+  if (!wasActive && end === null && Date.now() - start.getTime() > 12 * 60 * 60 * 1000) {
+    return error("Sessions started more than 12 hours ago cannot be marked ongoing");
+  }
   if (end && end <= start) return error("endedAt must be after startedAt");
   const selectedTaskIds: number[] | null = Array.isArray(data.taskIds) ? Array.from(new Set<number>(data.taskIds.map((value: unknown) => Number(value)))) : null;
   if (selectedTaskIds && end === null) return error("Completed tasks can only be assigned to a completed session");

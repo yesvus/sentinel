@@ -1,6 +1,7 @@
 import { describe, expect, it } from "vitest";
 import type { Note, StudySession } from "@/lib/api";
 import {
+  filterHistorySessions,
   groupHistorySessions,
   historyExportFilename,
   historyNotesForDay,
@@ -53,5 +54,37 @@ describe("history transformations", () => {
     expect(historyExportFilename("all", "", "2026-08-02")).toBe("sentinel-sessions-all-2026-08-02.csv");
     expect(historyExportFilename("week", "2026-07-27", "2026-08-02")).toBe("sentinel-sessions-week-2026-07-27.csv");
     expect(historyExportFilename("day", "2026-08-01", "2026-08-02")).toBe("sentinel-sessions-2026-08-01.csv");
+  });
+
+  it("filters by description, project, and completion status", () => {
+    const completed = {
+      ...session(1, "2026-08-05T10:00:00", 1200),
+      description: "Write release notes",
+      project_id: 7,
+      project_name: "Sentinel",
+      project_path: "Work / Sentinel",
+    };
+    const ongoing = {
+      ...session(2, "2026-08-05T11:00:00", 600),
+      ended_at: null,
+      duration_seconds: null,
+      description: "Read a chapter",
+    };
+
+    expect(filterHistorySessions([completed, ongoing], {
+      query: "sentinel",
+      project: "all",
+      status: "all",
+    }).map(({ id }) => id)).toEqual([1]);
+    expect(filterHistorySessions([completed, ongoing], {
+      query: "",
+      project: "7",
+      status: "completed",
+    }).map(({ id }) => id)).toEqual([1]);
+    expect(filterHistorySessions([completed, ongoing], {
+      query: "",
+      project: "none",
+      status: "ongoing",
+    }).map(({ id }) => id)).toEqual([2]);
   });
 });

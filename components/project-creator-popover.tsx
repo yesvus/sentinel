@@ -8,12 +8,14 @@ import { Button } from "@/components/ui/button";
 import { Field, FieldError, FieldGroup, FieldLabel, FieldTitle } from "@/components/ui/field";
 import { Input } from "@/components/ui/input";
 import {
-  Popover,
-  PopoverContent,
-  PopoverHeader,
-  PopoverTitle,
-  PopoverTrigger,
-} from "@/components/ui/popover";
+  Dialog,
+  DialogContent,
+  DialogDescription,
+  DialogFooter,
+  DialogHeader,
+  DialogTitle,
+  DialogTrigger,
+} from "@/components/ui/dialog";
 import { Spinner } from "@/components/ui/spinner";
 import { Textarea } from "@/components/ui/textarea";
 import { ApiError, Project, projects as projectsApi } from "@/lib/api";
@@ -22,17 +24,29 @@ export function ProjectCreatorPopover({
   onCreated,
   compact = false,
   disabled = false,
+  open: controlledOpen,
+  onOpenChange,
+  hideTrigger = false,
 }: {
   onCreated: (project: Project) => void;
   compact?: boolean;
   disabled?: boolean;
+  open?: boolean;
+  onOpenChange?: (open: boolean) => void;
+  hideTrigger?: boolean;
 }) {
-  const [open, setOpen] = useState(false);
+  const [internalOpen, setInternalOpen] = useState(false);
   const [name, setName] = useState("");
   const [description, setDescription] = useState("");
   const [icon, setIcon] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const open = controlledOpen ?? internalOpen;
+
+  function setOpen(nextOpen: boolean) {
+    if (controlledOpen === undefined) setInternalOpen(nextOpen);
+    onOpenChange?.(nextOpen);
+  }
 
   function resetForm() {
     setName("");
@@ -68,29 +82,32 @@ export function ProjectCreatorPopover({
   }
 
   return (
-    <Popover open={open} onOpenChange={handleOpenChange}>
-      <PopoverTrigger
-        render={
-          <Button
-            type="button"
-            variant={compact ? "ghost" : "default"}
-            size={compact ? "sm" : "default"}
-            aria-label={compact ? "New project" : undefined}
-            disabled={disabled}
-          />
-        }
-      >
-        <Plus data-icon="inline-start" />
-        New project
-      </PopoverTrigger>
-      <PopoverContent align="end" className="w-[min(30rem,calc(100vw-1.5rem))] gap-0 overflow-hidden p-0">
-        <PopoverHeader className="border-b bg-muted/20 px-4 py-3">
-          <PopoverTitle className="flex items-center gap-1">
+    <Dialog open={open} onOpenChange={handleOpenChange}>
+      {!hideTrigger && (
+        <DialogTrigger
+          render={
+            <Button
+              type="button"
+              variant={compact ? "ghost" : "default"}
+              size={compact ? "sm" : "default"}
+              aria-label={compact ? "New project" : undefined}
+              disabled={disabled}
+            />
+          }
+        >
+          <Plus data-icon="inline-start" />
+          New project
+        </DialogTrigger>
+      )}
+      <DialogContent className="gap-0 overflow-hidden p-0 sm:max-w-lg">
+        <DialogHeader className="border-b bg-muted/20 px-4 py-3">
+          <DialogTitle className="flex items-center gap-1">
             New project
             <HelpTooltip>New projects begin at the top level. Drag them onto another project to organize the tree.</HelpTooltip>
-          </PopoverTitle>
-        </PopoverHeader>
-        <form className="flex flex-col" onSubmit={createProject}>
+          </DialogTitle>
+          <DialogDescription className="sr-only">Create a new top-level project.</DialogDescription>
+        </DialogHeader>
+        <form id="create-project-form" className="flex flex-col" onSubmit={createProject}>
           <FieldGroup className="gap-4 p-4">
             <Field data-invalid={Boolean(error)}>
               <FieldLabel htmlFor="new-project-name">Name</FieldLabel>
@@ -122,15 +139,15 @@ export function ProjectCreatorPopover({
             </Field>
           </FieldGroup>
           {error && <FieldError className="px-4 pb-3">{error}</FieldError>}
-          <div className="flex justify-end gap-2 border-t bg-muted/50 p-4">
-            <Button type="button" variant="ghost" size="sm" onClick={() => setOpen(false)} disabled={busy}>Cancel</Button>
-            <Button type="submit" size="sm" disabled={busy || !name.trim()}>
-              {busy && <Spinner data-icon="inline-start" />}
-              {busy ? "Creating..." : "Create project"}
-            </Button>
-          </div>
         </form>
-      </PopoverContent>
-    </Popover>
+        <DialogFooter>
+          <Button type="button" variant="ghost" size="sm" onClick={() => setOpen(false)} disabled={busy}>Cancel</Button>
+          <Button type="submit" form="create-project-form" size="sm" disabled={busy || !name.trim()}>
+            {busy && <Spinner data-icon="inline-start" />}
+            {busy ? "Creating..." : "Create project"}
+          </Button>
+        </DialogFooter>
+      </DialogContent>
+    </Dialog>
   );
 }

@@ -1,18 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { db } from "../db";
 import { error } from "./http";
-
-function dateKeyInTimezone(value: Date, timezone: string) {
-  const parts = new Intl.DateTimeFormat("en-CA", { timeZone: timezone, year: "numeric", month: "2-digit", day: "2-digit" }).formatToParts(value);
-  const part = (type: string) => parts.find((item) => item.type === type)?.value ?? "";
-  return `${part("year")}-${part("month")}-${part("day")}`;
-}
-
-function addDateKeyDays(key: string, days: number) {
-  const date = new Date(`${key}T00:00:00.000Z`);
-  date.setUTCDate(date.getUTCDate() + days);
-  return date.toISOString().slice(0, 10);
-}
+import { addDateKeyDays, dayKey, isValidTimeZone } from "@/lib/date";
 
 function mondayForDateKey(key: string) {
   const date = new Date(`${key}T00:00:00.000Z`);
@@ -23,9 +12,7 @@ function mondayForDateKey(key: string) {
 export async function reportRoutes(request: NextRequest, parts: string[], userId: number) {
   if (parts[1] !== "weekly" || request.method !== "GET") return error("Not found", 404);
   const timezone = request.nextUrl.searchParams.get("timezone") || "UTC";
-  try {
-    new Intl.DateTimeFormat("en", { timeZone: timezone }).format();
-  } catch {
+  if (!isValidTimeZone(timezone)) {
     return error("Invalid timezone");
   }
   const result = await db.execute({
@@ -37,11 +24,11 @@ export async function reportRoutes(request: NextRequest, parts: string[], userId
     startedAt: row.started_at as string, duration: Number(row.duration_seconds ?? 0),
     production: row.production_percentage === null ? 0 : Number(row.production_percentage), project: row.project_name as string | null,
   }));
-  const currentMonday = mondayForDateKey(dateKeyInTimezone(new Date(), timezone));
+  const currentMonday = mondayForDateKey(dayKey(new Date(), timezone));
   for (let offset = 1; offset <= 12; offset += 1) {
     const weekStart = addDateKeyDays(currentMonday, -7 * offset);
     const weekEnd = addDateKeyDays(weekStart, 6);
-    const weekSessions = sessions.filter((session) => mondayForDateKey(dateKeyInTimezone(new Date(session.startedAt), timezone)) === weekStart);
+    const weekSessions = sessions.filter((session) => mondayForDateKey(dayKey(new Date(session.startedAt), timezone)) === weekStart);
     const durations = weekSessions.map((session) => session.duration).sort((a, b) => a - b);
     const middle = Math.floor(durations.length / 2);
     const medianSeconds = durations.length === 0 ? null : durations.length % 2 ? durations[middle] : Math.round((durations[middle - 1] + durations[middle]) / 2);
@@ -57,7 +44,7 @@ export async function reportRoutes(request: NextRequest, parts: string[], userId
     const topProject = Array.from(projects.entries()).sort((a, b) => b[1] - a[1] || a[0].localeCompare(b[0]))[0]?.[0] ?? null;
     const data = {
       weekStart, weekEnd, timezone, totalSeconds: learningSeconds + producingSeconds,
-      activeDays: new Set(weekSessions.map((session) => dateKeyInTimezone(new Date(session.startedAt), timezone))).size,
+      activeDays: new Set(weekSessions.map((session) => dayKey(new Date(session.startedAt), timezone))).size,
       medianSeconds, learningSeconds, producingSeconds, topProject, sessionCount: weekSessions.length,
     };
     await db.execute({

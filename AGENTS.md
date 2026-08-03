@@ -3,6 +3,15 @@
 These instructions apply to the entire repository. Keep them focused on durable project conventions;
 temporary implementation notes belong in the relevant GitHub issue or pull request.
 
+<!-- BEGIN:nextjs-agent-rules -->
+
+# Next.js: ALWAYS read docs before coding
+
+Before any Next.js work, find and read the relevant doc in `node_modules/next/dist/docs/`. Your training
+data is outdated; the bundled docs matching the installed version are the source of truth.
+
+<!-- END:nextjs-agent-rules -->
+
 ## Backlog
 
 Feature requests, roadmap ideas, and work not tied to the current change go to GitHub issues in this
@@ -53,6 +62,11 @@ Line count is a review signal, not an automatic design rule.
 
 ## Data And Mutations
 
+- Use optimistic UI by default for reversible user actions: apply the expected local state immediately,
+  confirm it with the server in the background, reconcile with the authoritative response, and roll back
+  with visible feedback if the request fails. Do not block interaction or animation on network latency
+  when a safe rollback is possible. Destructive, security-sensitive, or non-reversible operations remain
+  confirmation-first.
 - Treat server responses as authoritative. Do not fabricate timestamps, durations, task membership, or
   normalized records on the client when the API can return them.
 - Multi-record mutations that must succeed together must use an atomic database batch or transaction.

@@ -17,6 +17,7 @@ export type User = {
   planWeeklyReminderDay: number;
   planWeeklyReminderHour: number;
   planContext: string | null;
+  timezone: string | null;
 };
 
 export const auth = {
@@ -53,6 +54,7 @@ export const auth = {
     planReminderHour?: number;
     planWeeklyReminderDay?: number;
     planWeeklyReminderHour?: number;
+    timezone?: string | null;
   }) =>
     api<{
       defaultSessionType: "learning" | "producing";
@@ -61,5 +63,6 @@ export const auth = {
       planReminderHour: number;
       planWeeklyReminderDay: number;
       planWeeklyReminderHour: number;
+      timezone: string | null;
     }>("/api/auth/session-settings", { method: "PATCH", body: JSON.stringify(settings) }),
 };

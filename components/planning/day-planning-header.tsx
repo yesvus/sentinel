@@ -10,6 +10,7 @@ type DayPlanningHeaderProps = {
   sessionCount: number;
   totalSessionSeconds: number;
   onCopyPrompt: () => void;
+  timeZone?: string;
 };
 
 export function DayPlanningHeader({
@@ -19,13 +20,14 @@ export function DayPlanningHeader({
   sessionCount,
   totalSessionSeconds,
   onCopyPrompt,
+  timeZone,
 }: DayPlanningHeaderProps) {
   return (
     <div className="flex flex-col items-start justify-between gap-4 sm:flex-row sm:items-end">
       <div className="flex flex-col gap-2">
         <div className="flex flex-wrap items-center gap-2">
           <h2 className="text-2xl font-semibold tracking-tight">
-            {selectedDate.toLocaleDateString(undefined, { weekday: "long", month: "long", day: "numeric" })}
+            {selectedDate.toLocaleDateString(undefined, { timeZone, weekday: "long", month: "long", day: "numeric" })}
           </h2>
           {isToday && <Badge>Today</Badge>}
         </div>

@@ -11,7 +11,7 @@ import { DayPlanningHeader } from "@/components/planning/day-planning-header";
 import { DayPlanningLoading } from "@/components/planning/day-planning-loading";
 import { DayPlanningNavigation } from "@/components/planning/day-planning-navigation";
 import { DaySessionTimeline } from "@/components/planning/day-session-timeline";
-import { PlanningPeriodStats } from "@/components/planning-period-stats";
+import { PlanningPeriodStats, shouldShowPlanningComparison } from "@/components/planning-period-stats";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Card, CardAction, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
@@ -56,10 +56,11 @@ function isValidDayKey(value: string) {
 export default function DayPlanningPage() {
   const params = useParams<{ day: string }>();
   const { activeSession, now, sessionRevision } = useActiveSession();
+  const { user } = useAuth();
+  const timeZone = user?.timezone ?? undefined;
   const selectedDayKey = params.day;
   const validDay = isValidDayKey(selectedDayKey);
-  const selectedDate = validDay ? parseDateKey(selectedDayKey) : new Date(now);
-  const { user } = useAuth();
+  const selectedDate = validDay ? parseDateKey(selectedDayKey, timeZone) : new Date(now);
   const [taskList, setTaskList] = useState<Task[]>([]);
   const [noteList, setNoteList] = useState<Note[]>([]);
   const [sessionList, setSessionList] = useState<StudySession[]>([]);
@@ -77,11 +78,11 @@ export default function DayPlanningPage() {
       setLoadError(null);
       setSessionTasks({});
       setSessionTaskErrors({});
-      const date = parseDateKey(selectedDayKey);
-      const weekStart = startOfWeek(date);
-      const previousDay = addDays(date, -1);
+      const date = parseDateKey(selectedDayKey, timeZone);
+      const weekStart = startOfWeek(date, timeZone);
+      const previousDay = addDays(date, -1, timeZone);
       const rangeStart = previousDay < weekStart ? previousDay : weekStart;
-      const nextDay = addDays(date, 1);
+      const nextDay = addDays(date, 1, timeZone);
       Promise.all([
         tasksApi.list(),
         notesApi.list(),
@@ -90,7 +91,7 @@ export default function DayPlanningPage() {
         ])
         .then(async ([tasks, notes, sessions, projects]) => {
           const sessionsForDay = sessions.filter(
-            (session) => dayKey(new Date(session.started_at)) === selectedDayKey,
+            (session) => dayKey(new Date(session.started_at), timeZone) === selectedDayKey,
           );
           const sessionTaskResults = await Promise.all(
             sessionsForDay.map(async (session) => {
@@ -124,12 +125,12 @@ export default function DayPlanningPage() {
       cancelled = true;
       window.clearTimeout(timer);
     };
-  }, [selectedDayKey, sessionRevision, validDay]);
+  }, [selectedDayKey, sessionRevision, timeZone, validDay]);
 
-  const previousRangeDay = addDays(selectedDate, -1);
-  const weekRangeStart = startOfWeek(selectedDate);
+  const previousRangeDay = addDays(selectedDate, -1, timeZone);
+  const weekRangeStart = startOfWeek(selectedDate, timeZone);
   const rangeStart = previousRangeDay < weekRangeStart ? previousRangeDay : weekRangeStart;
-  const rangeEnd = addDays(selectedDate, 1);
+  const rangeEnd = addDays(selectedDate, 1, timeZone);
   const canonicalSessions = mergeActiveSession(
     sessionList,
     activeSession,
@@ -140,28 +141,28 @@ export default function DayPlanningPage() {
   const plannedTasks = dayTasks.filter((task) => task.completed_at === null);
   const backlogTasks = taskList.filter((task) => task.period_start === null);
   const dayNote = noteList.find((note) => note.scope === "day" && note.date_key === selectedDayKey);
-  const selectedWeekKey = weekKey(selectedDate);
-  const selectedWeekStart = startOfWeek(selectedDate);
+  const selectedWeekKey = weekKey(selectedDate, timeZone);
+  const selectedWeekStart = startOfWeek(selectedDate, timeZone);
   const weekNote = noteList.find((note) => note.scope === "week" && note.date_key === selectedWeekKey);
   const daySessions = useMemo(
     () => canonicalSessions
-      .filter((session) => dayKey(new Date(session.started_at)) === selectedDayKey)
+      .filter((session) => dayKey(new Date(session.started_at), timeZone) === selectedDayKey)
       .sort((a, b) => a.started_at.localeCompare(b.started_at)),
-    [canonicalSessions, selectedDayKey],
+    [canonicalSessions, selectedDayKey, timeZone],
   );
   const totalSessionSeconds = daySessions.reduce(
     (total, session) => total + sessionDurationSeconds(session, now),
     0,
   );
   const openTaskCount = plannedTasks.length;
-  const previousDayKey = dayKey(addDays(selectedDate, -1));
+  const previousDayKey = dayKey(addDays(selectedDate, -1, timeZone), timeZone);
   const previousDaySessions = canonicalSessions.filter(
-    (session) => dayKey(new Date(session.started_at)) === previousDayKey,
+    (session) => dayKey(new Date(session.started_at), timeZone) === previousDayKey,
   );
-  const todayKey = dayKey(new Date(now));
+  const todayKey = dayKey(new Date(now), timeZone);
   const isToday = selectedDayKey === todayKey;
   const weekHref = `/app/calendar?week=${selectedWeekKey}`;
-  const nextDayKey = dayKey(addDays(selectedDate, 1));
+  const nextDayKey = dayKey(addDays(selectedDate, 1, timeZone), timeZone);
   const dayNavigation = validDay ? (
     <DayPlanningNavigation
       selectedDate={selectedDate}
@@ -171,6 +172,7 @@ export default function DayPlanningPage() {
       previousDayKey={previousDayKey}
       nextDayKey={nextDayKey}
       isToday={isToday}
+      timeZone={timeZone}
     />
   ) : null;
 
@@ -238,9 +240,10 @@ export default function DayPlanningPage() {
       dayTasks,
       projectList,
       weekGoalsText: weekNote?.content ?? null,
-      weekSoFar: partialWeekStats(canonicalSessions, selectedWeekStart, selectedDayKey, now),
+      weekSoFar: partialWeekStats(canonicalSessions, selectedWeekStart, selectedDayKey, now, timeZone),
       dayNote,
       now,
+      timeZone,
     });
     navigator.clipboard.writeText(prompt);
     toast.add({
@@ -283,6 +286,7 @@ export default function DayPlanningPage() {
         sessionCount={daySessions.length}
         totalSessionSeconds={totalSessionSeconds}
         onCopyPrompt={copyDailyPrompt}
+        timeZone={timeZone}
       />
 
       {loadError ? (
@@ -347,6 +351,7 @@ export default function DayPlanningPage() {
             taskList={taskList}
             totalSessionSeconds={totalSessionSeconds}
             now={now}
+            timeZone={timeZone}
             onSessionUpdated={handleSessionUpdated}
             onTaskUpdated={handleTaskUpdated}
             onSessionTasksChanged={(sessionId, tasks) => setSessionTasks((current) =>
@@ -366,6 +371,8 @@ export default function DayPlanningPage() {
               previousSessions={previousDaySessions}
               now={now}
               date={selectedDate}
+              showComparison={shouldShowPlanningComparison("day", selectedDate, now, timeZone)}
+              timeZone={timeZone}
             />
           </aside>
         </div>

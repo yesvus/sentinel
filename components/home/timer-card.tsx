@@ -3,10 +3,10 @@ import type { Project } from "@/lib/api";
 import { NoProjectIcon, ProjectIcon } from "@/lib/icons";
 import { cn } from "@/lib/utils";
 import { ProjectSelector } from "@/components/project-selector";
-import { ProjectCreatorPopover } from "@/components/project-creator-popover";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent } from "@/components/ui/card";
 import { Textarea } from "@/components/ui/textarea";
+import { Spinner } from "@/components/ui/spinner";
 
 type TimerCardProps = {
   isRunning: boolean;
@@ -63,11 +63,14 @@ export function TimerCard({
     <Card className="w-full max-w-sm">
       <CardContent className="space-y-4">
         {!isRunning && (
-          <div className="animate-in fade-in slide-in-from-top-1 flex items-center gap-2 pt-4 duration-300">
-            <div className="min-w-0 flex-1">
-              <ProjectSelector projects={projects} value={projectId} onChange={onProjectChange} disabled={refreshingActive} />
-            </div>
-            <ProjectCreatorPopover compact disabled={refreshingActive} onCreated={onProjectCreated} />
+          <div className="animate-in fade-in slide-in-from-top-1 pt-4 duration-300">
+            <ProjectSelector
+              projects={projects}
+              value={projectId}
+              onChange={onProjectChange}
+              onProjectCreated={onProjectCreated}
+              disabled={refreshingActive}
+            />
           </div>
         )}
         <div className="flex flex-col items-center gap-5 border-b pt-4 pb-4">
@@ -87,8 +90,8 @@ export function TimerCard({
                 {isPaused ? <Play className="ml-0.5 size-4 fill-current" /> : <Pause className="size-4 fill-current" />}
               </Button>
             ) : <div className="size-10 shrink-0" aria-hidden="true" />}
-            <Button size="icon" disabled={busy} onClick={isRunning ? onRequestStop : onStart} aria-label={isRunning ? "Stop session" : "Start session"} className={`size-16 shrink-0 rounded-full shadow-sm transition-colors ${isRunning ? "bg-destructive text-destructive-foreground hover:bg-destructive/90" : ""}`}>
-              {isRunning ? <Square className="size-5 fill-current" /> : <Play className="ml-0.5 size-6 fill-current" />}
+            <Button size="icon" disabled={busy} onClick={isRunning ? onRequestStop : onStart} aria-label={isRunning ? "Stop session" : busy ? "Starting session" : "Start session"} className={`size-16 shrink-0 rounded-full shadow-sm transition-[color,background-color,transform,opacity] duration-150 active:scale-95 ${isRunning ? "bg-destructive text-destructive-foreground hover:bg-destructive/90" : ""}`}>
+              {busy && !isRunning ? <Spinner className="size-6" /> : isRunning ? <Square className="size-5 fill-current" /> : <Play className="ml-0.5 size-6 fill-current" />}
             </Button>
             {isRunning ? (
               <Button type="button" size="icon" variant="outline" className="text-muted-foreground size-10 shrink-0 rounded-full transition-transform duration-150 active:scale-95" aria-label="Edit start time" onClick={onEditStart}>
@@ -96,7 +99,7 @@ export function TimerCard({
               </Button>
             ) : <div className="size-10 shrink-0" aria-hidden="true" />}
           </div>
-          {!isRunning && <p className="text-muted-foreground -mt-2 text-xs">Tap to start focusing</p>}
+          {!isRunning && <p className="text-muted-foreground -mt-2 text-xs">{busy ? "Starting..." : "Tap to start focusing"}</p>}
           {error && !stopOpen && <p className="text-destructive text-sm">{error}</p>}
         </div>
         <div className="space-y-1">

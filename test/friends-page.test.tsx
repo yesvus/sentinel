@@ -23,6 +23,10 @@ vi.mock("@/lib/api", () => {
   };
 });
 
+vi.mock("@/lib/auth-context", () => ({
+  useAuth: () => ({ user: { timezone: null } }),
+}));
+
 const friend = {
   friendshipId: 7,
   status: "accepted" as const,

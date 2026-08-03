@@ -1,5 +1,5 @@
 import { useState } from "react";
-import { Pencil, Trash2 } from "lucide-react";
+import { CheckCircle2, CircleDot, Clock3, Pencil, Trash2 } from "lucide-react";
 import type { StudySession } from "@/lib/api";
 import { formatDuration, formatTime } from "@/lib/date";
 import { sessionDurationSeconds } from "@/lib/session-stats";
@@ -24,11 +24,13 @@ const DESCRIPTION_PREVIEW_LENGTH = 80;
 export function HistorySessionRow({
   session,
   now,
+  timeZone,
   onEdit,
   onDelete,
 }: {
   session: StudySession;
   now: number;
+  timeZone?: string;
   onEdit: (session: StudySession) => void;
   onDelete: (id: number) => void;
 }) {
@@ -40,12 +42,9 @@ export function HistorySessionRow({
   );
 
   return (
-    <div className="ring-foreground/10 flex flex-col gap-2 rounded-lg px-3 py-2 ring-1 sm:flex-row sm:items-start sm:justify-between sm:gap-4">
-      <div className="min-w-0 flex-1 space-y-1">
-        <div className="flex flex-wrap items-center gap-2">
-          <span className="text-muted-foreground font-mono text-xs">
-            {formatTime(session.started_at)}-{session.ended_at ? formatTime(session.ended_at) : "now"}
-          </span>
+    <article className="ring-foreground/10 hover:bg-muted/10 grid gap-3 rounded-lg px-3 py-2.5 ring-1 transition-colors sm:grid-cols-[minmax(0,1fr)_auto] sm:items-center">
+      <div className="min-w-0 space-y-1.5">
+        <div className="flex flex-wrap items-center gap-1.5">
           <Badge variant={session.project_name ? "secondary" : "outline"} className="gap-1">
             {session.project_id ? (
               <ProjectIcon icon={session.project_icon} className="size-3" />
@@ -56,13 +55,18 @@ export function HistorySessionRow({
           </Badge>
           {active ? (
             <Badge className="bg-primary/15 text-primary gap-1">
-              <span className="bg-primary size-1.5 animate-pulse rounded-full" />
-              In progress
+              <CircleDot className="animate-pulse" />
+              Ongoing
             </Badge>
           ) : (
-            <Badge variant="outline">
-              L {100 - (session.production_percentage ?? 0)}% · P {session.production_percentage ?? 0}%
+            <Badge variant="outline" className="text-muted-foreground">
+              <CheckCircle2 /> Completed
             </Badge>
+          )}
+          {!active && session.production_percentage !== undefined && session.production_percentage !== null && (
+            <span className="text-muted-foreground text-xs">
+              L {100 - session.production_percentage}% · P {session.production_percentage}%
+            </span>
           )}
         </div>
         {session.description && (
@@ -70,7 +74,7 @@ export function HistorySessionRow({
             <LinkifiedText
               text={session.description}
               as="p"
-              className={`text-muted-foreground text-sm whitespace-pre-wrap ${expanded ? "" : "line-clamp-2"}`}
+              className={`text-sm whitespace-pre-wrap ${expanded ? "" : "line-clamp-2"}`}
             />
             {isLong && (
               <button
@@ -83,47 +87,56 @@ export function HistorySessionRow({
             )}
           </div>
         )}
+        {!session.description && <p className="text-muted-foreground/70 text-sm italic">No description</p>}
       </div>
-      <div className="flex shrink-0 items-center justify-between gap-3 sm:justify-end">
-        <span className="font-mono text-sm whitespace-nowrap">
-          {formatDuration(sessionDurationSeconds(session, now))}
-        </span>
-        <Button
-          variant="ghost"
-          size="icon-sm"
-          className="text-muted-foreground"
-          aria-label="Edit session"
-          onClick={() => onEdit(session)}
-        >
-          <Pencil />
-        </Button>
-        <AlertDialog>
-          <AlertDialogTrigger
-            render={
-              <Button
-                variant="ghost"
-                size="icon-sm"
-                className="text-muted-foreground hover:text-destructive"
-                aria-label="Delete session"
-              >
-                <Trash2 />
-              </Button>
-            }
-          />
-          <AlertDialogContent>
-            <AlertDialogHeader>
-              <AlertDialogTitle>Delete this session?</AlertDialogTitle>
-              <AlertDialogDescription>
-                This will permanently delete this study session and its recorded time. This can&apos;t be undone.
-              </AlertDialogDescription>
-            </AlertDialogHeader>
-            <AlertDialogFooter>
-              <AlertDialogCancel>Cancel</AlertDialogCancel>
-              <AlertDialogAction onClick={() => onDelete(session.id)}>Delete</AlertDialogAction>
-            </AlertDialogFooter>
-          </AlertDialogContent>
-        </AlertDialog>
+      <div className="flex shrink-0 items-center justify-between gap-2 sm:justify-end">
+        <div className="mr-auto flex items-center gap-3 sm:mr-1 sm:flex-col sm:items-end sm:gap-0.5">
+          <span className="flex items-center gap-1 font-mono text-sm font-medium whitespace-nowrap">
+            <Clock3 className="text-muted-foreground size-3.5" />
+            {formatDuration(sessionDurationSeconds(session, now))}
+          </span>
+          <span className="text-muted-foreground font-mono text-xs whitespace-nowrap">
+            {formatTime(session.started_at, timeZone)}-{session.ended_at ? formatTime(session.ended_at, timeZone) : "now"}
+          </span>
+        </div>
+        <div className="flex items-center">
+          <Button
+            variant="ghost"
+            size="icon-sm"
+            className="text-muted-foreground"
+            aria-label="Edit session"
+            onClick={() => onEdit(session)}
+          >
+            <Pencil />
+          </Button>
+          <AlertDialog>
+            <AlertDialogTrigger
+              render={
+                <Button
+                  variant="ghost"
+                  size="icon-sm"
+                  className="text-muted-foreground hover:text-destructive"
+                  aria-label="Delete session"
+                >
+                  <Trash2 />
+                </Button>
+              }
+            />
+            <AlertDialogContent>
+              <AlertDialogHeader>
+                <AlertDialogTitle>Delete this session?</AlertDialogTitle>
+                <AlertDialogDescription>
+                  This will permanently delete this study session and its recorded time. This can&apos;t be undone.
+                </AlertDialogDescription>
+              </AlertDialogHeader>
+              <AlertDialogFooter>
+                <AlertDialogCancel>Cancel</AlertDialogCancel>
+                <AlertDialogAction onClick={() => onDelete(session.id)}>Delete</AlertDialogAction>
+              </AlertDialogFooter>
+            </AlertDialogContent>
+          </AlertDialog>
+        </div>
       </div>
-    </div>
+    </article>
   );
 }

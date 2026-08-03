@@ -4,7 +4,7 @@ import { useEffect, useRef, useState } from "react";
 import { Card, CardHeader, CardContent } from "@/components/ui/card";
 import { Skeleton } from "@/components/ui/skeleton";
 import { sessions as sessionsApi, projects as projectsApi, notes as notesApi, tasks as tasksApi, StudySession, Project, Note, Task } from "@/lib/api";
-import { dayKey } from "@/lib/date";
+import { addDays, dayKey, startOfDay } from "@/lib/date";
 import { dailyAllocationTotals } from "@/lib/session-stats";
 import { ReportCards } from "@/components/report-cards";
 import { ProjectBreakdownCard } from "@/components/project-breakdown-card";
@@ -15,26 +15,27 @@ import { Button } from "@/components/ui/button";
 import { orderProjectsAsTree, projectTreeText } from "@/lib/project-tree";
 import { useActiveSession } from "@/lib/active-session-context";
 import { mergeActiveSession, refreshSessionPage } from "@/lib/session-list";
+import { useAuth } from "@/lib/auth-context";
 
 const WEEKS = 14;
 const DAYS = WEEKS * 7;
 type Day = { key: string; date: Date; seconds: number };
 
-function buildLastNDays(totalsByDay: Map<string, number>, n: number, now: number): Day[] {
-  const today = new Date(now);
-  today.setHours(0, 0, 0, 0);
+function buildLastNDays(totalsByDay: Map<string, number>, n: number, now: number, timeZone?: string): Day[] {
+  const today = startOfDay(new Date(now), timeZone);
 
   const days: Day[] = [];
   for (let i = n - 1; i >= 0; i--) {
-    const date = new Date(today);
-    date.setDate(date.getDate() - i);
-    const key = dayKey(date);
+    const date = addDays(today, -i, timeZone);
+    const key = dayKey(date, timeZone);
     days.push({ key, date, seconds: totalsByDay.get(key) ?? 0 });
   }
   return days;
 }
 
 export default function StatsPage() {
+  const { user } = useAuth();
+  const timeZone = user?.timezone ?? undefined;
   const { activeSession, now, sessionRevision } = useActiveSession();
   const [sessionList, setSessionList] = useState<StudySession[]>([]);
   const [historySessions, setHistorySessions] = useState<StudySession[]>([]);
@@ -48,10 +49,7 @@ export default function StatsPage() {
   const [selectedProject, setSelectedProject] = useState("all");
   const historyCountRef = useRef(30);
   const [rangeStart] = useState(() => {
-    const start = new Date(now);
-    start.setHours(0, 0, 0, 0);
-    start.setDate(start.getDate() - DAYS + 1);
-    return start;
+    return addDays(startOfDay(new Date(now), timeZone), -DAYS + 1, timeZone);
   });
 
   useEffect(() => {
@@ -132,17 +130,17 @@ export default function StatsPage() {
   const filteredHistorySessions = selectedProject === "all"
     ? mergedHistorySessions
     : mergedHistorySessions.filter((session) => String(session.project_id ?? "none") === selectedProject);
-  const allocationByDay = dailyAllocationTotals(filteredSessions, now);
+  const allocationByDay = dailyAllocationTotals(filteredSessions, now, timeZone);
 
-  const rangeDays = buildLastNDays(new Map(), DAYS, now);
+  const rangeDays = buildLastNDays(new Map(), DAYS, now, timeZone);
   const toAllocationPoints = (days: Day[]) => days.map((day) => {
     const allocation = allocationByDay.get(day.key) ?? {
       learning: 0, producing: 0, unclassified: 0, total: 0,
     };
     return {
       key: day.key,
-      date: day.date.toLocaleDateString(undefined, { month: "long", day: "numeric", year: "numeric" }),
-      label: day.date.toLocaleDateString(undefined, { weekday: "short" }),
+      date: day.date.toLocaleDateString(undefined, { timeZone, month: "long", day: "numeric", year: "numeric" }),
+      label: day.date.toLocaleDateString(undefined, { timeZone, weekday: "short" }),
       learning: allocation.learning,
       producing: allocation.producing,
       total: allocation.total,
@@ -197,6 +195,7 @@ export default function StatsPage() {
         now={now}
         onNoteSaved={handleNoteSaved}
         onNoteDeleted={handleNoteDeleted}
+        timeZone={timeZone}
       />
 
       <div className="flex flex-wrap items-center gap-3 print:hidden">
@@ -220,13 +219,15 @@ export default function StatsPage() {
         now={now}
         className="w-full"
         onSelectProject={setSelectedProject}
+        timeZone={timeZone}
       />
 
       <LearningProducingChart
         points={allocationPoints}
         now={now}
+        timeZone={timeZone}
       />
-      <WeeklyReportHistory />
+      <WeeklyReportHistory timeZone={timeZone} />
 
       <HistorySection
         sessions={filteredHistorySessions}

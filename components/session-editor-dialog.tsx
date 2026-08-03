@@ -9,6 +9,7 @@ import { NoProjectIcon, ProjectIcon } from "@/lib/icons";
 import { useActiveSession } from "@/lib/active-session-context";
 import {
   initialSessionForm,
+  ongoingSessionAgeError,
   sessionFormDates,
   validateSessionFormDates,
 } from "@/lib/session-form";
@@ -91,6 +92,13 @@ export function SessionEditorDialog({
     if (validationError) {
       setError(validationError);
       return;
+    }
+    if (session.ended_at !== null && ongoing) {
+      const ageError = ongoingSessionAgeError(startedAt);
+      if (ageError) {
+        setError(ageError);
+        return;
+      }
     }
 
     setBusy(true);

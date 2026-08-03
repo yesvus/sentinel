@@ -3,12 +3,13 @@ import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Separator } from "@/components/ui/separator";
 import { formatDuration } from "@/lib/date";
 
-export function ProjectStatsCard({ trackedSeconds, sessionCount, completedTaskCount, backlogCount, lastSessionStartedAt }: {
+export function ProjectStatsCard({ trackedSeconds, sessionCount, completedTaskCount, backlogCount, lastSessionStartedAt, timeZone }: {
   trackedSeconds: number;
   sessionCount: number;
   completedTaskCount: number;
   backlogCount: number;
   lastSessionStartedAt: string | null;
+  timeZone?: string;
 }) {
   return (
     <Card className="min-w-0">
@@ -22,7 +23,7 @@ export function ProjectStatsCard({ trackedSeconds, sessionCount, completedTaskCo
           <div className="flex items-center justify-between gap-3"><dt className="text-muted-foreground flex items-center gap-1.5"><Inbox className="size-4" />Backlog</dt><dd className="font-mono tabular-nums">{backlogCount}</dd></div>
         </dl>
         <Separator />
-        <div><p className="text-muted-foreground text-xs">Last worked on</p><p className="mt-1 text-sm font-medium">{lastSessionStartedAt ? new Date(lastSessionStartedAt).toLocaleDateString(undefined, { month: "short", day: "numeric", year: "numeric" }) : "No sessions yet"}</p></div>
+        <div><p className="text-muted-foreground text-xs">Last worked on</p><p className="mt-1 text-sm font-medium">{lastSessionStartedAt ? new Date(lastSessionStartedAt).toLocaleDateString(undefined, { timeZone, month: "short", day: "numeric", year: "numeric" }) : "No sessions yet"}</p></div>
       </CardContent>
     </Card>
   );

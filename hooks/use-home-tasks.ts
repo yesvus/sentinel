@@ -1,7 +1,7 @@
 import { useEffect, useRef, useState, type Dispatch, type SetStateAction } from "react";
 import { sessions, type Task } from "@/lib/api";
-import { removeTask, upsertTask } from "@/lib/task-collections";
-import { setTaskCompletion, taskMutations } from "@/lib/task-mutations";
+import { upsertTask } from "@/lib/task-collections";
+import { setTaskCompletion } from "@/lib/task-mutations";
 
 export type SessionTasksLoadStatus = "idle" | "loading" | "loaded" | "error";
 
@@ -24,7 +24,8 @@ export function useHomeTasks({ activeSessionId, isRunning, projectId, setTaskLis
   } | null>(null);
   const [sessionTasksRetry, setSessionTasksRetry] = useState(0);
   const [recentTaskIds, setRecentTaskIds] = useState<number[]>([]);
-  const [deletingTaskIds, setDeletingTaskIds] = useState<number[]>([]);
+  const [detachingTaskIds, setDetachingTaskIds] = useState<number[]>([]);
+  const [optimisticSessionTaskIds, setOptimisticSessionTaskIds] = useState<number[]>([]);
   const previousRunningRef = useRef(isRunning);
 
   useEffect(() => {
@@ -40,6 +41,7 @@ export function useHomeTasks({ activeSessionId, isRunning, projectId, setTaskLis
 
   useEffect(() => {
     if (activeSessionId === null) return;
+    if (activeSessionId < 0) return;
     let cancelled = false;
     const sessionId = activeSessionId;
     const retry = sessionTasksRetry;
@@ -58,7 +60,9 @@ export function useHomeTasks({ activeSessionId, isRunning, projectId, setTaskLis
     sessionTasksResult.retry === sessionTasksRetry
     ? sessionTasksResult
     : null;
-  const currentSessionTaskIds = currentSessionTasksResult?.status === "loaded" ? currentSessionTasksResult.ids : [];
+  const currentSessionTaskIds = currentSessionTasksResult?.status === "loaded"
+    ? currentSessionTasksResult.ids
+    : optimisticSessionTaskIds;
   const currentSessionTasksLoadStatus: SessionTasksLoadStatus = activeSessionId === null
     ? "idle"
     : currentSessionTasksResult?.status ?? "loading";
@@ -66,6 +70,14 @@ export function useHomeTasks({ activeSessionId, isRunning, projectId, setTaskLis
   function selectProject(nextProjectId: number | null) {
     if (!isRunning) setSelectedTaskIds([]);
     void onProjectChange(nextProjectId);
+  }
+
+  function selectProjectTasks(nextProjectId: number | null, projectTasks: Task[]) {
+    void onProjectChange(nextProjectId);
+    const openTaskIds = projectTasks.filter((task) => task.completed_at === null).map((task) => task.id);
+    setSelectedTaskIds((current) =>
+      openTaskIds.length > 0 && openTaskIds.every((id) => current.includes(id)) ? [] : openTaskIds,
+    );
   }
 
   function selectTask(task: Task, selected: boolean) {
@@ -114,20 +126,19 @@ export function useHomeTasks({ activeSessionId, isRunning, projectId, setTaskLis
     }
   }
 
-  async function deleteTask(task: Task) {
-    setDeletingTaskIds((ids) => [...ids, task.id]);
+  async function detachTask(task: Task) {
+    if (activeSessionId === null) return;
+    setDetachingTaskIds((ids) => [...ids, task.id]);
     try {
-      await taskMutations.remove(task);
-      await new Promise((resolve) => window.setTimeout(resolve, 160));
-      setTaskList((list) => removeTask(list, task.id));
-      setSelectedTaskIds((ids) => ids.filter((id) => id !== task.id));
+      await sessions.detachTask(activeSessionId, task.id);
+      await new Promise((resolve) => window.setTimeout(resolve, 120));
       setSessionTasksResult((result) => result?.status === "loaded"
         ? { ...result, ids: result.ids.filter((id) => id !== task.id) }
         : result);
     } catch {
-      onError("Could not delete this task.");
+      onError("Could not remove this task from the session.");
     } finally {
-      setDeletingTaskIds((ids) => ids.filter((id) => id !== task.id));
+      setDetachingTaskIds((ids) => ids.filter((id) => id !== task.id));
     }
   }
 
@@ -136,16 +147,22 @@ export function useHomeTasks({ activeSessionId, isRunning, projectId, setTaskLis
     sessionTaskIds: currentSessionTaskIds,
     sessionTasksLoadStatus: currentSessionTasksLoadStatus,
     recentTaskIds,
-    deletingTaskIds,
+    detachingTaskIds,
+    seedSessionTasks: (ids: number[]) => setOptimisticSessionTaskIds(ids),
+    clearOptimisticSessionTasks: () => setOptimisticSessionTaskIds([]),
     clearSelectedTasks: () => setSelectedTaskIds([]),
-    clearSessionTasks: () => setSessionTasksResult(null),
+    clearSessionTasks: () => {
+      setSessionTasksResult(null);
+      setOptimisticSessionTaskIds([]);
+    },
     selectProject,
+    selectProjectTasks,
     selectTask,
     retrySessionTasks: () => setSessionTasksRetry((retry) => retry + 1),
     todayTaskCreated,
     activeTaskCreated,
     taskUpdated,
     toggleTask,
-    deleteTask,
+    detachTask,
   };
 }

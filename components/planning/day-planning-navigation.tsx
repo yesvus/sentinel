@@ -21,6 +21,7 @@ type DayPlanningNavigationProps = {
   previousDayKey: string;
   nextDayKey: string;
   isToday: boolean;
+  timeZone?: string;
 };
 
 export function DayPlanningNavigation({
@@ -31,8 +32,10 @@ export function DayPlanningNavigation({
   previousDayKey,
   nextDayKey,
   isToday,
+  timeZone,
 }: DayPlanningNavigationProps) {
   const dayLabel = selectedDate.toLocaleDateString(undefined, {
+    timeZone,
     weekday: "short",
     month: "short",
     day: "numeric",
@@ -57,7 +60,7 @@ export function DayPlanningNavigation({
                   className="max-w-44 truncate whitespace-nowrap"
                   render={<Link href={weekHref} />}
                 >
-                  {formatWeekRangeLabel(selectedWeekStart)}
+                  {formatWeekRangeLabel(selectedWeekStart, timeZone)}
                 </BreadcrumbLink>
               </BreadcrumbItem>
               <BreadcrumbSeparator className="hidden xl:block" />

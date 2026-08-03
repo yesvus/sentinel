@@ -91,7 +91,6 @@ export function TaskCreatorPopover({
         ? await taskMutations.schedule(task, periodStart!)
         : await taskMutations.attachToActiveSession(task, sessionId, periodStart ?? undefined);
       onCreated(updated);
-      setOpen(false);
     } catch (caught) {
       setError(caught instanceof ApiError ? caught.message : "Could not add this task.");
     } finally {
@@ -111,7 +110,7 @@ export function TaskCreatorPopover({
             variant={trigger === "icon" ? "ghost" : "outline"}
             size={trigger === "icon" ? "icon-sm" : "sm"}
             className={trigger === "icon"
-              ? "text-muted-foreground -my-1"
+              ? "text-muted-foreground"
               : "text-muted-foreground size-8 rounded-full border-dashed px-2.5"}
             aria-label="Add a task"
           />

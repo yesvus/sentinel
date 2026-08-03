@@ -29,3 +29,9 @@ export function validateSessionFormDates(startedAt: Date, endedAt: Date | null, 
   if (endedAt && endedAt <= startedAt) return "End time must be after start time.";
   return null;
 }
+
+export function ongoingSessionAgeError(startedAt: Date, now = new Date()) {
+  return now.getTime() - startedAt.getTime() > 12 * 60 * 60 * 1000
+    ? "Sessions started more than 12 hours ago cannot be marked ongoing."
+    : null;
+}

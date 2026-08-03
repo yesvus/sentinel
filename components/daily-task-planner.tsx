@@ -2,7 +2,6 @@
 
 import { useState, FormEvent } from "react";
 import { Inbox, Plus, Trash2 } from "lucide-react";
-import { ProjectCreatorPopover } from "@/components/project-creator-popover";
 import { LinkifiedText } from "@/components/linkified-text";
 import { TaskEditorPopover } from "@/components/task-editor-popover";
 import { Button } from "@/components/ui/button";
@@ -138,6 +137,10 @@ export function DailyTaskPlanner({
             projects={projects}
             value={addProjectId}
             onChange={setAddProjectId}
+            onProjectCreated={(project) => {
+              onProjectCreated(project);
+              setAddProjectId(project.id);
+            }}
           />
         </div>
         <Input
@@ -150,13 +153,6 @@ export function DailyTaskPlanner({
           <Plus className="size-4" />
         </Button>
       </form>
-      <ProjectCreatorPopover
-        compact
-        onCreated={(project) => {
-          onProjectCreated(project);
-          setAddProjectId(project.id);
-        }}
-      />
       {(() => {
         const suggestions = backlogTasks.filter((task) => task.project_id === addProjectId);
         if (!suggestions.length) return null;

@@ -100,6 +100,7 @@ describe("Next API", () => {
       focusAudioType: "speech-blocker",
       defaultSessionType: "learning",
       sessionPauseTimeoutMinutes: 30,
+      timezone: null,
     });
   });
 
@@ -168,6 +169,41 @@ describe("Next API", () => {
     });
     expect(updated.body.sessionPauseTimeoutMinutes).toBe(45);
     expect((await request("GET", "auth/me", { cookie })).body.sessionPauseTimeoutMinutes).toBe(45);
+  });
+
+  it("persists and validates the nullable timezone override", async () => {
+    const cookie = await register("timezone-setting@example.test");
+
+    const invalid = await request("PATCH", "auth/session-settings", {
+      cookie,
+      body: { timezone: "Mars/Olympus_Mons" },
+    });
+    expect(invalid.response.status).toBe(400);
+    expect(invalid.body).toEqual({ error: "timezone must be a valid IANA time zone or null" });
+
+    const wrongType = await request("PATCH", "auth/session-settings", {
+      cookie,
+      body: { timezone: 123 },
+    });
+    expect(wrongType.body).toEqual({ error: "timezone must be a valid IANA time zone or null" });
+
+    const updated = await request("PATCH", "auth/session-settings", {
+      cookie,
+      body: { timezone: "America/New_York" },
+    });
+    expect(updated.body.timezone).toBe("America/New_York");
+    expect((await request("GET", "auth/me", { cookie })).body.timezone).toBe("America/New_York");
+    const login = await request("POST", "auth/login", {
+      body: { email: "timezone-setting@example.test", password: "password1" },
+    });
+    expect(login.body.timezone).toBe("America/New_York");
+
+    const automatic = await request("PATCH", "auth/session-settings", {
+      cookie,
+      body: { timezone: null },
+    });
+    expect(automatic.body.timezone).toBeNull();
+    expect((await request("GET", "auth/me", { cookie })).body.timezone).toBeNull();
   });
 
   it("persists project metadata and day notes", async () => {
@@ -481,6 +517,26 @@ describe("Next API", () => {
     ]);
   });
 
+  it("detaches an open task from an active session without deleting or completing it", async () => {
+    const cookie = await register("detach-active-task@example.test");
+    const task = await request("POST", "tasks", {
+      cookie,
+      body: { title: "Release me", periodStart: "2026-08-03" },
+    });
+    const started = await request("POST", "sessions/start", {
+      cookie,
+      body: { taskIds: [task.body.id] },
+    });
+
+    const detached = await request("DELETE", `sessions/${started.body.id}/tasks/${task.body.id}`, { cookie });
+
+    expect(detached.response.status).toBe(204);
+    expect((await request("GET", `sessions/${started.body.id}/tasks`, { cookie })).body).toEqual([]);
+    expect((await request("GET", "tasks", { cookie })).body).toEqual([
+      expect.objectContaining({ id: task.body.id, period_start: "2026-08-03", completed_at: null }),
+    ]);
+  });
+
   it("rejects attaching a task to a completed session", async () => {
     const cookie = await register("attach-completed@example.test");
     const session = await request("POST", "sessions", {
@@ -619,6 +675,32 @@ describe("Next API", () => {
       ended_at: expect.any(String),
       description: "Goal: done\nOutputs: tests\nNext: review",
     });
+  });
+
+  it("releases unfinished tasks from a stopped session and keeps completed task history", async () => {
+    const cookie = await register("release-unfinished@example.test");
+    const unfinished = await request("POST", "tasks", {
+      cookie,
+      body: { title: "Continue tomorrow", periodStart: "2026-08-03" },
+    });
+    const completed = await request("POST", "tasks", {
+      cookie,
+      body: { title: "Finished in session", periodStart: "2026-08-03" },
+    });
+    const started = await request("POST", "sessions/start", {
+      cookie,
+      body: { taskIds: [unfinished.body.id, completed.body.id] },
+    });
+    await request("PATCH", `tasks/${completed.body.id}`, { cookie, body: { completed: true } });
+
+    await request("PATCH", `sessions/${started.body.id}/stop`, { cookie });
+
+    expect((await request("GET", `sessions/${started.body.id}/tasks`, { cookie })).body).toEqual([
+      expect.objectContaining({ id: completed.body.id, completed_at: expect.any(String) }),
+    ]);
+    expect((await request("GET", "tasks", { cookie })).body).toEqual(expect.arrayContaining([
+      expect.objectContaining({ id: unfinished.body.id, period_start: "2026-08-03", completed_at: null }),
+    ]));
   });
 
   it("excludes persisted interruption pauses from session time", async () => {
@@ -796,6 +878,26 @@ describe("Next API", () => {
       productionPercentage: null,
     });
     expect((await request("GET", "sessions/active", { cookie })).body.id).toBe(completed.body.id);
+  });
+
+  it("rejects marking a session older than twelve hours as ongoing", async () => {
+    const cookie = await register("old-ongoing@example.test");
+    const completed = await request("POST", "sessions", {
+      cookie,
+      body: {
+        startedAt: new Date(Date.now() - 13 * 60 * 60 * 1000).toISOString(),
+        endedAt: new Date(Date.now() - 12 * 60 * 60 * 1000).toISOString(),
+      },
+    });
+
+    const updated = await request("PATCH", `sessions/${completed.body.id}`, {
+      cookie,
+      body: { endedAt: null },
+    });
+
+    expect(updated.response.status).toBe(400);
+    expect(updated.body.error).toBe("Sessions started more than 12 hours ago cannot be marked ongoing");
+    expect((await request("GET", "sessions/active", { cookie })).body).toBeNull();
   });
 
   it("rejects making a completed session ongoing when another is active", async () => {

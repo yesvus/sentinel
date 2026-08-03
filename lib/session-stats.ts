@@ -1,5 +1,5 @@
 import { StudySession } from "./api";
-import { dayKey, addDays } from "./date";
+import { addDateKeyDays, addDays, dayKey } from "./date";
 
 const NO_PROJECT_LABEL = "No project";
 
@@ -13,10 +13,10 @@ export function sessionDurationSeconds(session: StudySession, now: number) {
     : (session.duration_seconds ?? 0);
 }
 
-export function dailyTotals(sessionList: StudySession[], now: number) {
+export function dailyTotals(sessionList: StudySession[], now: number, timeZone?: string) {
   const totals = new Map<string, number>();
   for (const session of sessionList) {
-    const key = dayKey(new Date(session.started_at));
+    const key = dayKey(new Date(session.started_at), timeZone);
     totals.set(key, (totals.get(key) ?? 0) + sessionDurationSeconds(session, now));
   }
   return totals;
@@ -38,10 +38,10 @@ export function splitSessionDuration(session: StudySession, now: number) {
   return { learning: total - producing, producing, unclassified: 0, total };
 }
 
-export function dailyAllocationTotals(sessionList: StudySession[], now: number) {
+export function dailyAllocationTotals(sessionList: StudySession[], now: number, timeZone?: string) {
   const totals = new Map<string, DailyAllocation>();
   for (const session of sessionList) {
-    const key = dayKey(new Date(session.started_at));
+    const key = dayKey(new Date(session.started_at), timeZone);
     const split = splitSessionDuration(session, now);
     const current = totals.get(key) ?? { learning: 0, producing: 0, unclassified: 0, total: 0 };
     totals.set(key, {
@@ -83,38 +83,36 @@ export function medianCompletedSessionSeconds(sessionList: StudySession[]) {
     : Math.round((durations[middle - 1] + durations[middle]) / 2);
 }
 
-export function activityStreak(sessionList: StudySession[], now = new Date()) {
+export function activityStreak(sessionList: StudySession[], now = new Date(), timeZone?: string) {
   const active = new Set(
     sessionList
       .filter((session) => session.ended_at !== null)
-      .map((session) => dayKey(new Date(session.started_at))),
+      .map((session) => dayKey(new Date(session.started_at), timeZone)),
   );
-  const cursor = new Date(now);
-  cursor.setHours(0, 0, 0, 0);
-  if (!active.has(dayKey(cursor))) cursor.setDate(cursor.getDate() - 1);
+  let cursor = dayKey(now, timeZone);
+  if (!active.has(cursor)) cursor = addDateKeyDays(cursor, -1);
   let current = 0;
-  while (active.has(dayKey(cursor))) {
+  while (active.has(cursor)) {
     current += 1;
-    cursor.setDate(cursor.getDate() - 1);
+    cursor = addDateKeyDays(cursor, -1);
   }
   return current;
 }
 
-export function longestActivityStreak(sessionList: StudySession[]) {
+export function longestActivityStreak(sessionList: StudySession[], timeZone?: string) {
   const activeDays = Array.from(new Set(
     sessionList
       .filter((session) => session.ended_at !== null)
-      .map((session) => dayKey(new Date(session.started_at))),
+      .map((session) => dayKey(new Date(session.started_at), timeZone)),
   )).sort();
   let longest = 0;
   let current = 0;
-  let previous: Date | null = null;
+  let previous: string | null = null;
   for (const key of activeDays) {
-    const date = new Date(`${key}T00:00:00`);
-    const consecutive = previous !== null && Math.round((date.getTime() - previous.getTime()) / 86_400_000) === 1;
+    const consecutive = previous !== null && addDateKeyDays(previous, 1) === key;
     current = consecutive ? current + 1 : 1;
     longest = Math.max(longest, current);
-    previous = date;
+    previous = key;
   }
   return longest;
 }
@@ -131,15 +129,15 @@ export type WeekStats = {
 };
 
 /** Aggregates a 7-day window starting at `weekStart` (local midnight). */
-export function weekStatsFor(sessionList: StudySession[], weekStart: Date, now: number): WeekStats {
-  const start = weekStart.getTime();
-  const end = start + 7 * 86_400_000;
+export function weekStatsFor(sessionList: StudySession[], weekStart: Date, now: number, timeZone?: string): WeekStats {
+  const startKey = dayKey(weekStart, timeZone);
+  const endKey = addDateKeyDays(startKey, 7);
   const weekSessions = sessionList.filter((session) => {
-    const startedAt = new Date(session.started_at).getTime();
-    return startedAt >= start && startedAt < end;
+    const key = dayKey(new Date(session.started_at), timeZone);
+    return key >= startKey && key < endKey;
   });
-  const dailyMap = dailyTotals(weekSessions, now);
-  const allocation = dailyAllocationTotals(weekSessions, now);
+  const dailyMap = dailyTotals(weekSessions, now, timeZone);
+  const allocation = dailyAllocationTotals(weekSessions, now, timeZone);
   let trackedSeconds = 0;
   let learningSeconds = 0;
   for (const day of allocation.values()) {
@@ -148,7 +146,7 @@ export function weekStatsFor(sessionList: StudySession[], weekStart: Date, now: 
   }
   const activeDays = Array.from(dailyMap.values()).filter((seconds) => seconds > 0).length;
   const topProjectEntry = projectTotals(weekSessions, now).filter((project) => project.name !== NO_PROJECT_LABEL)[0] ?? null;
-  const dailySeconds = Array.from({ length: 7 }, (_, i) => dailyMap.get(dayKey(addDays(weekStart, i))) ?? 0);
+  const dailySeconds = Array.from({ length: 7 }, (_, i) => dailyMap.get(dayKey(addDays(weekStart, i, timeZone), timeZone)) ?? 0);
   return {
     weekStart,
     trackedSeconds,
@@ -167,16 +165,16 @@ export function partialWeekStats(
   sessionList: StudySession[],
   weekStart: Date,
   throughDayKey: string,
-  now: number
+  now: number,
+  timeZone?: string,
 ): PartialWeekStats {
-  const start = weekStart.getTime();
-  const end = start + 7 * 86_400_000;
+  const startKey = dayKey(weekStart, timeZone);
+  const endKey = addDateKeyDays(startKey, 7);
   const relevant = sessionList.filter((session) => {
-    const startedAt = new Date(session.started_at).getTime();
-    if (startedAt < start || startedAt >= end) return false;
-    return dayKey(new Date(session.started_at)) <= throughDayKey;
+    const key = dayKey(new Date(session.started_at), timeZone);
+    return key >= startKey && key < endKey && key <= throughDayKey;
   });
-  const activeDayKeys = new Set(relevant.map((session) => dayKey(new Date(session.started_at))));
+  const activeDayKeys = new Set(relevant.map((session) => dayKey(new Date(session.started_at), timeZone)));
   let trackedSeconds = 0;
   let learningSeconds = 0;
   for (const session of relevant) {

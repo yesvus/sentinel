@@ -20,6 +20,7 @@ type DaySessionTimelineProps = {
   taskList: Task[];
   totalSessionSeconds: number;
   now: number;
+  timeZone?: string;
   onSessionUpdated: (session: StudySession) => void;
   onTaskUpdated: (task: Task) => void;
   onSessionTasksChanged: (sessionId: number, tasks: Task[]) => void;
@@ -34,6 +35,7 @@ export function DaySessionTimeline({
   taskList,
   totalSessionSeconds,
   now,
+  timeZone,
   onSessionUpdated,
   onTaskUpdated,
   onSessionTasksChanged,
@@ -72,8 +74,8 @@ export function DaySessionTimeline({
                 style={{ animationDelay: `${Math.min(index * 60, 240)}ms` }}
               >
                 <div className="text-muted-foreground flex flex-col gap-0.5 font-mono text-xs">
-                  <time dateTime={session.started_at}>{formatTime(session.started_at)}</time>
-                  <span>{running ? "Now" : formatTime(session.ended_at!)}</span>
+                  <time dateTime={session.started_at}>{formatTime(session.started_at, timeZone)}</time>
+                  <span>{running ? "Now" : formatTime(session.ended_at!, timeZone)}</span>
                 </div>
                 <div className="relative flex justify-center">
                   <span className="bg-primary ring-card relative mt-1.5 size-2 rounded-full ring-4" />

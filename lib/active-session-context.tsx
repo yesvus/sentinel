@@ -210,6 +210,24 @@ export function ActiveSessionProvider({ children }: { children: React.ReactNode 
   }, [activeSession, applyMutation, post, reconcile, user?.sessionPauseTimeoutMinutes]);
 
   async function startSession(details: StartDetails) {
+    const previous = activeRef.current;
+    const optimistic: StudySession = {
+      id: -Date.now(),
+      started_at: new Date().toISOString(),
+      ended_at: null,
+      duration_seconds: null,
+      description: details.description ?? null,
+      project_id: details.projectId ?? null,
+      project_name: null,
+      project_icon: null,
+      paused_at: null,
+      paused_seconds: 0,
+    };
+    invalidateReconciliation();
+    applyActive(optimistic);
+    hasReconciledRef.current = true;
+    if (!previous) localNoise("started");
+
     try {
       const started = await sessions.start(details);
       const provisional: StudySession = {
@@ -226,7 +244,6 @@ export function ActiveSessionProvider({ children }: { children: React.ReactNode 
       };
       applyMutation(provisional);
       post({ type: "started" });
-      localNoise("started");
       reconcile().catch(() => {});
       return provisional;
     } catch (error) {
@@ -234,9 +251,12 @@ export function ActiveSessionProvider({ children }: { children: React.ReactNode 
         const conflict = (error.body as { session?: StudySession | null } | undefined)?.session;
         if (conflict) {
           applyMutation(conflict);
+          post({ type: "changed" });
           return conflict;
         }
       }
+      applyActive(previous);
+      if (!previous) localNoise("stopped");
       throw error;
     }
   }

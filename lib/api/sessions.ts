@@ -78,6 +78,7 @@ export const sessions = {
   },
   getActive: () => api<StudySession | null>("/api/sessions/active"),
   tasks: (id: number) => api<Task[]>(`/api/sessions/${id}/tasks`),
+  detachTask: (id: number, taskId: number) => api<void>(`/api/sessions/${id}/tasks/${taskId}`, { method: "DELETE" }),
   remove: (id: number) => api<void>(`/api/sessions/${id}`, { method: "DELETE" }),
   createManual: (details: {
     startedAt: string;

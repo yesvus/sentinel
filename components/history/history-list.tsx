@@ -5,11 +5,14 @@ import type { HistoryDayGroup, HistoryWeekGroup } from "@/lib/history";
 import { formatDayLabel, formatDuration, formatWeekRangeLabel } from "@/lib/date";
 import { HistorySessionRow } from "@/components/history/history-session-row";
 import { Button } from "@/components/ui/button";
+import { Card, CardContent, CardHeader } from "@/components/ui/card";
 import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip";
 
 export function HistoryList({
   weeks,
   now,
+  timeZone,
+  onCopyWeekPrompt,
   onCopyPrompt,
   onExportDay,
   onExportWeek,
@@ -18,6 +21,8 @@ export function HistoryList({
 }: {
   weeks: HistoryWeekGroup[];
   now: number;
+  timeZone?: string;
+  onCopyWeekPrompt: (week: HistoryWeekGroup) => void;
   onCopyPrompt: (day: HistoryDayGroup, week: HistoryWeekGroup) => void;
   onExportDay: (day: HistoryDayGroup) => void;
   onExportWeek: (week: HistoryWeekGroup) => void;
@@ -36,46 +41,69 @@ export function HistoryList({
   }
 
   return (
-    <div className="space-y-6">
+    <div className="space-y-4">
       {weeks.map((week) => {
         const collapsed = collapsedWeeks.has(week.key);
         return (
-          <div key={week.key} className="space-y-3">
-            <div className="flex flex-wrap items-start justify-between gap-2 border-b pb-2">
-              <button type="button" onClick={() => toggleWeek(week.key)} className="flex items-center gap-1.5 text-left">
+          <Card key={week.key} size="sm">
+            <CardHeader className="flex flex-row flex-wrap items-center justify-between gap-2">
+              <button
+                type="button"
+                aria-expanded={!collapsed}
+                onClick={() => toggleWeek(week.key)}
+                className="focus-visible:ring-ring/50 -ml-1 flex min-w-0 items-center gap-2 rounded-md p-1 text-left outline-none focus-visible:ring-3"
+              >
                 {collapsed ? (
                   <ChevronRight className="text-muted-foreground size-4 shrink-0" />
                 ) : (
                   <ChevronDown className="text-muted-foreground size-4 shrink-0" />
                 )}
-                <span className="font-medium">{formatWeekRangeLabel(week.weekStart)}</span>
-                <span className="text-muted-foreground font-mono text-xs">{formatDuration(week.totalSeconds)}</span>
+                <span className="truncate font-medium">{formatWeekRangeLabel(week.weekStart, timeZone)}</span>
+                <span className="bg-background text-muted-foreground ring-foreground/10 rounded-full px-2 py-0.5 font-mono text-xs ring-1">
+                  {formatDuration(week.totalSeconds)}
+                </span>
+                <span className="text-muted-foreground hidden text-xs sm:inline">
+                  {week.sessions.length} {week.sessions.length === 1 ? "session" : "sessions"}
+                </span>
               </button>
-              <Tooltip>
-                <TooltipTrigger
-                  render={
-                    <Button variant="ghost" size="icon-sm" className="text-muted-foreground" onClick={() => onExportWeek(week)}>
-                      <Download />
-                    </Button>
-                  }
-                />
-                <TooltipContent>Export this week as CSV</TooltipContent>
-              </Tooltip>
-            </div>
+              <div className="flex items-center">
+                <Tooltip>
+                  <TooltipTrigger
+                    render={
+                      <Button aria-label={`Copy AI prompt for ${formatWeekRangeLabel(week.weekStart, timeZone)}`} variant="ghost" size="icon-sm" className="text-muted-foreground" onClick={() => onCopyWeekPrompt(week)}>
+                        <Copy />
+                      </Button>
+                    }
+                  />
+                  <TooltipContent>Copy an AI review prompt for this week</TooltipContent>
+                </Tooltip>
+                <Tooltip>
+                  <TooltipTrigger
+                    render={
+                      <Button aria-label={`Export ${formatWeekRangeLabel(week.weekStart, timeZone)}`} variant="ghost" size="icon-sm" className="text-muted-foreground" onClick={() => onExportWeek(week)}>
+                        <Download />
+                      </Button>
+                    }
+                  />
+                  <TooltipContent>Export this week as CSV</TooltipContent>
+                </Tooltip>
+              </div>
+            </CardHeader>
             {!collapsed && (
-              <div className="animate-in fade-in space-y-4 pl-5 duration-150">
+              <CardContent className="animate-in fade-in space-y-5 duration-150">
                 {week.days.map((day) => (
-                  <div key={day.key} className="space-y-2">
-                    <div className="flex flex-wrap items-center justify-between gap-2">
+                  <section key={day.key} className="space-y-2.5" aria-label={formatDayLabel(day.date, new Date(now), timeZone)}>
+                    <div className="bg-muted/20 -mx-1 flex flex-wrap items-center justify-between gap-2 rounded-lg px-2.5 py-1.5">
                       <div className="flex items-center gap-2">
-                        <span className="text-sm font-medium">{formatDayLabel(day.date)}</span>
+                        <span className="text-sm font-medium">{formatDayLabel(day.date, new Date(now), timeZone)}</span>
                         <span className="text-muted-foreground font-mono text-xs">{formatDuration(day.totalSeconds)}</span>
+                        <span className="text-muted-foreground text-xs">{day.sessions.length} {day.sessions.length === 1 ? "session" : "sessions"}</span>
                       </div>
                       <div className="flex items-center">
                         <Tooltip>
                           <TooltipTrigger
                             render={
-                              <Button variant="ghost" size="icon-sm" className="text-muted-foreground" onClick={() => onCopyPrompt(day, week)}>
+                              <Button aria-label={`Copy AI prompt for ${formatDayLabel(day.date, new Date(now), timeZone)}`} variant="ghost" size="icon-sm" className="text-muted-foreground" onClick={() => onCopyPrompt(day, week)}>
                                 <Copy />
                               </Button>
                             }
@@ -85,7 +113,7 @@ export function HistoryList({
                         <Tooltip>
                           <TooltipTrigger
                             render={
-                              <Button variant="ghost" size="icon-sm" className="text-muted-foreground" onClick={() => onExportDay(day)}>
+                              <Button aria-label={`Export ${formatDayLabel(day.date, new Date(now), timeZone)}`} variant="ghost" size="icon-sm" className="text-muted-foreground" onClick={() => onExportDay(day)}>
                                 <Download />
                               </Button>
                             }
@@ -96,14 +124,14 @@ export function HistoryList({
                     </div>
                     <div className="space-y-2">
                       {day.sessions.map((session) => (
-                        <HistorySessionRow key={session.id} session={session} now={now} onEdit={onEdit} onDelete={onDelete} />
+                        <HistorySessionRow key={session.id} session={session} now={now} timeZone={timeZone} onEdit={onEdit} onDelete={onDelete} />
                       ))}
                     </div>
-                  </div>
+                  </section>
                 ))}
-              </div>
+              </CardContent>
             )}
-          </div>
+          </Card>
         );
       })}
     </div>
