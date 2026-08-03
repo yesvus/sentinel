@@ -134,6 +134,7 @@ export function HistorySection({
         weekStatsFor(sessionList, addDays(week.weekStart, -7 * weeksAgo, timeZone), now, timeZone)),
       currentWeek: weekStatsFor(sessionList, week.weekStart, now, timeZone),
       weekNote: findHistoryNote(notes, "week", week.key),
+      now,
     });
     navigator.clipboard.writeText(prompt);
     toast.add({

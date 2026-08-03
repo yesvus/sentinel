@@ -170,6 +170,7 @@ export default function PlanPage() {
       currentWeek,
       weekNote: selectedWeekNote,
       timeZone,
+      now,
     });
     copyPrompt("plan-weekly-prompt", prompt);
   }
