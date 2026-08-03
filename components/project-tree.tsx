@@ -71,30 +71,10 @@ function ProjectTreeRow({
       style={{ marginInlineStart: `${item.treeDepth * 1.5}rem` }}
     >
       {item.treeDepth > 0 && !dragging && (
-        <svg
-          aria-hidden="true"
-          className="absolute pointer-events-none text-border"
-          style={{
-            inset: 0,
-            width: "1.25rem",
-            left: "-1rem",
-            overflow: "visible",
-          }}
-          viewBox="0 0 16 100"
-          preserveAspectRatio="none"
-        >
-          {lastChild ? (
-            <>
-              <line x1="0" y1="0" x2="0" y2="14" stroke="currentColor" strokeWidth="1" />
-              <line x1="0" y1="14" x2="12" y2="14" stroke="currentColor" strokeWidth="1" />
-            </>
-          ) : (
-            <>
-              <line x1="0" y1="0" x2="0" y2="100" stroke="currentColor" strokeWidth="1" />
-              <line x1="0" y1="14" x2="12" y2="14" stroke="currentColor" strokeWidth="1" />
-            </>
-          )}
-        </svg>
+        <div className="absolute pointer-events-none" style={{ left: "-1rem", top: 0, bottom: 0, width: "1rem" }}>
+          <div className="absolute border-l border-border" style={{ left: 0, top: 0, bottom: lastChild ? "calc(100% - 14px)" : 0 }} />
+          <div className="absolute border-b border-border" style={{ left: 0, top: 14, width: 12 }} />
+        </div>
       )}
       {dropIntent?.position === "before" && <span className="bg-primary animate-in fade-in slide-in-from-top-1 absolute -inset-x-1 -top-1 z-10 h-0.5 rounded-full duration-150" aria-hidden="true" />}
       {dropIntent?.position === "after" && <span className="bg-primary animate-in fade-in slide-in-from-bottom-1 absolute -inset-x-1 -bottom-1 z-10 h-0.5 rounded-full duration-150" aria-hidden="true" />}
@@ -215,7 +195,9 @@ export function ActiveProjectTree({
       byParent.get(key)!.push(p);
     }
     for (const [, children] of byParent) {
-      if (children.length > 0) set.add(children[children.length - 1].id);
+      if (children.length === 0) continue;
+      children.sort((a, b) => Number(b.pinned) - Number(a.pinned) || a.sortOrder - b.sortOrder || a.name.localeCompare(b.name));
+      set.add(children[children.length - 1].id);
     }
     return set;
   }, [projects]);
