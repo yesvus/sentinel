@@ -13,8 +13,7 @@ import { Skeleton } from "@/components/ui/skeleton";
 import { ApiError, type Project, type StudySession, type Task, projects as projectsApi, sessions as sessionsApi, tasks as tasksApi } from "@/lib/api";
 import { buildProjectDetailModel } from "@/lib/project-detail-model";
 import { PageHeaderActions } from "@/lib/page-header-actions-context";
-import { removeTask as removeTaskFromList, upsertTask } from "@/lib/task-collections";
-import { taskMutations } from "@/lib/task-mutations";
+import { removeTask as removeTaskFromList, taskStore, upsertTask } from "@/lib/task-store";
 import { useActiveSession } from "@/lib/active-session-context";
 import { mergeActiveSession } from "@/lib/session-list";
 import { useAuth } from "@/lib/auth-context";
@@ -175,7 +174,7 @@ export default function ProjectDetailPage() {
   async function deleteTask(task: Task) {
     setDeletingTaskId(task.id);
     try {
-      await taskMutations.remove(task);
+      await taskStore.remove(task);
       await new Promise((resolve) => window.setTimeout(resolve, 160));
       setTaskList((list) => removeTaskFromList(list, task.id));
     } catch (caught) {

@@ -29,8 +29,7 @@ import {
 import { ProjectSelector } from "@/components/project-selector";
 import { ApiError, Project, Task, projects as projectsApi, tasks as tasksApi } from "@/lib/api";
 import { dayKey } from "@/lib/date";
-import { removeTask as removeTaskFromList, upsertTask, upsertTasks } from "@/lib/task-collections";
-import { setTaskCompletion, taskMutations } from "@/lib/task-mutations";
+import { removeTask as removeTaskFromList, setTaskCompletion, taskStore, upsertTask, upsertTasks } from "@/lib/task-store";
 import { useAuth } from "@/lib/auth-context";
 
 const NO_PROJECT_KEY = "none";
@@ -138,7 +137,7 @@ export default function TasksPage() {
   async function movePastTasks() {
     setMoving(true);
     try {
-      const result = await taskMutations.movePastToBacklog(today);
+      const result = await taskStore.movePastToBacklog(today);
       setTaskList((current) => upsertTasks(current, result.moved));
       markRecent(result.moved.map((task) => task.id));
       toast.add({
@@ -181,7 +180,7 @@ export default function TasksPage() {
   async function removeTask(task: Task) {
     setRemovingIds((current) => [...current, task.id]);
     try {
-      await taskMutations.remove(task);
+      await taskStore.remove(task);
       await new Promise((resolve) => window.setTimeout(resolve, 160));
       setTaskList((current) => removeTaskFromList(current, task.id));
     } catch {

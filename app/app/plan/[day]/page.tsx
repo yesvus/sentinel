@@ -46,7 +46,7 @@ import {
   replaceSessionTasks,
   replaceTaskInSessions,
   upsertTask,
-} from "@/lib/task-collections";
+} from "@/lib/task-store";
 
 function isValidDayKey(value: string) {
   if (!/^\d{4}-\d{2}-\d{2}$/.test(value)) return false;

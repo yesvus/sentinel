@@ -30,7 +30,7 @@ import { Spinner } from "@/components/ui/spinner";
 import { Textarea } from "@/components/ui/textarea";
 import { ApiError, Task, tasks as tasksApi } from "@/lib/api";
 import { parseDateKey } from "@/lib/date";
-import { taskMutations } from "@/lib/task-mutations";
+import { taskStore } from "@/lib/task-store";
 
 function taskTimingLabel(task: Task) {
   if (task.period_start === null) return "In backlog · no date attached.";
@@ -98,7 +98,7 @@ export function TaskEditorPopover({
     setMoving(true);
     setError(null);
     try {
-      const updated = await taskMutations.moveToBacklog(task);
+      const updated = await taskStore.moveToBacklog(task);
       await (onMovedToBacklog ?? onUpdated)(updated);
       setOpen(false);
     } catch (caught) {
@@ -112,7 +112,7 @@ export function TaskEditorPopover({
     setMoving(true);
     setError(null);
     try {
-      const updated = await taskMutations.markUndone(task);
+      const updated = await taskStore.markUndone(task);
       await (onMovedToBacklog ?? onUpdated)(updated);
       setOpen(false);
     } catch (caught) {
