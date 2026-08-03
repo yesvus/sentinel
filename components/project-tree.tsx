@@ -72,7 +72,10 @@ function ProjectTreeRow({
     >
       {item.treeDepth > 0 && !dragging && (
         <div className="absolute pointer-events-none" style={{ left: "-1rem", top: -4, bottom: -4, width: "1rem" }}>
-          <div className="absolute border-l border-border" style={{ left: 0, top: 0, bottom: lastChild ? "calc(100% - 10px)" : 0 }} />
+          <div className="absolute border-l border-border" style={{
+            left: 0, top: -4,
+            ...(lastChild ? { height: 22 } : { bottom: -4 }),
+          }} />
           <div className="absolute border-b border-border" style={{ left: 0, top: 18, width: 12 }} />
         </div>
       )}
