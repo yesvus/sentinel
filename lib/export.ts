@@ -1,5 +1,5 @@
 import { StudySession, Note, Project, Task } from "./api";
-import { addDays, dayKey, formatDuration, formatTime, formatWeekRangeLabel } from "./date";
+import { addDateKeyDays, addDays, dayKey, formatDuration, formatTime, formatWeekRangeLabel } from "./date";
 import { splitSessionDuration, projectTotals, NO_PROJECT_LABEL, WeekStats, PartialWeekStats } from "./session-stats";
 
 const CSV_HEADER = [
@@ -476,6 +476,7 @@ export function buildWeeklyAiPrompt({
   currentWeek,
   weekNote,
   timeZone,
+  now = Date.now(),
 }: {
   userContext: string | null;
   longTermGoalsText: string | null | undefined;
@@ -483,8 +484,17 @@ export function buildWeeklyAiPrompt({
   currentWeek: WeekStats;
   weekNote: Note | undefined;
   timeZone?: string;
+  now?: number;
 }) {
   const weekEnd = addDays(currentWeek.weekStart, 6, timeZone);
+  const todayKey = dayKey(new Date(now), timeZone);
+  const weekStartKey = dayKey(currentWeek.weekStart, timeZone);
+  let elapsedDays = 0;
+  for (let i = 0; i < 7; i++) {
+    if (addDateKeyDays(weekStartKey, i) > todayKey) break;
+    elapsedDays++;
+  }
+  const daysInWeek = Math.max(1, elapsedDays);
   return `You are reviewing one week of my tracked work. The data comes first, the instructions come last.
 Read everything before you respond.
 
@@ -520,7 +530,7 @@ ${comparisonSection(currentWeek, previousWeeks)}
 <dates>${dayKey(currentWeek.weekStart, timeZone)} to ${dayKey(weekEnd, timeZone)}</dates>
 
 <stats>
-tracked ${formatDuration(currentWeek.trackedSeconds)} · active days ${currentWeek.activeDays} of 7 · Learning ${currentWeek.learningPercent}% / Producing ${100 - currentWeek.learningPercent}% ·
+tracked ${formatDuration(currentWeek.trackedSeconds)} · active days ${currentWeek.activeDays} of ${daysInWeek} · Learning ${currentWeek.learningPercent}% / Producing ${100 - currentWeek.learningPercent}% ·
 top project ${currentWeek.topProject ? `${currentWeek.topProject} (${formatDuration(currentWeek.topProjectSeconds)})` : "none"} · per-day tracked: ${perDayBreakdown(currentWeek.dailySeconds)}
 </stats>
 
