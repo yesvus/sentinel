@@ -49,7 +49,7 @@ function DropRootHint({ active }: { active: boolean }) {
 }
 
 function ProjectTreeRow({
-  id, item, dragging, busy, backlogCount, dropIntent, onArchive, onPin,
+  id, item, dragging, busy, backlogCount, dropIntent, lastChild, onArchive, onPin,
 }: {
   id: string;
   item: ProjectTreeItem;
@@ -57,6 +57,7 @@ function ProjectTreeRow({
   busy: boolean;
   backlogCount: number;
   dropIntent: ProjectDropIntent | null;
+  lastChild: boolean;
   onArchive: (project: Project) => Promise<void>;
   onPin: (project: Project) => Promise<void>;
 }) {
@@ -70,12 +71,30 @@ function ProjectTreeRow({
       style={{ marginInlineStart: `${item.treeDepth * 1.5}rem` }}
     >
       {item.treeDepth > 0 && !dragging && (
-        <>
-          {item.treeDepth > 1 && (
-            <span aria-hidden="true" className="border-border absolute -left-4 -top-[8px] bottom-0 border-l" />
+        <svg
+          aria-hidden="true"
+          className="absolute pointer-events-none text-border"
+          style={{
+            inset: 0,
+            width: "1.25rem",
+            left: "-1rem",
+            overflow: "visible",
+          }}
+          viewBox="0 0 16 100"
+          preserveAspectRatio="none"
+        >
+          {lastChild ? (
+            <>
+              <line x1="0" y1="0" x2="0" y2="14" stroke="currentColor" strokeWidth="1" />
+              <line x1="0" y1="14" x2="12" y2="14" stroke="currentColor" strokeWidth="1" />
+            </>
+          ) : (
+            <>
+              <line x1="0" y1="0" x2="0" y2="100" stroke="currentColor" strokeWidth="1" />
+              <line x1="0" y1="14" x2="12" y2="14" stroke="currentColor" strokeWidth="1" />
+            </>
           )}
-          <span aria-hidden="true" className="border-border absolute -left-4 top-0 h-5 w-3 rounded-bl-md border-b border-l" />
-        </>
+        </svg>
       )}
       {dropIntent?.position === "before" && <span className="bg-primary animate-in fade-in slide-in-from-top-1 absolute -inset-x-1 -top-1 z-10 h-0.5 rounded-full duration-150" aria-hidden="true" />}
       {dropIntent?.position === "after" && <span className="bg-primary animate-in fade-in slide-in-from-bottom-1 absolute -inset-x-1 -bottom-1 z-10 h-0.5 rounded-full duration-150" aria-hidden="true" />}
@@ -187,6 +206,20 @@ export function ActiveProjectTree({
     return ordered;
   }, [activeId, projects, draggingDescendantIds]);
 
+  const lastChildIds = useMemo(() => {
+    const set = new Set<number>();
+    const byParent = new Map<number | null, Project[]>();
+    for (const p of projects) {
+      const key = p.parentId;
+      if (!byParent.has(key)) byParent.set(key, []);
+      byParent.get(key)!.push(p);
+    }
+    for (const [, children] of byParent) {
+      if (children.length > 0) set.add(children[children.length - 1].id);
+    }
+    return set;
+  }, [projects]);
+
   function handleDragStart(event: DragStartEvent) {
     setActiveId(Number(event.active.id));
     const e = event.activatorEvent as PointerEvent | MouseEvent | undefined;
@@ -266,6 +299,7 @@ export function ActiveProjectTree({
                 busy={busyId === item.project.id}
                 backlogCount={backlogCounts.get(item.project.id) ?? 0}
                 dropIntent={dropIntent?.targetId === item.project.id ? dropIntent : null}
+                lastChild={lastChildIds.has(item.project.id)}
                 onArchive={onArchive}
                 onPin={onPin}
               />
