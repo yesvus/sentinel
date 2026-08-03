@@ -28,6 +28,7 @@ function task(id: number, completedAt: string | null): Task {
     project_id: null,
     project_name: null,
     project_icon: null,
+    sort_order: 0,
   } as Task;
 }
 

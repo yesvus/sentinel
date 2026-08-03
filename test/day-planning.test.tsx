@@ -24,6 +24,7 @@ const completedTask: Task = {
   title: "Finished task",
   description: null,
   completed_at: "2026-07-30T08:30:00.000Z",
+  sort_order: 0,
 };
 
 describe("day session timeline model", () => {
@@ -116,6 +117,7 @@ describe("daily task failures", () => {
         onUpdated={onUpdated}
         onDeleted={onDeleted}
         onProjectCreated={vi.fn()}
+        onProjectUpdated={vi.fn()}
       />,
     );
 

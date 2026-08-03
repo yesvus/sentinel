@@ -8,36 +8,77 @@ export class ApiError extends Error {
   }
 }
 
-type CacheEntry = { expiresAt: number; value: unknown };
+type CacheEntry = { generation: number; value: unknown };
 const responseCache = new Map<string, CacheEntry>();
 const inFlightRequests = new Map<string, Promise<unknown>>();
-let cacheGeneration = 0;
 
-function cacheLifetime(path: string) {
-  if (path === "/api/projects") return 60_000;
-  if (path.startsWith("/api/sessions?")) return 30_000;
-  if (path === "/api/notes") return 30_000;
-  if (path === "/api/tasks") return 30_000;
-  if (path.startsWith("/api/reports/weekly?")) return 10 * 60_000;
-  return 0;
+const DOMAINS: Record<string, string[]> = {
+  sessions: ["/api/sessions", "/api/reports/weekly"],
+  projects: ["/api/projects"],
+  tasks: ["/api/tasks"],
+  notes: ["/api/notes"],
+};
+
+function domainFor(path: string) {
+  for (const [domain, prefixes] of Object.entries(DOMAINS)) {
+    if (prefixes.some((p) => path.startsWith(p))) return domain;
+  }
+  return null;
+}
+
+const domainGenerations: Record<string, number> = {};
+
+function generation(path: string) {
+  const domain = domainFor(path);
+  if (!domain) return 0;
+  return domainGenerations[domain] ?? 0;
+}
+
+function invalidateDomain(domain: string) {
+  domainGenerations[domain] = (domainGenerations[domain] ?? 0) + 1;
+  for (const [key] of responseCache) {
+    if (domainFor(key) === domain) responseCache.delete(key);
+  }
+}
+
+function invalidateSessionRelated() {
+  invalidateDomain("sessions");
 }
 
 export function clearApiCache() {
-  cacheGeneration += 1;
-  responseCache.clear();
+  for (const domain of Object.keys(DOMAINS)) invalidateDomain(domain);
   inFlightRequests.clear();
+}
+
+export function invalidateApiCache() {
+  for (const domain of Object.keys(DOMAINS)) invalidateDomain(domain);
+}
+
+function cacheLifetime(path: string) {
+  if (domainFor(path) === "sessions") return 30_000;
+  if (domainFor(path) === "reports") return 10 * 60_000;
+  return 10 * 60_000;
 }
 
 export async function api<T>(path: string, options: RequestInit = {}): Promise<T> {
   const method = options.method?.toUpperCase() ?? "GET";
+  const domain = domainFor(path);
   const lifetime = method === "GET" ? cacheLifetime(path) : 0;
-  if (method !== "GET") clearApiCache();
+
+  if (method !== "GET") {
+    if (domain) invalidateDomain(domain);
+    if (path.startsWith("/api/sessions") || path.startsWith("/api/session-tasks")) {
+      invalidateSessionRelated();
+    }
+    inFlightRequests.delete(path);
+  }
+
   const cached = responseCache.get(path);
-  if (lifetime && cached && cached.expiresAt > Date.now()) return cached.value as T;
+  if (lifetime && cached && cached.generation === generation(path)) return cached.value as T;
   const pending = lifetime ? inFlightRequests.get(path) : null;
   if (pending) return pending as Promise<T>;
 
-  const requestGeneration = cacheGeneration;
+  const requestGen = generation(path);
   const request = (async () => {
     const res = await fetch(path, {
       ...options,
@@ -56,8 +97,8 @@ export async function api<T>(path: string, options: RequestInit = {}): Promise<T
 
     if (res.status === 204) return undefined as T;
     const value = await res.json() as T;
-    if (lifetime && requestGeneration === cacheGeneration) {
-      responseCache.set(path, { expiresAt: Date.now() + lifetime, value });
+    if (lifetime && generation(path) === requestGen) {
+      responseCache.set(path, { generation: requestGen, value });
     }
     return value;
   })();

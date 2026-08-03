@@ -48,6 +48,7 @@ const openTask: Task = {
   title: "Review Home",
   description: null,
   completed_at: null,
+  sort_order: 0,
 };
 
 const completedTask: Task = {
@@ -84,6 +85,7 @@ describe("TodayRail", () => {
         onTaskSelect={onTaskSelect}
         onTaskUpdated={onTaskUpdated}
         onTaskCreated={onTaskCreated}
+        onProjectUpdated={vi.fn()}
       />,
     );
 
@@ -96,7 +98,8 @@ describe("TodayRail", () => {
     fireEvent.click(screen.getByRole("button", { name: "Edit Review Home" }));
     expect(onTaskUpdated).toHaveBeenCalledWith({ ...openTask, title: "Updated task" });
 
-    fireEvent.click(screen.getByRole("button", { name: /Sentinel/ }));
+    const [projectBtn] = screen.getAllByText("Sentinel");
+    fireEvent.click(projectBtn.closest("button")!);
     expect(onProjectSelect).toHaveBeenCalledWith(project.id, [openTask]);
     expect(screen.queryByText("Finished task")).not.toBeInTheDocument();
     fireEvent.click(screen.getByRole("button", { name: "Add task" }));

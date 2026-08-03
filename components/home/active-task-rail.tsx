@@ -1,12 +1,24 @@
+import { useMemo, useState } from "react";
 import { ListTodo, RotateCw } from "lucide-react";
+import {
+  DndContext, closestCenter, KeyboardSensor, PointerSensor, useSensor, useSensors,
+  type DragEndEvent,
+} from "@dnd-kit/core";
+import { sortableKeyboardCoordinates, arrayMove, SortableContext, verticalListSortingStrategy } from "@dnd-kit/sortable";
 import type { SessionTasksLoadStatus } from "@/hooks/use-home-tasks";
 import type { Project, Task } from "@/lib/api";
+import { tasks as tasksApi } from "@/lib/api";
 import { cn } from "@/lib/utils";
 import { LongContentFade } from "@/components/long-content-fade";
+import { SortableTaskRow } from "@/components/sortable-task-row";
 import { TaskCreatorPopover } from "@/components/task-creator-popover";
 import { Button } from "@/components/ui/button";
 import { HomeTaskRow } from "@/components/home/home-task-row";
 import { Skeleton } from "@/components/ui/skeleton";
+
+function buildReorderPayload(tasks: Task[]) {
+  return tasks.map((task, index) => ({ id: task.id, sort_order: index }));
+}
 
 type ActiveTaskRailProps = {
   exiting: boolean;
@@ -45,6 +57,32 @@ export function ActiveTaskRail({
   onToggleTask,
   onDetachTask,
 }: ActiveTaskRailProps) {
+  const sorted = useMemo(() => tasks.slice().sort((a, b) => a.sort_order - b.sort_order || a.id - b.id), [tasks]);
+  const [activeId, setActiveId] = useState<string | null>(null);
+  const sensors = useSensors(
+    useSensor(PointerSensor, { activationConstraint: { distance: 8 } }),
+    useSensor(KeyboardSensor, { coordinateGetter: sortableKeyboardCoordinates }),
+  );
+
+  async function handleDragEnd(event: DragEndEvent) {
+    const { active, over } = event;
+    setActiveId(null);
+    if (!over || active.id === over.id) return;
+
+    const fromIndex = sorted.findIndex((t) => String(t.id) === String(active.id));
+    const toIndex = sorted.findIndex((t) => String(t.id) === String(over.id));
+    if (fromIndex === -1 || toIndex === -1) return;
+
+    const reordered = arrayMove(sorted, fromIndex, toIndex).map((task, index) => ({ ...task, sort_order: index }));
+    reordered.forEach((task) => onTaskUpdated(task));
+
+    try {
+      await tasksApi.reorder(buildReorderPayload(reordered));
+    } catch {
+      sorted.forEach((task) => onTaskUpdated(task));
+    }
+  }
+
   return (
     <aside className={cn(
       exiting
@@ -85,18 +123,36 @@ export function ActiveTaskRail({
                 </div>
               ))}
             </div>
-          ) : tasks.length > 0 ? tasks.map((task) => (
-            <HomeTaskRow
-              key={task.id}
-              task={task}
-              checked={task.completed_at !== null}
-              recent={recentTaskIds.includes(task.id)}
-              removing={detachingTaskIds.includes(task.id)}
-              onCheckedChange={() => onToggleTask(task)}
-              onUpdated={onTaskUpdated}
-              onRemove={task.completed_at === null ? onDetachTask : undefined}
-            />
-          )) : (
+          ) : sorted.length > 0 ? (
+            <DndContext
+              sensors={sensors}
+              collisionDetection={closestCenter}
+              onDragStart={(event) => setActiveId(String(event.active.id))}
+              onDragCancel={() => setActiveId(null)}
+              onDragEnd={(event) => void handleDragEnd(event)}
+            >
+              <SortableContext items={sorted.map((t) => String(t.id))} strategy={verticalListSortingStrategy}>
+                {sorted.map((task) => (
+                  <SortableTaskRow
+                    key={task.id}
+                    id={String(task.id)}
+                    className={cn("cursor-grab active:cursor-grabbing", activeId === String(task.id) && "opacity-30")}
+                  >
+                    <HomeTaskRow
+                      task={task}
+                      checked={task.completed_at !== null}
+                      recent={recentTaskIds.includes(task.id)}
+                      removing={detachingTaskIds.includes(task.id)}
+                      dragging={activeId !== null}
+                      onCheckedChange={() => onToggleTask(task)}
+                      onUpdated={onTaskUpdated}
+                      onRemove={task.completed_at === null ? onDetachTask : undefined}
+                    />
+                  </SortableTaskRow>
+                ))}
+              </SortableContext>
+            </DndContext>
+          ) : (
             <div className="flex flex-1 flex-col items-center justify-center gap-2 px-2 py-2 text-center">
               <span className="bg-muted/60 border-border/60 flex size-10 items-center justify-center rounded-full border border-dashed">
                 <ListTodo className="text-muted-foreground size-5" aria-hidden="true" />

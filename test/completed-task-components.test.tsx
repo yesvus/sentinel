@@ -34,6 +34,7 @@ const backlogTask: Task = {
   title: "Backlog task",
   description: null,
   completed_at: null,
+  sort_order: 0,
 };
 
 const completedTask: Task = {
@@ -43,6 +44,7 @@ const completedTask: Task = {
   title: "Completed task",
   description: "Already finished",
   completed_at: "2026-08-01T10:00:00.000Z",
+  sort_order: 0,
 };
 
 describe("CompletedTaskPicker", () => {

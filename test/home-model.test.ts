@@ -9,13 +9,13 @@ const projects: Project[] = [
 ];
 
 const tasks: Task[] = [
-  { id: 1, period_start: "2026-08-02", project_id: 2, title: "Draft", description: null, completed_at: null },
-  { id: 2, period_start: "2026-08-02", project_id: 1, title: "Read", description: null, completed_at: null },
-  { id: 3, period_start: "2026-08-02", project_id: null, title: "Admin", description: null, completed_at: null },
-  { id: 4, period_start: null, project_id: 1, title: "Backlog", description: null, completed_at: null },
-  { id: 5, period_start: null, project_id: 1, title: "Done backlog", description: null, completed_at: "2026-08-01T12:00:00.000Z" },
-  { id: 6, period_start: "2026-08-02", project_id: 1, title: "Done today", description: null, completed_at: "2026-08-02T12:00:00.000Z" },
-  { id: 7, period_start: null, project_id: 2, title: "Other project backlog", description: null, completed_at: null },
+  { id: 1, period_start: "2026-08-02", project_id: 2, title: "Draft", description: null, completed_at: null, sort_order: 0 },
+  { id: 2, period_start: "2026-08-02", project_id: 1, title: "Read", description: null, completed_at: null, sort_order: 0 },
+  { id: 3, period_start: "2026-08-02", project_id: null, title: "Admin", description: null, completed_at: null, sort_order: 0 },
+  { id: 4, period_start: null, project_id: 1, title: "Backlog", description: null, completed_at: null, sort_order: 0 },
+  { id: 5, period_start: null, project_id: 1, title: "Done backlog", description: null, completed_at: "2026-08-01T12:00:00.000Z", sort_order: 0 },
+  { id: 6, period_start: "2026-08-02", project_id: 1, title: "Done today", description: null, completed_at: "2026-08-02T12:00:00.000Z", sort_order: 0 },
+  { id: 7, period_start: null, project_id: 2, title: "Other project backlog", description: null, completed_at: null, sort_order: 0 },
 ];
 
 const notes: Note[] = [

@@ -225,6 +225,7 @@ describe("active session editing", () => {
       title: "Attached task",
       description: null,
       completed_at: "2026-08-02T10:00:00.000Z",
+      sort_order: 0,
     };
     const undoneTask: Task = {
       ...attachedTask,
@@ -281,6 +282,7 @@ describe("active session editing", () => {
       title: "Changed task",
       description: null,
       completed_at: new Date().toISOString(),
+      sort_order: 0,
     };
     updateSession.mockResolvedValueOnce({
       id: 45,

@@ -104,6 +104,7 @@ export default function AppHomePage() {
           onTaskSelect={tasks.selectTask}
           onTaskUpdated={tasks.taskUpdated}
           onTaskCreated={tasks.todayTaskCreated}
+          onProjectUpdated={data.addProject}
         />
       )}
       {layout.showActive && (

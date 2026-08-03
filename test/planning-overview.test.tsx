@@ -71,6 +71,7 @@ describe("weekly planning day card", () => {
     title: "Review equations",
     description: null,
     completed_at: null,
+    sort_order: 0,
   };
   const completedTask: Task = { ...task, id: 11, title: "Already finished", completed_at: "2026-08-03T09:00:00.000Z" };
   const note: Note = {

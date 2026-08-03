@@ -4,14 +4,14 @@ import { body, error, noContent } from "./http";
 import { projectIdError } from "./ownership";
 import { MAX_DESCRIPTION_LENGTH, MAX_TASK_TITLE_LENGTH, optionalTextError, periodStartError } from "./validation";
 
-const TASK_COLUMNS = "id, period_start, project_id, title, description, completed_at";
+const TASK_COLUMNS = "id, period_start, project_id, title, description, completed_at, sort_order";
 
 export async function taskRoutes(request: NextRequest, parts: string[], userId: number) {
   if (parts[1] === "backlog" && request.method === "POST") {
     const data = await body(request);
     if (typeof data.before !== "string" || /^\d{4}-\d{2}-\d{2}$/.test(data.before) === false) return error("before must be a YYYY-MM-DD date");
     const candidates = await db.execute({
-      sql: `SELECT ${TASK_COLUMNS} FROM tasks WHERE user_id = ? AND period_start IS NOT NULL AND period_start < ? AND completed_at IS NULL ORDER BY created_at`,
+      sql: `SELECT ${TASK_COLUMNS} FROM tasks WHERE user_id = ? AND period_start IS NOT NULL AND period_start < ? AND completed_at IS NULL ORDER BY sort_order, created_at`,
       args: [userId, data.before],
     });
     await db.batch([
@@ -21,12 +21,12 @@ export async function taskRoutes(request: NextRequest, parts: string[], userId: 
     return NextResponse.json({ moved: candidates.rows.map((task) => ({ ...task, period_start: null })) });
   }
   if (parts[1] === "backlog" && request.method === "GET") {
-    const result = await db.execute({ sql: `SELECT ${TASK_COLUMNS} FROM tasks WHERE user_id = ? AND period_start IS NULL AND completed_at IS NULL ORDER BY created_at`, args: [userId] });
+    const result = await db.execute({ sql: `SELECT ${TASK_COLUMNS} FROM tasks WHERE user_id = ? AND period_start IS NULL AND completed_at IS NULL ORDER BY sort_order, created_at`, args: [userId] });
     return NextResponse.json(result.rows);
   }
   const id = parts[1] ? Number(parts[1]) : null;
   if (id === null && request.method === "GET") {
-    const result = await db.execute({ sql: `SELECT ${TASK_COLUMNS} FROM tasks WHERE user_id = ? ORDER BY created_at`, args: [userId] });
+    const result = await db.execute({ sql: `SELECT ${TASK_COLUMNS} FROM tasks WHERE user_id = ? ORDER BY sort_order, created_at`, args: [userId] });
     return NextResponse.json(result.rows);
   }
   if (id === null && request.method === "POST") {
@@ -66,6 +66,25 @@ export async function taskRoutes(request: NextRequest, parts: string[], userId: 
   if (!Number.isInteger(id)) return error("Not found", 404);
   if (request.method === "PATCH") {
     const data = await body(request);
+    if (data.sortOrder !== undefined) {
+      if (!Number.isInteger(data.sortOrder) || Number(data.sortOrder) < 0) return error("sortOrder must be a non-negative integer");
+      const owned = await db.execute({ sql: "SELECT 1 FROM tasks WHERE id = ? AND user_id = ?", args: [id!, userId] });
+      if (!owned.rows.length) return error("Task not found", 404);
+      await db.execute({ sql: "UPDATE tasks SET sort_order = ? WHERE id = ? AND user_id = ?", args: [Number(data.sortOrder), id!, userId] });
+      return noContent();
+    }
+    if (data.reorder !== undefined) {
+      if (!Array.isArray(data.reorder)) return error("reorder must be an array of { id, sort_order }");
+      for (const item of data.reorder) {
+        if (!Number.isInteger(item.id) || !Number.isInteger(item.sort_order) || item.sort_order < 0) return error("Each reorder entry must have a non-negative integer id and sortOrder");
+      }
+      const statements = data.reorder.map((item: { id: number; sort_order: number }) => ({
+        sql: "UPDATE tasks SET sort_order = ? WHERE id = ? AND user_id = ?",
+        args: [item.sort_order, item.id, userId],
+      }));
+      await db.batch(statements, "write");
+      return noContent();
+    }
     const existing = await db.execute({ sql: "SELECT title, description, project_id, period_start, completed_at FROM tasks WHERE id = ? AND user_id = ?", args: [id!, userId] });
     const row = existing.rows[0];
     if (!row) return error("Task not found", 404);

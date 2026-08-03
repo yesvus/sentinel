@@ -46,6 +46,7 @@ vi.mock("@/components/task-creator-popover", () => ({
         title: "New scoped task",
         description: null,
         completed_at: null,
+        sort_order: 0,
       })}
     >
       Add scoped task
@@ -92,6 +93,7 @@ const tasks: Task[] = [
     title: "Write release notes",
     description: "Include the planning decisions",
     completed_at: null,
+    sort_order: 0,
   },
   {
     id: 11,
@@ -100,6 +102,7 @@ const tasks: Task[] = [
     title: "Ship build",
     description: null,
     completed_at: null,
+    sort_order: 0,
   },
   {
     id: 12,
@@ -108,6 +111,7 @@ const tasks: Task[] = [
     title: "Store records",
     description: null,
     completed_at: null,
+    sort_order: 0,
   },
   {
     id: 13,
@@ -116,6 +120,7 @@ const tasks: Task[] = [
     title: "Loose task",
     description: null,
     completed_at: null,
+    sort_order: 0,
   },
 ];
 

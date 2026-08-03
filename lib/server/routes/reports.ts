@@ -18,17 +18,24 @@ export async function reportRoutes(request: NextRequest, parts: string[], userId
   const result = await db.execute({
     sql: `SELECT s.started_at, s.duration_seconds, s.production_percentage, project.name AS project_name
           FROM sessions s LEFT JOIN projects project ON project.id = s.project_id AND project.user_id = s.user_id
-          WHERE s.user_id = ? AND s.ended_at IS NOT NULL`, args: [userId],
+          WHERE s.user_id = ? AND s.ended_at IS NOT NULL AND s.started_at < ?`, args: [userId, new Date().toISOString()],
   });
   const sessions = result.rows.map((row) => ({
     startedAt: row.started_at as string, duration: Number(row.duration_seconds ?? 0),
     production: row.production_percentage === null ? 0 : Number(row.production_percentage), project: row.project_name as string | null,
   }));
-  const currentMonday = mondayForDateKey(dayKey(new Date(), timezone));
+const currentMonday = mondayForDateKey(dayKey(new Date(), timezone));
+  const todayKey = dayKey(new Date(), timezone);
   for (let offset = 1; offset <= 12; offset += 1) {
     const weekStart = addDateKeyDays(currentMonday, -7 * offset);
     const weekEnd = addDateKeyDays(weekStart, 6);
     const weekSessions = sessions.filter((session) => mondayForDateKey(dayKey(new Date(session.startedAt), timezone)) === weekStart);
+    const countableDayKeys = new Set<string>();
+    for (const session of weekSessions) {
+      const sessionDay = dayKey(new Date(session.startedAt), timezone);
+      if (sessionDay <= todayKey) countableDayKeys.add(sessionDay);
+    }
+    const activeDays = countableDayKeys.size;
     const durations = weekSessions.map((session) => session.duration).sort((a, b) => a - b);
     const middle = Math.floor(durations.length / 2);
     const medianSeconds = durations.length === 0 ? null : durations.length % 2 ? durations[middle] : Math.round((durations[middle - 1] + durations[middle]) / 2);
@@ -44,8 +51,7 @@ export async function reportRoutes(request: NextRequest, parts: string[], userId
     const topProject = Array.from(projects.entries()).sort((a, b) => b[1] - a[1] || a[0].localeCompare(b[0]))[0]?.[0] ?? null;
     const data = {
       weekStart, weekEnd, timezone, totalSeconds: learningSeconds + producingSeconds,
-      activeDays: new Set(weekSessions.map((session) => dayKey(new Date(session.startedAt), timezone))).size,
-      medianSeconds, learningSeconds, producingSeconds, topProject, sessionCount: weekSessions.length,
+      activeDays, medianSeconds, learningSeconds, producingSeconds, topProject, sessionCount: weekSessions.length,
     };
     await db.execute({
       sql: "INSERT OR IGNORE INTO weekly_reports (user_id, week_start, timezone, calculation_version, data_json) VALUES (?, ?, ?, 2, ?)",

@@ -118,15 +118,7 @@ export function useHomeTasks({ activeSessionId, isRunning, projectId, setTaskLis
     }
   }
 
-  async function toggleTask(task: Task) {
-    try {
-      taskUpdated(await setAttachedTaskCompletion(task));
-    } catch {
-      onError("Could not update this task.");
-    }
-  }
-
-  async function detachTask(task: Task) {
+  async function detachFromSession(task: Task) {
     if (activeSessionId === null) return;
     setDetachingTaskIds((ids) => [...ids, task.id]);
     try {
@@ -140,6 +132,18 @@ export function useHomeTasks({ activeSessionId, isRunning, projectId, setTaskLis
     } finally {
       setDetachingTaskIds((ids) => ids.filter((id) => id !== task.id));
     }
+  }
+
+  async function toggleTask(task: Task) {
+    try {
+      taskUpdated(await setAttachedTaskCompletion(task));
+    } catch {
+      onError("Could not update this task.");
+    }
+  }
+
+  async function detachTask(task: Task) {
+    await detachFromSession(task);
   }
 
   return {

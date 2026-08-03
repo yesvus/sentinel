@@ -12,9 +12,9 @@ describe("buildProjectDetailModel", () => {
   it("derives hierarchy, work lists, and statistics for the selected project", () => {
     const projects = [project(1, null), project(2, 1), project(3, 2), project(4, null)];
     const tasks: Task[] = [
-      { id: 1, project_id: 2, period_start: null, title: "Backlog", description: null, completed_at: null },
-      { id: 2, project_id: 2, period_start: "2026-08-02", title: "Done", description: null, completed_at: "2026-08-02" },
-      { id: 3, project_id: 4, period_start: null, title: "Other", description: null, completed_at: null },
+      { id: 1, project_id: 2, period_start: null, title: "Backlog", description: null, completed_at: null, sort_order: 0 },
+      { id: 2, project_id: 2, period_start: "2026-08-02", title: "Done", description: null, completed_at: "2026-08-02", sort_order: 0 },
+      { id: 3, project_id: 4, period_start: null, title: "Other", description: null, completed_at: null, sort_order: 0 },
     ];
     const sessions: StudySession[] = [
       { id: 1, project_id: 2, project_name: "Project 2", project_icon: null, started_at: "2026-08-02T10:00:00Z", ended_at: "2026-08-02T10:05:00Z", duration_seconds: 300, description: null },

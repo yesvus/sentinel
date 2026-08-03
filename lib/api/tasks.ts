@@ -8,11 +8,14 @@ export type Task = {
   title: string;
   description: string | null;
   completed_at: string | null;
+  sort_order: number;
 };
 
 export type MoveToBacklogResult = {
   moved: Task[];
 };
+
+export type ReorderEntry = { id: number; sort_order: number };
 
 export const tasks = {
   list: () => api<Task[]>("/api/tasks"),
@@ -34,8 +37,11 @@ export const tasks = {
     periodStart?: string | null;
     completed?: boolean;
     sessionId?: number;
+    sortOrder?: number;
   }) =>
     api<Task>(`/api/tasks/${id}`, { method: "PATCH", body: JSON.stringify(details) }),
+  reorder: (entries: ReorderEntry[]) =>
+    api<void>("/api/tasks/0", { method: "PATCH", body: JSON.stringify({ reorder: entries }) }),
   backlog: () => api<Task[]>("/api/tasks/backlog"),
   movePastToBacklog: (before: string) =>
     api<MoveToBacklogResult>("/api/tasks/backlog", {

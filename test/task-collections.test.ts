@@ -10,7 +10,7 @@ import {
 } from "@/lib/task-collections";
 
 const task = (id: number, title = `Task ${id}`): Task => ({
-  id, title, description: null, project_id: null, period_start: null, completed_at: null,
+  id, title, description: null, project_id: null, period_start: null, completed_at: null, sort_order: 0,
 });
 
 describe("task collections", () => {
