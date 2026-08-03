@@ -149,6 +149,37 @@ export function ActiveProjectTree({
   );
   const ordered = useMemo(() => orderProjectsAsTree(projects), [projects]);
   const activeItem = ordered.find(({ project }) => project.id === activeId) ?? null;
+  const draggingDescendantIds = useMemo(() => {
+    if (!activeId) return new Set<number>();
+    const ids = new Set<number>();
+    const find = (parentId: number) => {
+      for (const p of projects) {
+        if (p.parentId === parentId) { ids.add(p.id); find(p.id); }
+      }
+    };
+    find(activeId);
+    return ids;
+  }, [activeId, projects]);
+
+  const activeDescendants = useMemo(() => {
+    if (!activeId) return [];
+    const byParent = new Map<number, Project[]>();
+    for (const p of projects) {
+      if (!draggingDescendantIds.has(p.id)) continue;
+      const key = p.parentId ?? activeId;
+      if (!byParent.has(key)) byParent.set(key, []);
+      byParent.get(key)!.push(p);
+    }
+    const ordered: { project: Project; depth: number }[] = [];
+    const walk = (parentId: number, depth: number) => {
+      for (const p of byParent.get(parentId) ?? []) {
+        ordered.push({ project: p, depth });
+        walk(p.id, depth + 1);
+      }
+    };
+    walk(activeId, 0);
+    return ordered;
+  }, [activeId, projects, draggingDescendantIds]);
 
   function handleDragStart(event: DragStartEvent) {
     setActiveId(Number(event.active.id));
@@ -217,7 +248,7 @@ export function ActiveProjectTree({
             key={item.project.id}
             id={String(item.project.id)}
             item={item}
-            dragging={activeId === item.project.id}
+            dragging={activeId === item.project.id || draggingDescendantIds.has(item.project.id)}
             busy={busyId === item.project.id}
             backlogCount={backlogCounts.get(item.project.id) ?? 0}
             dropIntent={dropIntent?.targetId === item.project.id ? dropIntent : null}
@@ -228,10 +259,19 @@ export function ActiveProjectTree({
       </div>
       <DragOverlay adjustScale={false} dropAnimation={{ duration: 160, easing: "ease-out" }} modifiers={[snapCenterToCursor]}>
         {activeItem ? (
-          <div className="pointer-events-none flex w-64 max-w-[calc(100vw-1rem)] items-center gap-2 rounded-lg bg-popover px-3 py-2 text-popover-foreground shadow-xl ring-1 ring-foreground/10 animate-in fade-in zoom-in-95 duration-100">
-            <GripVertical className="text-muted-foreground size-4 shrink-0" />
-            <ProjectIcon icon={activeItem.project.icon} className="size-4 shrink-0" />
-            <span className="min-w-0 truncate text-sm font-medium">{activeItem.project.name}</span>
+          <div className="pointer-events-none w-64 max-w-[calc(100vw-1rem)] rounded-lg bg-popover text-popover-foreground shadow-xl ring-1 ring-foreground/10 animate-in fade-in zoom-in-95 duration-100">
+            <div className="flex items-center gap-2 px-3 py-2">
+              <GripVertical className="text-muted-foreground size-4 shrink-0" />
+              <ProjectIcon icon={activeItem.project.icon} className="size-4 shrink-0" />
+              <span className="min-w-0 truncate text-sm font-medium">{activeItem.project.name}</span>
+            </div>
+            {activeDescendants.map(({ project: child, depth }) => (
+              <div key={child.id} className="border-t border-foreground/5 flex items-center gap-2 px-3 py-1.5">
+                <span className="w-4 shrink-0" style={{ marginLeft: `${depth * 8}px` }} />
+                <ProjectIcon icon={child.icon} className="size-3.5 shrink-0" />
+                <span className="text-muted-foreground min-w-0 truncate text-xs">{child.name}</span>
+              </div>
+            ))}
           </div>
         ) : null}
       </DragOverlay>
