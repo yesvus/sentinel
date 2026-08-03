@@ -1,6 +1,7 @@
 "use client";
 
-import { useMemo, useRef, useState } from "react";
+import { useRef, useMemo, useState } from "react";
+import { AnimatePresence, motion } from "framer-motion";
 import {
   DndContext, DragOverlay, PointerSensor, KeyboardSensor, useSensor, useSensors,
   useDraggable, useDroppable,
@@ -243,21 +244,31 @@ export function ActiveProjectTree({
     >
       <DropRootHint active={activeId !== null} />
       <div className="flex max-w-full flex-col gap-2 overflow-x-clip">
-        {ordered.map((item) => (
-          <ProjectTreeRow
-            key={item.project.id}
-            id={String(item.project.id)}
-            item={item}
-            dragging={activeId === item.project.id || draggingDescendantIds.has(item.project.id)}
-            busy={busyId === item.project.id}
-            backlogCount={backlogCounts.get(item.project.id) ?? 0}
-            dropIntent={dropIntent?.targetId === item.project.id ? dropIntent : null}
-            onArchive={onArchive}
-            onPin={onPin}
-          />
-        ))}
-      </div>
-      <DragOverlay adjustScale={false} dropAnimation={{ duration: 160, easing: "ease-out" }} modifiers={[snapCenterToCursor]}>
+        <AnimatePresence>
+          {ordered.map((item) => (
+            <motion.div
+              key={item.project.id}
+              layout
+              initial={{ opacity: 0, y: -10 }}
+              animate={{ opacity: 1, y: 0 }}
+              exit={{ opacity: 0, y: 10 }}
+              transition={{ duration: 0.25, ease: [0.25, 0.1, 0.25, 1] }}
+            >
+              <ProjectTreeRow
+                item={item}
+                id={String(item.project.id)}
+                dragging={activeId === item.project.id || draggingDescendantIds.has(item.project.id)}
+                busy={busyId === item.project.id}
+                backlogCount={backlogCounts.get(item.project.id) ?? 0}
+                dropIntent={dropIntent?.targetId === item.project.id ? dropIntent : null}
+                onArchive={onArchive}
+                onPin={onPin}
+              />
+            </motion.div>
+          ))}
+          </AnimatePresence>
+        </div>
+        <DragOverlay adjustScale={false} dropAnimation={{ duration: 160, easing: "ease-out" }} modifiers={[snapCenterToCursor]}>
         {activeItem ? (
           <div className="pointer-events-none w-64 max-w-[calc(100vw-1rem)] rounded-lg bg-popover text-popover-foreground shadow-xl ring-1 ring-foreground/10 animate-in fade-in zoom-in-95 duration-100">
             <div className="flex items-center gap-2 px-3 py-2">
@@ -271,7 +282,7 @@ export function ActiveProjectTree({
                 <ProjectIcon icon={child.icon} className="size-3.5 shrink-0" />
                 <span className="text-muted-foreground min-w-0 truncate text-xs">{child.name}</span>
               </div>
-            ))}
+))}
           </div>
         ) : null}
       </DragOverlay>
