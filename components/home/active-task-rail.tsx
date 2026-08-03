@@ -68,7 +68,7 @@ export function ActiveTaskRail({
         />}
       </div>
       <div className="min-h-0">
-        <LongContentFade wrapperClassName="min-h-0" fadeColor="from-background" className="flex max-h-[min(28rem,calc(100vh-11rem))] flex-col gap-px overflow-y-auto px-1">
+        <LongContentFade wrapperClassName="min-h-0 overflow-hidden" fadeColor="from-background" className="flex max-h-[min(28rem,calc(100vh-11rem))] flex-col gap-px overflow-x-hidden overflow-y-auto px-1">
           {loadStatus === "error" ? (
             <div className="animate-in fade-in flex flex-1 flex-col items-center justify-center gap-3 px-2 py-6 text-center duration-200" role="alert">
               <p className="text-sm font-medium">Could not load session tasks.</p>

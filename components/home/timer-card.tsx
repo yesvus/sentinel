@@ -103,7 +103,7 @@ export function TimerCard({
           {error && !stopOpen && <p className="text-destructive text-sm">{error}</p>}
         </div>
         <div className="space-y-1">
-          <Textarea placeholder="Include more details about your session (optional)" value={description} onChange={(event) => onDescriptionChange(event.target.value)} disabled={refreshingActive} />
+          <Textarea placeholder="Include more details about your session (optional)" value={description} onChange={(event) => onDescriptionChange(event.target.value)} />
           <p className={`text-muted-foreground h-4 text-xs ${descriptionStatus === "idle" ? "invisible" : "visible"}`}>{descriptionStatus === "saving" ? "Saving..." : "Saved"}</p>
         </div>
       </CardContent>

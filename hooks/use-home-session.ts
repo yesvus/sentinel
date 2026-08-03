@@ -27,7 +27,11 @@ export function useHomeSession({ active, defaultProductionPercentage, trackProdu
   const [editStartError, setEditStartError] = useState<string | null>(null);
   const [editStartBusy, setEditStartBusy] = useState(false);
   const descriptionSaveTimeout = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const descriptionRef = useRef(description);
+  const descriptionDirtyRef = useRef(false);
+  const previousSessionIdRef = useRef(activeSession?.id ?? null);
   const previousRunningRef = useRef(activeSession !== null);
+  const updateSessionRef = useRef(updateSession);
 
   const sessionId = activeSession?.id ?? null;
   const startedAt = activeSession ? new Date(activeSession.started_at).getTime() : null;
@@ -35,18 +39,45 @@ export function useHomeSession({ active, defaultProductionPercentage, trackProdu
   const isPaused = activeSession?.paused_at != null;
 
   useEffect(() => {
+    updateSessionRef.current = updateSession;
+  }, [updateSession]);
+
+  useEffect(() => {
     const sessionWasRunning = previousRunningRef.current;
+    const previousSessionId = previousSessionIdRef.current;
     previousRunningRef.current = isRunning;
+    previousSessionIdRef.current = activeSession?.id ?? null;
     const timer = window.setTimeout(() => {
       if (activeSession) {
         setProjectId(activeSession.project_id);
-        setDescription(activeSession.description ?? "");
+        if (!descriptionDirtyRef.current) {
+          const nextDescription = activeSession.description ?? "";
+          descriptionRef.current = nextDescription;
+          setDescription(nextDescription);
+        }
+        if (activeSession.id > 0 && previousSessionId !== null && previousSessionId < 0 && descriptionDirtyRef.current) {
+          const pendingDescription = descriptionRef.current;
+          setDescriptionStatus("saving");
+          void updateSessionRef.current(activeSession.id, {
+            projectId: activeSession.project_id,
+            description: pendingDescription,
+          }).then(() => {
+            if (descriptionRef.current === pendingDescription) descriptionDirtyRef.current = false;
+            setDescriptionStatus("saved");
+            window.setTimeout(() => setDescriptionStatus((status) => status === "saved" ? "idle" : status), 1500);
+          }).catch(() => setDescriptionStatus("idle"));
+        }
         if (!sessionWasRunning) void loadSidebars();
       } else if (sessionWasRunning) {
-        setDescription("");
-        setProductionPercentage(defaultProductionPercentage);
-        setStopOpen(false);
-        void loadSidebars();
+        const optimisticRollback = previousSessionId !== null && previousSessionId < 0;
+        if (!optimisticRollback) {
+          descriptionRef.current = "";
+          descriptionDirtyRef.current = false;
+          setDescription("");
+          setProductionPercentage(defaultProductionPercentage);
+          setStopOpen(false);
+          void loadSidebars();
+        }
       }
     }, 0);
     return () => window.clearTimeout(timer);
@@ -60,12 +91,23 @@ export function useHomeSession({ active, defaultProductionPercentage, trackProdu
     const nextProjectId = next.projectId !== undefined ? next.projectId : projectId;
     const nextDescription = next.description !== undefined ? next.description : description;
     if (next.projectId !== undefined) setProjectId(next.projectId);
-    if (next.description !== undefined) setDescription(next.description);
+    if (next.description !== undefined) {
+      setDescription(next.description);
+      descriptionRef.current = next.description;
+      if (sessionId !== null) descriptionDirtyRef.current = true;
+    }
     if (sessionId === null) return;
+
+    if (next.description !== undefined && sessionId < 0) {
+      if (descriptionSaveTimeout.current) clearTimeout(descriptionSaveTimeout.current);
+      setDescriptionStatus("saving");
+      return;
+    }
 
     const save = () => updateSession(sessionId, { projectId: nextProjectId, description: nextDescription })
       .then(() => {
         if (next.description !== undefined) {
+          if (descriptionRef.current === nextDescription) descriptionDirtyRef.current = false;
           setDescriptionStatus("saved");
           setTimeout(() => setDescriptionStatus((status) => status === "saved" ? "idle" : status), 1500);
         }
@@ -87,6 +129,7 @@ export function useHomeSession({ active, defaultProductionPercentage, trackProdu
   async function start(taskIds: number[]) {
     setError(null);
     setBusy(true);
+    descriptionDirtyRef.current = false;
     try {
       await startSession({ projectId, description: description || null, taskIds });
       void loadSidebars();
