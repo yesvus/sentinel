@@ -48,7 +48,7 @@ export default function TasksPage() {
   const [creating, setCreating] = useState(false);
   const [createError, setCreateError] = useState<string | null>(null);
   const [moving, setMoving] = useState(false);
-  const [togglingId, setTogglingId] = useState<number | null>(null);
+  const [, setTogglingId] = useState<number | null>(null);
   const [removingIds, setRemovingIds] = useState<number[]>([]);
   const [recentIds, setRecentIds] = useState<number[]>([]);
 
@@ -365,7 +365,6 @@ export default function TasksPage() {
                 group={group}
                 groupIndex={groupIndex}
                 projects={projectList}
-                togglingId={togglingId}
                 removingIds={removingIds}
                 recentIds={recentIds}
                 onCreated={(created) => {

@@ -40,7 +40,7 @@ export function buildHomeModel({
   const todayTaskGroups = Array.from(groups.values()).sort((a, b) => {
     if (!a.project) return 1;
     if (!b.project) return -1;
-    return a.project.path.localeCompare(b.project.path);
+    return a.project.sortOrder - b.project.sortOrder || a.project.path.localeCompare(b.project.path);
   });
 
   return {

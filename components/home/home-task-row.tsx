@@ -13,6 +13,7 @@ type HomeTaskRowProps = {
   selected?: boolean;
   recent?: boolean;
   removing?: boolean;
+  dragging?: boolean;
   onCheckedChange: () => void;
   onUpdated: (task: Task) => void;
   onRemove?: (task: Task) => void;
@@ -25,6 +26,7 @@ export function HomeTaskRow({
   selected = false,
   recent = false,
   removing = false,
+  dragging = false,
   onCheckedChange,
   onUpdated,
   onRemove,
@@ -34,7 +36,8 @@ export function HomeTaskRow({
   return (
     <div
       className={cn(
-        "group/task flex min-h-6 min-w-0 items-start gap-0.5 rounded-md px-1 py-0 transition-[background-color,opacity,transform] duration-150 hover:bg-muted/50",
+        "group/task flex min-h-6 min-w-0 items-start gap-0.5 rounded-md px-1 py-0 transition-[background-color,opacity,transform] duration-150",
+        !dragging && "hover:bg-muted/50",
         selected && "bg-primary/10",
         recent && "animate-in fade-in slide-in-from-top-1 duration-300",
         removing && "animate-out fade-out slide-out-to-right-2 pointer-events-none fill-mode-forwards",
@@ -44,7 +47,7 @@ export function HomeTaskRow({
         <Checkbox
           checked={checked}
           onCheckedChange={onCheckedChange}
-          className="mt-[5px] size-3.5 shrink-0 after:inset-0"
+          className="mt-[5px] size-3.5 shrink-0 cursor-pointer after:inset-0"
           aria-label={task.title}
         />
       ) : (
@@ -54,7 +57,7 @@ export function HomeTaskRow({
           aria-pressed={checked}
           onClick={onCheckedChange}
           className={cn(
-            "mt-1 flex size-4 shrink-0 items-center justify-center rounded-full transition-colors duration-150",
+            "mt-1 flex size-4 shrink-0 cursor-pointer items-center justify-center rounded-full transition-colors duration-150",
             checked ? "text-primary" : "text-muted-foreground/60 hover:text-foreground",
           )}
         >
@@ -76,7 +79,10 @@ export function HomeTaskRow({
           </span>
         )}
       </button>
-      <div className="flex items-center gap-0 opacity-100 transition-opacity duration-150 sm:opacity-0 sm:group-hover/task:opacity-100 sm:group-focus-within/task:opacity-100">
+      <div className={cn(
+        "flex items-center gap-0 transition-opacity duration-150",
+        dragging ? "opacity-0" : "opacity-100 sm:opacity-0 sm:group-hover/task:opacity-100 sm:group-focus-within/task:opacity-100",
+      )}>
         <TaskEditorPopover task={task} onUpdated={onUpdated} />
         {onRemove && (
           <TooltipProvider delay={2000}>

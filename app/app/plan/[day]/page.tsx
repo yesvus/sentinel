@@ -219,6 +219,10 @@ export default function DayPlanningPage() {
     setProjectList((current) => [...current, project].sort((a, b) => a.path.localeCompare(b.path)));
   }
 
+  function handleProjectUpdated(project: Project) {
+    setProjectList((current) => current.map((item) => item.id === project.id ? project : item));
+  }
+
   function handleNoteSaved(note: Note) {
     setNoteList((current) => [
       ...current.filter((item) => !(item.scope === note.scope && item.date_key === note.date_key)),
@@ -318,6 +322,7 @@ export default function DayPlanningPage() {
                   onUpdated={handleTaskUpdated}
                   onDeleted={handleTaskDeleted}
                   onProjectCreated={handleProjectCreated}
+                  onProjectUpdated={handleProjectUpdated}
                 />
               </CardContent>
             </Card>

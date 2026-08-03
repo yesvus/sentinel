@@ -117,6 +117,7 @@ describe("daily task failures", () => {
         onUpdated={onUpdated}
         onDeleted={onDeleted}
         onProjectCreated={vi.fn()}
+        onProjectUpdated={vi.fn()}
       />,
     );
 
