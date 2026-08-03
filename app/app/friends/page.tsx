@@ -23,6 +23,7 @@ import {
   AlertDialogTitle,
   AlertDialogTrigger,
 } from "@/components/ui/alert-dialog";
+import { useAuth } from "@/lib/auth-context";
 
 function displayName(name: string | null, email: string) {
   return name?.trim() || email;
@@ -41,15 +42,15 @@ function formatDuration(item: FriendActivity) {
 type ActivityDayGroup = { key: string; date: Date; items: FriendActivity[] };
 
 /** Activity arrives newest-first; grouping by first-seen key preserves that order for each day. */
-function groupActivityByDay(items: FriendActivity[]): ActivityDayGroup[] {
+function groupActivityByDay(items: FriendActivity[], timeZone?: string): ActivityDayGroup[] {
   const groups: ActivityDayGroup[] = [];
   const index = new Map<string, ActivityDayGroup>();
   for (const item of items) {
     const started = new Date(item.started_at);
-    const key = dayKey(started);
+    const key = dayKey(started, timeZone);
     let group = index.get(key);
     if (!group) {
-      group = { key, date: startOfDay(started), items: [] };
+      group = { key, date: startOfDay(started, timeZone), items: [] };
       index.set(key, group);
       groups.push(group);
     }
@@ -59,6 +60,8 @@ function groupActivityByDay(items: FriendActivity[]): ActivityDayGroup[] {
 }
 
 export default function FriendsPage() {
+  const { user } = useAuth();
+  const timeZone = user?.timezone ?? undefined;
   const [connections, setConnections] = useState<Connection[]>([]);
   const [activity, setActivity] = useState<FriendActivity[]>([]);
   const [activityCursor, setActivityCursor] = useState<string | null>(null);
@@ -321,10 +324,10 @@ export default function FriendsPage() {
             </div>
           )}
           <div className="space-y-5">
-            {groupActivityByDay(activity).map((group) => (
+            {groupActivityByDay(activity, timeZone).map((group) => (
               <div key={group.key}>
                 <p className="text-muted-foreground mb-2 text-xs font-medium tracking-wide uppercase">
-                  {formatDayLabel(group.date)}
+                  {formatDayLabel(group.date, new Date(), timeZone)}
                 </p>
                 <ul className="divide-y">
                   {group.items.map((item) => (
@@ -346,7 +349,7 @@ export default function FriendsPage() {
                           <Clock3 className="size-3.5" />
                           <span>{formatDuration(item)}</span>
                           <span aria-hidden>·</span>
-                          <time dateTime={item.started_at}>{formatTime(item.started_at)}</time>
+                          <time dateTime={item.started_at}>{formatTime(item.started_at, timeZone)}</time>
                         </div>
                         {item.description && <LinkifiedText text={item.description} as="p" className="mt-2 text-sm" />}
                       </div>

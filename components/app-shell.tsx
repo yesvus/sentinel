@@ -1,13 +1,12 @@
 "use client";
 
-import { useEffect, useState } from "react";
+import { useEffect } from "react";
 import Link from "next/link";
 import { useRouter, usePathname } from "next/navigation";
 import { SidebarProvider, SidebarTrigger } from "@/components/ui/sidebar";
 import { AppSidebar, NAV_ITEMS } from "@/components/app-sidebar";
-import { sessions, StudySession } from "@/lib/api";
 import { useAuth } from "@/lib/auth-context";
-import { ActiveSessionProvider } from "@/lib/active-session-context";
+import { ActiveSessionProvider, useActiveSession } from "@/lib/active-session-context";
 import { NoisePlayerProvider } from "@/lib/noise-player";
 import { NoiseControl } from "@/components/noise-control";
 import { FriendsControl } from "@/components/friends-control";
@@ -38,10 +37,7 @@ export function AppShell({
   defaultSidebarOpen: boolean;
 }) {
   const router = useRouter();
-  const pathname = usePathname();
   const { user, loading } = useAuth();
-  const [sessionChecked, setSessionChecked] = useState(false);
-  const [activeSession, setActiveSession] = useState<StudySession | null>(null);
 
   useEffect(() => {
     if (!loading && !user) {
@@ -49,18 +45,26 @@ export function AppShell({
     }
   }, [loading, user, router]);
 
-  useEffect(() => {
-    if (!user) return;
-    sessions
-      .getActive()
-      .then(setActiveSession)
-      .catch(() => {})
-      .finally(() => setSessionChecked(true));
-  }, [user]);
-
-  if (loading || !user || !sessionChecked) {
+  if (loading || !user) {
     return <Splash />;
   }
+
+  return (
+    <NoisePlayerProvider>
+      <ActiveSessionProvider>
+        <AuthenticatedShell defaultSidebarOpen={defaultSidebarOpen}>{children}</AuthenticatedShell>
+      </ActiveSessionProvider>
+      <Toaster />
+    </NoisePlayerProvider>
+  );
+}
+
+function AuthenticatedShell({ children, defaultSidebarOpen }: { children: React.ReactNode; defaultSidebarOpen: boolean }) {
+  const pathname = usePathname();
+  const { user } = useAuth();
+  const { activeSession, loading } = useActiveSession();
+
+  if (!user || loading) return <Splash />;
 
   const currentPage = NAV_ITEMS.find((item) => item.url === pathname);
   const pageTitle =
@@ -74,10 +78,8 @@ export function AppShell({
     } as Record<string, string>)[pathname];
 
   return (
-    <NoisePlayerProvider>
-      <ActiveSessionProvider activeSession={activeSession}>
-        <PageHeaderActionsProvider>
-          <SidebarProvider defaultOpen={activeSession ? false : defaultSidebarOpen}>
+    <PageHeaderActionsProvider>
+      <SidebarProvider defaultOpen={activeSession ? false : defaultSidebarOpen}>
             <AppSidebar />
             <main className="flex h-svh min-w-0 flex-1 flex-col overflow-hidden">
               <header className="bg-sidebar z-20 flex h-14 shrink-0 items-center gap-2 border-b px-3 sm:gap-3 sm:px-4">
@@ -107,10 +109,7 @@ export function AppShell({
                 {children}
               </div>
             </main>
-          </SidebarProvider>
-        </PageHeaderActionsProvider>
-      </ActiveSessionProvider>
-      <Toaster />
-    </NoisePlayerProvider>
+      </SidebarProvider>
+    </PageHeaderActionsProvider>
   );
 }

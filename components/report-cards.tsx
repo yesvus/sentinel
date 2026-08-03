@@ -40,35 +40,37 @@ export function ReportCards({
   now,
   onNoteSaved,
   onNoteDeleted,
+  timeZone,
 }: {
   sessions: StudySession[];
   notes: Note[];
   now: number;
   onNoteSaved: (note: Note) => void;
   onNoteDeleted: (scope: "day" | "week", dateKey: string) => void;
+  timeZone?: string;
 }) {
   const today = new Date(now);
-  const todayKey = dayKey(today);
+  const todayKey = dayKey(today, timeZone);
 
-  const totalsByDay = dailyTotals(sessionList, now);
+  const totalsByDay = dailyTotals(sessionList, now, timeZone);
 
-  const currentWeekStart = startOfWeek(today);
-  const currentWeekKey = weekKey(today);
-  const previousWeekStart = addDays(currentWeekStart, -7);
+  const currentWeekStart = startOfWeek(today, timeZone);
+  const currentWeekKey = weekKey(today, timeZone);
+  const previousWeekStart = addDays(currentWeekStart, -7, timeZone);
 
-  const weekDays = Array.from({ length: 7 }, (_, i) => addDays(currentWeekStart, i));
-  const weekDaySeconds = weekDays.map((d) => totalsByDay.get(dayKey(d)) ?? 0);
+  const weekDays = Array.from({ length: 7 }, (_, i) => addDays(currentWeekStart, i, timeZone));
+  const weekDaySeconds = weekDays.map((d) => totalsByDay.get(dayKey(d, timeZone)) ?? 0);
   const weekSeconds = weekDaySeconds.reduce((sum, s) => sum + s, 0);
-  const previousWeekSeconds = Array.from({ length: 7 }, (_, i) => addDays(previousWeekStart, i))
-    .map((d) => totalsByDay.get(dayKey(d)) ?? 0)
+  const previousWeekSeconds = Array.from({ length: 7 }, (_, i) => addDays(previousWeekStart, i, timeZone))
+    .map((d) => totalsByDay.get(dayKey(d, timeZone)) ?? 0)
     .reduce((sum, s) => sum + s, 0);
   const weekComparison = periodComparison(weekSeconds, previousWeekSeconds);
   const activeDaysThisWeek = weekDaySeconds.filter((s) => s > 0).length;
   const maxWeekDaySeconds = Math.max(1, ...weekDaySeconds);
 
-  const weekSessions = sessionList.filter((s) => weekKey(new Date(s.started_at)) === currentWeekKey);
+  const weekSessions = sessionList.filter((s) => weekKey(new Date(s.started_at), timeZone) === currentWeekKey);
   const topWeekProject = projectTotals(weekSessions, now).filter((p) => p.name !== NO_PROJECT_LABEL)[0] ?? null;
-  const weekAllocation = Array.from(dailyAllocationTotals(weekSessions, now).values())
+  const weekAllocation = Array.from(dailyAllocationTotals(weekSessions, now, timeZone).values())
     .reduce(
       (total, day) => ({
         learning: total.learning + day.learning,
@@ -96,7 +98,7 @@ export function ReportCards({
         </CardHeader>
         <CardContent className="space-y-3">
           <div>
-            <p className="text-muted-foreground text-xs">{formatWeekRangeLabel(currentWeekStart)}</p>
+            <p className="text-muted-foreground text-xs">{formatWeekRangeLabel(currentWeekStart, timeZone)}</p>
             <p className="text-2xl font-semibold">{formatDuration(weekSeconds)}</p>
             <ComparisonLine diff={weekComparison.diff} percent={weekComparison.percent} previousLabel="last week" />
           </div>
@@ -108,9 +110,9 @@ export function ReportCards({
 
           <div className="flex h-16 items-end gap-1.5">
             {weekDays.map((d, i) => {
-              const isToday = dayKey(d) === todayKey;
+              const isToday = dayKey(d, timeZone) === todayKey;
               return (
-                <Tooltip key={dayKey(d)}>
+                <Tooltip key={dayKey(d, timeZone)}>
                   <TooltipTrigger
                     render={
                       <div className="flex h-full flex-1 flex-col items-center justify-end gap-1">
@@ -123,7 +125,7 @@ export function ReportCards({
                     }
                   />
                   <TooltipContent>
-                    {d.toLocaleDateString(undefined, { month: "short", day: "numeric" })}:{" "}
+                    {d.toLocaleDateString(undefined, { timeZone, month: "short", day: "numeric" })}:{" "}
                     {weekDaySeconds[i] > 0 ? formatDuration(weekDaySeconds[i]) : "no study"}
                   </TooltipContent>
                 </Tooltip>

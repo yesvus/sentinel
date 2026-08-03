@@ -5,7 +5,7 @@ import { HelpTooltip } from "@/components/help-tooltip";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip";
 import { StudySession } from "@/lib/api";
-import { dayKey, formatDuration } from "@/lib/date";
+import { addDays, dayKey, formatDuration, startOfDay, weekdayInTimeZone } from "@/lib/date";
 import { dailyTotals } from "@/lib/session-stats";
 
 const WEEKS = 14;
@@ -25,35 +25,35 @@ function intensityColor(seconds: number) {
   return "var(--activity-4)";
 }
 
-function buildLastNDays(totalsByDay: Map<string, number>): Day[] {
-  const today = new Date();
-  today.setHours(0, 0, 0, 0);
+function buildLastNDays(totalsByDay: Map<string, number>, now: number, timeZone?: string): Day[] {
+  const today = startOfDay(new Date(now), timeZone);
   return Array.from({ length: DAYS }, (_, index) => {
-    const date = new Date(today);
-    date.setDate(date.getDate() - (DAYS - 1 - index));
-    const key = dayKey(date);
+    const date = addDays(today, -(DAYS - 1 - index), timeZone);
+    const key = dayKey(date, timeZone);
     return { key, date, seconds: totalsByDay.get(key) ?? 0 };
   });
 }
 
-function buildHeatmapWeeks(days: Day[]) {
-  const padded: (Day | null)[] = Array(days[0].date.getDay()).fill(null).concat(days);
+function buildHeatmapWeeks(days: Day[], timeZone?: string) {
+  const padded: (Day | null)[] = Array(weekdayInTimeZone(days[0].date, timeZone)).fill(null).concat(days);
   const weeks: (Day | null)[][] = [];
   for (let index = 0; index < padded.length; index += 7) weeks.push(padded.slice(index, index + 7));
   return weeks;
 }
 
-function monthLabelForWeek(week: (Day | null)[], previousWeek: (Day | null)[] | undefined) {
+function monthLabelForWeek(week: (Day | null)[], previousWeek: (Day | null)[] | undefined, timeZone?: string) {
   const firstDay = week.find(Boolean);
   if (!firstDay) return "";
   const previousFirstDay = previousWeek?.find(Boolean);
-  if (previousFirstDay && previousFirstDay.date.getMonth() === firstDay.date.getMonth()) return "";
-  return MONTH_LABELS[firstDay.date.getMonth()];
+  const month = Number(dayKey(firstDay.date, timeZone).slice(5, 7)) - 1;
+  const previousMonth = previousFirstDay ? Number(dayKey(previousFirstDay.date, timeZone).slice(5, 7)) - 1 : null;
+  if (previousMonth === month) return "";
+  return MONTH_LABELS[month];
 }
 
-export function ActivityHeatmap({ sessions, now }: { sessions: StudySession[]; now: number }) {
-  const days = buildLastNDays(dailyTotals(sessions, now));
-  const weeks = buildHeatmapWeeks(days);
+export function ActivityHeatmap({ sessions, now, timeZone }: { sessions: StudySession[]; now: number; timeZone?: string }) {
+  const days = buildLastNDays(dailyTotals(sessions, now, timeZone), now, timeZone);
+  const weeks = buildHeatmapWeeks(days, timeZone);
 
   return (
     <Card className="min-w-0">
@@ -69,7 +69,7 @@ export function ActivityHeatmap({ sessions, now }: { sessions: StudySession[]; n
           <div className="flex gap-1 pl-8">
             {weeks.map((week, weekIndex) => (
               <div key={weekIndex} className="text-muted-foreground w-3.5 shrink-0 text-[10px] whitespace-nowrap">
-                {monthLabelForWeek(week, weeks[weekIndex - 1])}
+                {monthLabelForWeek(week, weeks[weekIndex - 1], timeZone)}
               </div>
             ))}
           </div>
@@ -90,12 +90,12 @@ export function ActivityHeatmap({ sessions, now }: { sessions: StudySession[]; n
                           style={{ backgroundColor: intensityColor(day.seconds) }}
                           tabIndex={0}
                           role="gridcell"
-                          aria-label={`${day.date.toLocaleDateString()}: ${day.seconds > 0 ? formatDuration(day.seconds) : "no activity"}`}
+                          aria-label={`${day.date.toLocaleDateString(undefined, { timeZone })}: ${day.seconds > 0 ? formatDuration(day.seconds) : "no activity"}`}
                         />
                       }
                     />
                     <TooltipContent>
-                      {day.date.toLocaleDateString(undefined, { month: "short", day: "numeric" })}: {day.seconds > 0 ? formatDuration(day.seconds) : "no study"}
+                      {day.date.toLocaleDateString(undefined, { timeZone, month: "short", day: "numeric" })}: {day.seconds > 0 ? formatDuration(day.seconds) : "no study"}
                     </TooltipContent>
                   </Tooltip>
                 ) : <div key={dayIndex} className="size-3.5" />)}

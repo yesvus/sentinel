@@ -3,28 +3,19 @@
 import Link from "next/link";
 import { useEffect, useMemo, useState } from "react";
 import { useParams } from "next/navigation";
-import { Clock3, Copy, History, Inbox } from "lucide-react";
+import { Clock3, Inbox } from "lucide-react";
 import { AlwaysOpenNote } from "@/components/always-open-note";
 import { DailyTaskPlanner } from "@/components/daily-task-planner";
-import { DateRangeNavigator } from "@/components/date-range-navigator";
 import { HelpTooltip } from "@/components/help-tooltip";
-import { LinkifiedText } from "@/components/linkified-text";
-import { SessionEditorDialog } from "@/components/session-editor-dialog";
-import { PlanningPeriodStats } from "@/components/planning-period-stats";
-import { TaskEditorPopover } from "@/components/task-editor-popover";
+import { DayPlanningHeader } from "@/components/planning/day-planning-header";
+import { DayPlanningLoading } from "@/components/planning/day-planning-loading";
+import { DayPlanningNavigation } from "@/components/planning/day-planning-navigation";
+import { DaySessionTimeline } from "@/components/planning/day-session-timeline";
+import { PlanningPeriodStats, shouldShowPlanningComparison } from "@/components/planning-period-stats";
 import { Badge } from "@/components/ui/badge";
-import {
-  Breadcrumb,
-  BreadcrumbItem,
-  BreadcrumbLink,
-  BreadcrumbList,
-  BreadcrumbPage,
-  BreadcrumbSeparator,
-} from "@/components/ui/breadcrumb";
 import { Button } from "@/components/ui/button";
 import { Card, CardAction, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Empty, EmptyDescription, EmptyHeader, EmptyMedia, EmptyTitle } from "@/components/ui/empty";
-import { Skeleton } from "@/components/ui/skeleton";
 import { toast } from "@/components/ui/toast";
 import {
   ApiError,
@@ -38,20 +29,24 @@ import {
   tasks as tasksApi,
 } from "@/lib/api";
 import { useAuth } from "@/lib/auth-context";
-import { PageHeaderActions } from "@/lib/page-header-actions-context";
+import { useActiveSession } from "@/lib/active-session-context";
 import {
   addDays,
   dayKey,
-  formatDuration,
-  formatTime,
-  formatWeekRangeLabel,
   parseDateKey,
   startOfWeek,
   weekKey,
 } from "@/lib/date";
 import { buildAiPrompt } from "@/lib/export";
-import { NoProjectIcon, ProjectIcon } from "@/lib/icons";
 import { partialWeekStats, sessionDurationSeconds } from "@/lib/session-stats";
+import { mergeActiveSession } from "@/lib/session-list";
+import {
+  removeTask as removeTaskFromList,
+  removeTaskFromSessions,
+  replaceSessionTasks,
+  replaceTaskInSessions,
+  upsertTask,
+} from "@/lib/task-collections";
 
 function isValidDayKey(value: string) {
   if (!/^\d{4}-\d{2}-\d{2}$/.test(value)) return false;
@@ -60,157 +55,164 @@ function isValidDayKey(value: string) {
 
 export default function DayPlanningPage() {
   const params = useParams<{ day: string }>();
+  const { activeSession, now, sessionRevision } = useActiveSession();
+  const { user } = useAuth();
+  const timeZone = user?.timezone ?? undefined;
   const selectedDayKey = params.day;
   const validDay = isValidDayKey(selectedDayKey);
-  const selectedDate = validDay ? parseDateKey(selectedDayKey) : new Date();
-  const { user } = useAuth();
+  const selectedDate = validDay ? parseDateKey(selectedDayKey, timeZone) : new Date(now);
   const [taskList, setTaskList] = useState<Task[]>([]);
   const [noteList, setNoteList] = useState<Note[]>([]);
   const [sessionList, setSessionList] = useState<StudySession[]>([]);
   const [projectList, setProjectList] = useState<Project[]>([]);
   const [sessionTasks, setSessionTasks] = useState<Record<number, Task[]>>({});
+  const [sessionTaskErrors, setSessionTaskErrors] = useState<Record<number, string>>({});
   const [loading, setLoading] = useState(validDay);
   const [loadError, setLoadError] = useState<string | null>(null);
-  const [now] = useState(() => Date.now());
 
   useEffect(() => {
     if (!validDay) return;
+    let cancelled = false;
     const timer = window.setTimeout(() => {
       setLoading(true);
       setLoadError(null);
-      const date = parseDateKey(selectedDayKey);
-      const weekStart = startOfWeek(date);
-      const previousDay = addDays(date, -1);
+      setSessionTasks({});
+      setSessionTaskErrors({});
+      const date = parseDateKey(selectedDayKey, timeZone);
+      const weekStart = startOfWeek(date, timeZone);
+      const previousDay = addDays(date, -1, timeZone);
       const rangeStart = previousDay < weekStart ? previousDay : weekStart;
-      const nextDay = addDays(date, 1);
+      const nextDay = addDays(date, 1, timeZone);
       Promise.all([
         tasksApi.list(),
         notesApi.list(),
         sessionsApi.list({ from: rangeStart.toISOString(), to: nextDay.toISOString() }),
         projectsApi.list(),
-      ])
+        ])
         .then(async ([tasks, notes, sessions, projects]) => {
           const sessionsForDay = sessions.filter(
-            (session) => dayKey(new Date(session.started_at)) === selectedDayKey,
+            (session) => dayKey(new Date(session.started_at), timeZone) === selectedDayKey,
           );
-          const sessionTaskEntries = await Promise.all(
+          const sessionTaskResults = await Promise.all(
             sessionsForDay.map(async (session) => {
-              const attachedTasks = await sessionsApi.tasks(session.id).catch(() => []);
-              return [session.id, attachedTasks] as const;
+              try {
+                return { sessionId: session.id, tasks: await sessionsApi.tasks(session.id) };
+              } catch (error) {
+                return {
+                  sessionId: session.id,
+                  error: error instanceof ApiError ? error.message : "Could not load this session's tasks.",
+                };
+              }
             }),
           );
+          if (cancelled) return;
           setTaskList(tasks);
           setNoteList(notes);
           setSessionList(sessions);
           setProjectList(projects);
-          setSessionTasks(Object.fromEntries(sessionTaskEntries));
+          setSessionTasks(Object.fromEntries(sessionTaskResults.flatMap((result) =>
+            result.tasks ? [[result.sessionId, result.tasks]] : [])));
+          setSessionTaskErrors(Object.fromEntries(sessionTaskResults.flatMap((result) =>
+            result.error ? [[result.sessionId, result.error]] : [])));
         })
         .catch((error) => {
+          if (cancelled) return;
           setLoadError(error instanceof ApiError ? error.message : "Could not load this calendar day.");
         })
-        .finally(() => setLoading(false));
+        .finally(() => { if (!cancelled) setLoading(false); });
     }, 0);
-    return () => window.clearTimeout(timer);
-  }, [selectedDayKey, validDay]);
+    return () => {
+      cancelled = true;
+      window.clearTimeout(timer);
+    };
+  }, [selectedDayKey, sessionRevision, timeZone, validDay]);
+
+  const previousRangeDay = addDays(selectedDate, -1, timeZone);
+  const weekRangeStart = startOfWeek(selectedDate, timeZone);
+  const rangeStart = previousRangeDay < weekRangeStart ? previousRangeDay : weekRangeStart;
+  const rangeEnd = addDays(selectedDate, 1, timeZone);
+  const canonicalSessions = mergeActiveSession(
+    sessionList,
+    activeSession,
+    (session) => new Date(session.started_at) >= rangeStart && new Date(session.started_at) < rangeEnd,
+  );
 
   const dayTasks = taskList.filter((task) => task.period_start === selectedDayKey);
   const plannedTasks = dayTasks.filter((task) => task.completed_at === null);
   const backlogTasks = taskList.filter((task) => task.period_start === null);
   const dayNote = noteList.find((note) => note.scope === "day" && note.date_key === selectedDayKey);
-  const selectedWeekKey = weekKey(selectedDate);
-  const selectedWeekStart = startOfWeek(selectedDate);
+  const selectedWeekKey = weekKey(selectedDate, timeZone);
+  const selectedWeekStart = startOfWeek(selectedDate, timeZone);
   const weekNote = noteList.find((note) => note.scope === "week" && note.date_key === selectedWeekKey);
   const daySessions = useMemo(
-    () => sessionList
-      .filter((session) => dayKey(new Date(session.started_at)) === selectedDayKey)
+    () => canonicalSessions
+      .filter((session) => dayKey(new Date(session.started_at), timeZone) === selectedDayKey)
       .sort((a, b) => a.started_at.localeCompare(b.started_at)),
-    [selectedDayKey, sessionList],
+    [canonicalSessions, selectedDayKey, timeZone],
   );
   const totalSessionSeconds = daySessions.reduce(
     (total, session) => total + sessionDurationSeconds(session, now),
     0,
   );
   const openTaskCount = plannedTasks.length;
-  const previousDayKey = dayKey(addDays(selectedDate, -1));
-  const previousDaySessions = sessionList.filter(
-    (session) => dayKey(new Date(session.started_at)) === previousDayKey,
+  const previousDayKey = dayKey(addDays(selectedDate, -1, timeZone), timeZone);
+  const previousDaySessions = canonicalSessions.filter(
+    (session) => dayKey(new Date(session.started_at), timeZone) === previousDayKey,
   );
-  const todayKey = dayKey(new Date());
+  const todayKey = dayKey(new Date(now), timeZone);
   const isToday = selectedDayKey === todayKey;
   const weekHref = `/app/calendar?week=${selectedWeekKey}`;
-  const nextDayKey = dayKey(addDays(selectedDate, 1));
-  const dayBreadcrumbLabel = selectedDate.toLocaleDateString(undefined, {
-    weekday: "short",
-    month: "short",
-    day: "numeric",
-    year: "numeric",
-  });
+  const nextDayKey = dayKey(addDays(selectedDate, 1, timeZone), timeZone);
   const dayNavigation = validDay ? (
-    <>
-      <PageHeaderActions>
-        <DateRangeNavigator
-          today={{ href: `/app/calendar/${todayKey}` }}
-          todayDisabled={isToday}
-          previous={{ href: `/app/calendar/${previousDayKey}` }}
-          previousLabel="Previous day"
-          next={{ href: `/app/calendar/${nextDayKey}` }}
-          nextLabel="Next day"
-        >
-          <Breadcrumb className="hidden min-w-0 pl-1 md:block">
-            <BreadcrumbList className="flex-nowrap gap-1">
-              <BreadcrumbItem className="hidden xl:inline-flex">
-                <BreadcrumbLink
-                  className="max-w-44 truncate whitespace-nowrap"
-                  render={<Link href={weekHref} />}
-                >
-                  {formatWeekRangeLabel(selectedWeekStart)}
-                </BreadcrumbLink>
-              </BreadcrumbItem>
-              <BreadcrumbSeparator className="hidden xl:block" />
-              <BreadcrumbItem>
-                <BreadcrumbPage className="whitespace-nowrap">{dayBreadcrumbLabel}</BreadcrumbPage>
-              </BreadcrumbItem>
-            </BreadcrumbList>
-          </Breadcrumb>
-        </DateRangeNavigator>
-      </PageHeaderActions>
-      <PageHeaderActions align="right">
-        <Button
-          variant="ghost"
-          size="icon-sm"
-          aria-label="Open session history"
-          title="Session history"
-          render={<Link href="/app/calendar/history" />}
-          nativeButton={false}
-        >
-          <History />
-        </Button>
-      </PageHeaderActions>
-    </>
+    <DayPlanningNavigation
+      selectedDate={selectedDate}
+      selectedWeekStart={selectedWeekStart}
+      weekHref={weekHref}
+      todayKey={todayKey}
+      previousDayKey={previousDayKey}
+      nextDayKey={nextDayKey}
+      isToday={isToday}
+      timeZone={timeZone}
+    />
   ) : null;
 
   function handleTaskCreated(task: Task) {
-    setTaskList((current) => [...current, task]);
+    setTaskList((current) => upsertTask(current, task));
   }
 
   function handleTaskUpdated(task: Task) {
-    setTaskList((current) => current.map((item) => item.id === task.id ? task : item));
-    setSessionTasks((current) => Object.fromEntries(
-      Object.entries(current).map(([sessionId, tasks]) => [
-        sessionId,
-        tasks.map((item) => item.id === task.id ? task : item),
-      ]),
-    ));
+    setTaskList((current) => upsertTask(current, task));
+    setSessionTasks((current) => task.completed_at === null && task.period_start === null
+      ? removeTaskFromSessions(current, task.id)
+      : replaceTaskInSessions(current, task));
   }
 
   function handleTaskDeleted(id: number) {
-    setTaskList((current) => current.filter((task) => task.id !== id));
+    setTaskList((current) => removeTaskFromList(current, id));
+    setSessionTasks((current) => removeTaskFromSessions(current, id));
   }
 
   function handleSessionUpdated(updated: StudySession) {
     setSessionList((current) => current
       .map((session) => session.id === updated.id ? updated : session)
       .sort((a, b) => a.started_at.localeCompare(b.started_at)));
+  }
+
+  async function retrySessionTasks(sessionId: number) {
+    try {
+      const tasks = await sessionsApi.tasks(sessionId);
+      setSessionTasks((current) => replaceSessionTasks(current, sessionId, tasks));
+      setSessionTaskErrors((current) => {
+        const next = { ...current };
+        delete next[sessionId];
+        return next;
+      });
+    } catch (error) {
+      setSessionTaskErrors((current) => ({
+        ...current,
+        [sessionId]: error instanceof ApiError ? error.message : "Could not load this session's tasks.",
+      }));
+    }
   }
 
   function handleProjectCreated(project: Project) {
@@ -238,9 +240,10 @@ export default function DayPlanningPage() {
       dayTasks,
       projectList,
       weekGoalsText: weekNote?.content ?? null,
-      weekSoFar: partialWeekStats(sessionList, selectedWeekStart, selectedDayKey, now),
+      weekSoFar: partialWeekStats(canonicalSessions, selectedWeekStart, selectedDayKey, now, timeZone),
       dayNote,
       now,
+      timeZone,
     });
     navigator.clipboard.writeText(prompt);
     toast.add({
@@ -267,25 +270,7 @@ export default function DayPlanningPage() {
     return (
       <>
         {dayNavigation}
-        <div className="animate-in fade-in mx-auto flex w-full max-w-6xl flex-col gap-6 duration-300">
-        <div className="flex items-end justify-between gap-4">
-          <div className="flex flex-col gap-2">
-            <Skeleton className="h-8 w-64 max-w-full" />
-            <Skeleton className="h-4 w-48" />
-          </div>
-          <Skeleton className="h-8 w-32" />
-        </div>
-        <div className="grid items-start gap-4 lg:grid-cols-[minmax(0,1fr)_minmax(22rem,0.8fr)] xl:grid-cols-[minmax(0,1.1fr)_minmax(20rem,0.8fr)_minmax(16rem,0.55fr)]">
-          <div className="flex flex-col gap-4">
-            <Skeleton className="h-72 w-full" />
-            <Skeleton className="h-44 w-full" />
-          </div>
-          <Skeleton className="h-96 w-full" />
-          <div className="grid gap-4 lg:col-span-2 xl:col-span-1">
-            <Skeleton className="h-52 w-full" />
-          </div>
-        </div>
-        </div>
+        <DayPlanningLoading />
       </>
     );
   }
@@ -294,33 +279,15 @@ export default function DayPlanningPage() {
     <>
       {dayNavigation}
       <div className="animate-in fade-in mx-auto flex w-full max-w-6xl flex-col gap-6 duration-500 fill-mode-both">
-      <div className="flex flex-col items-start justify-between gap-4 sm:flex-row sm:items-end">
-        <div className="flex flex-col gap-2">
-          <div className="flex flex-wrap items-center gap-2">
-            <h2 className="text-2xl font-semibold tracking-tight">
-              {selectedDate.toLocaleDateString(undefined, { weekday: "long", month: "long", day: "numeric" })}
-            </h2>
-            {isToday && <Badge>Today</Badge>}
-          </div>
-          <div className="text-muted-foreground flex flex-wrap items-center gap-2 text-sm">
-            <span>{plannedTasks.length} {plannedTasks.length === 1 ? "task" : "tasks"} left</span>
-            <span aria-hidden="true">·</span>
-            <span>{daySessions.length} {daySessions.length === 1 ? "session" : "sessions"}</span>
-            {totalSessionSeconds > 0 && (
-              <>
-                <span aria-hidden="true">·</span>
-                <span className="font-mono">{formatDuration(totalSessionSeconds)} tracked</span>
-              </>
-            )}
-          </div>
-        </div>
-        <div className="flex items-center">
-          <Button variant="outline" onClick={copyDailyPrompt}>
-            <Copy data-icon="inline-start" />
-            Copy AI prompt
-          </Button>
-        </div>
-      </div>
+      <DayPlanningHeader
+        selectedDate={selectedDate}
+        isToday={isToday}
+        openTaskCount={plannedTasks.length}
+        sessionCount={daySessions.length}
+        totalSessionSeconds={totalSessionSeconds}
+        onCopyPrompt={copyDailyPrompt}
+        timeZone={timeZone}
+      />
 
       {loadError ? (
         <Empty className="min-h-72 border">
@@ -377,114 +344,25 @@ export default function DayPlanningPage() {
             </Card>
           </div>
 
-          <Card className="min-w-0">
-            <CardHeader>
-              <CardTitle className="flex items-center gap-1">
-                Sessions
-                <HelpTooltip>A chronological record of the work behind this day.</HelpTooltip>
-              </CardTitle>
-              {totalSessionSeconds > 0 && (
-                <CardAction><Badge variant="secondary">{formatDuration(totalSessionSeconds)}</Badge></CardAction>
-              )}
-            </CardHeader>
-            <CardContent>
-              {daySessions.length === 0 ? (
-                <Empty className="min-h-52 border">
-                  <EmptyHeader>
-                    <EmptyMedia variant="icon"><Clock3 /></EmptyMedia>
-                    <EmptyTitle>No sessions on this day</EmptyTitle>
-                    <EmptyDescription>Tracked sessions and their descriptions will appear here.</EmptyDescription>
-                  </EmptyHeader>
-                </Empty>
-              ) : (
-                <ol className="flex flex-col">
-                  {daySessions.map((session, index) => {
-                    const running = session.ended_at === null;
-                    const duration = sessionDurationSeconds(session, now);
-                    const completedSessionTasks = (sessionTasks[session.id] ?? []).filter(
-                      (task) => task.completed_at !== null,
-                    );
-                    return (
-                      <li
-                        key={session.id}
-                        className="group/session animate-in fade-in slide-in-from-bottom-1 grid grid-cols-[4.5rem_0.75rem_minmax(0,1fr)] gap-3 pb-6 duration-300 fill-mode-both last:pb-0"
-                        style={{ animationDelay: `${Math.min(index * 60, 240)}ms` }}
-                      >
-                        <div className="text-muted-foreground flex flex-col gap-0.5 font-mono text-xs">
-                          <time dateTime={session.started_at}>{formatTime(session.started_at)}</time>
-                          <span>{running ? "Now" : formatTime(session.ended_at!)}</span>
-                        </div>
-                        <div className="relative flex justify-center">
-                          <span className="bg-primary ring-card relative mt-1.5 size-2 rounded-full ring-4" />
-                          {index < daySessions.length - 1 && (
-                            <span className="bg-border absolute top-4 bottom-[-1.5rem] w-px" aria-hidden="true" />
-                          )}
-                        </div>
-                        <div className="relative flex min-w-0 flex-col gap-2 pr-8">
-                          <div className="absolute -top-1 right-0 opacity-100 transition-opacity duration-150 sm:opacity-0 sm:group-hover/session:opacity-100 sm:group-focus-within/session:opacity-100">
-                            <SessionEditorDialog
-                              session={session}
-                              tasks={completedSessionTasks}
-                              availableTasks={taskList.filter((task) => task.completed_at !== null || task.period_start === null)}
-                              onUpdated={handleSessionUpdated}
-                              onTaskUpdated={handleTaskUpdated}
-                              onTasksChanged={(sessionId, tasks) => setSessionTasks((current) => ({ ...current, [sessionId]: tasks }))}
-                              onTaskCreated={(sessionId, task) => {
-                                handleTaskCreated(task);
-                                setSessionTasks((current) => ({
-                                  ...current,
-                                  [sessionId]: [...(current[sessionId] ?? []).filter((item) => item.id !== task.id), task],
-                                }));
-                              }}
-                            />
-                          </div>
-                          <LinkifiedText
-                            text={session.description?.trim() || "No description recorded for this session."}
-                            as="p"
-                            className={session.description?.trim()
-                            ? "text-sm leading-relaxed whitespace-pre-wrap"
-                            : "text-muted-foreground text-sm italic"}
-                          />
-                          {completedSessionTasks.length > 0 && (
-                            <div className="flex flex-col gap-1.5">
-                              <p className="text-muted-foreground text-xs font-medium">Completed in this session</p>
-                              <div className="flex flex-wrap gap-1.5">
-                                {completedSessionTasks.map((task) => (
-                                  <TaskEditorPopover
-                                    key={task.id}
-                                    task={task}
-                                    onUpdated={handleTaskUpdated}
-                                    trigger="badge"
-                                  />
-                                ))}
-                              </div>
-                            </div>
-                          )}
-                          <div className="flex flex-wrap items-center gap-1.5">
-                            {session.project_id ? (
-                              <Badge
-                                variant="outline"
-                                render={<Link href={`/app/projects/${session.project_id}`} />}
-                                className="max-w-full"
-                              >
-                                <ProjectIcon icon={session.project_icon} />
-                                <span className="max-w-48 truncate" title={session.project_path ?? session.project_name ?? "Project"}>
-                                  {session.project_path ?? session.project_name ?? "Project"}
-                                </span>
-                              </Badge>
-                            ) : (
-                              <Badge variant="outline"><NoProjectIcon />No project</Badge>
-                            )}
-                            <Badge variant="secondary">{running ? "Running" : formatDuration(duration)}</Badge>
-                          </div>
-                        </div>
-                      </li>
-                    );
-                  })}
-                </ol>
-              )}
-            </CardContent>
-          </Card>
+          <DaySessionTimeline
+            sessions={daySessions}
+            sessionTasks={sessionTasks}
+            sessionTaskErrors={sessionTaskErrors}
+            taskList={taskList}
+            totalSessionSeconds={totalSessionSeconds}
+            now={now}
+            timeZone={timeZone}
+            onSessionUpdated={handleSessionUpdated}
+            onTaskUpdated={handleTaskUpdated}
+            onSessionTasksChanged={(sessionId, tasks) => setSessionTasks((current) =>
+              replaceSessionTasks(current, sessionId, tasks))}
+            onSessionTaskCreated={(sessionId, task) => {
+              handleTaskCreated(task);
+              setSessionTasks((current) =>
+                replaceSessionTasks(current, sessionId, upsertTask(current[sessionId] ?? [], task)));
+            }}
+            onRetrySessionTasks={retrySessionTasks}
+          />
 
           <aside className="grid min-w-0 gap-4 lg:col-span-2 xl:col-span-1" aria-label="Daily statistics">
             <PlanningPeriodStats
@@ -493,6 +371,8 @@ export default function DayPlanningPage() {
               previousSessions={previousDaySessions}
               now={now}
               date={selectedDate}
+              showComparison={shouldShowPlanningComparison("day", selectedDate, now, timeZone)}
+              timeZone={timeZone}
             />
           </aside>
         </div>

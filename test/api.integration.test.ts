@@ -11,17 +11,17 @@ const handlers = { GET, POST, PUT, PATCH, DELETE };
 async function request(
   method: Method,
   path: string,
-  options: { body?: unknown; cookie?: string; origin?: string; contentLength?: number } = {},
+  options: { body?: unknown; rawBody?: string; cookie?: string; origin?: string; contentLength?: number } = {},
 ) {
   const headers = new Headers();
-  if (options.body !== undefined) headers.set("content-type", "application/json");
+  if (options.body !== undefined || options.rawBody !== undefined) headers.set("content-type", "application/json");
   if (options.cookie) headers.set("cookie", options.cookie);
   if (options.origin) headers.set("origin", options.origin);
   if (options.contentLength !== undefined) headers.set("content-length", String(options.contentLength));
   const nextRequest = new NextRequest(`http://localhost:3000/api/${path}`, {
     method,
     headers,
-    body: options.body === undefined ? undefined : JSON.stringify(options.body),
+    body: options.rawBody ?? (options.body === undefined ? undefined : JSON.stringify(options.body)),
   });
   const response = await handlers[method](nextRequest, {
     params: Promise.resolve({ path: path.split("?")[0].split("/") }),
@@ -50,6 +50,44 @@ beforeEach(async () => {
 });
 
 describe("Next API", () => {
+  it("keeps public and authenticated dispatcher behavior stable", async () => {
+    const health = await request("GET", "health");
+    expect(health.response.status).toBe(200);
+    expect(health.body).toEqual({ ok: true });
+    expect(health.response.headers.get("cache-control")).toBe("no-store");
+
+    const anonymousUnknown = await request("GET", "unknown");
+    expect(anonymousUnknown.response.status).toBe(401);
+    expect(anonymousUnknown.body).toEqual({ error: "Not authenticated" });
+
+    const cookie = await register("dispatcher@example.test");
+    const authenticatedUnknown = await request("GET", "unknown", { cookie });
+    expect(authenticatedUnknown.response.status).toBe(404);
+    expect(authenticatedUnknown.body).toEqual({ error: "Not found" });
+    expect(authenticatedUnknown.response.headers.get("cache-control")).toBe("no-store");
+  });
+
+  it("treats malformed JSON like an empty request body", async () => {
+    const malformed = await request("POST", "auth/login", { rawBody: "{" });
+    const empty = await request("POST", "auth/login", { body: {} });
+
+    expect(malformed.response.status).toBe(400);
+    expect(malformed.body).toEqual({ error: "Email and password are required" });
+    expect(malformed.body).toEqual(empty.body);
+    expect(malformed.response.headers.get("cache-control")).toBe("no-store");
+  });
+
+  it("serves calendar feeds without an authenticated cookie", async () => {
+    const cookie = await register("calendar-dispatch@example.test");
+    const token = await request("POST", "calendar/token", { cookie });
+    const feed = await request("GET", `calendar/feed?token=${token.body.token}`);
+
+    expect(feed.response.status).toBe(200);
+    expect(feed.response.headers.get("content-type")).toBe("text/calendar; charset=utf-8");
+    expect(feed.response.headers.get("cache-control")).toBe("no-store");
+    expect(feed.body).toContain("BEGIN:VCALENDAR\r\n");
+  });
+
   it("registers a user and authenticates the cookie", async () => {
     const cookie = await register("person@example.test");
     const me = await request("GET", "auth/me", { cookie });
@@ -62,6 +100,7 @@ describe("Next API", () => {
       focusAudioType: "speech-blocker",
       defaultSessionType: "learning",
       sessionPauseTimeoutMinutes: 30,
+      timezone: null,
     });
   });
 
@@ -130,6 +169,41 @@ describe("Next API", () => {
     });
     expect(updated.body.sessionPauseTimeoutMinutes).toBe(45);
     expect((await request("GET", "auth/me", { cookie })).body.sessionPauseTimeoutMinutes).toBe(45);
+  });
+
+  it("persists and validates the nullable timezone override", async () => {
+    const cookie = await register("timezone-setting@example.test");
+
+    const invalid = await request("PATCH", "auth/session-settings", {
+      cookie,
+      body: { timezone: "Mars/Olympus_Mons" },
+    });
+    expect(invalid.response.status).toBe(400);
+    expect(invalid.body).toEqual({ error: "timezone must be a valid IANA time zone or null" });
+
+    const wrongType = await request("PATCH", "auth/session-settings", {
+      cookie,
+      body: { timezone: 123 },
+    });
+    expect(wrongType.body).toEqual({ error: "timezone must be a valid IANA time zone or null" });
+
+    const updated = await request("PATCH", "auth/session-settings", {
+      cookie,
+      body: { timezone: "America/New_York" },
+    });
+    expect(updated.body.timezone).toBe("America/New_York");
+    expect((await request("GET", "auth/me", { cookie })).body.timezone).toBe("America/New_York");
+    const login = await request("POST", "auth/login", {
+      body: { email: "timezone-setting@example.test", password: "password1" },
+    });
+    expect(login.body.timezone).toBe("America/New_York");
+
+    const automatic = await request("PATCH", "auth/session-settings", {
+      cookie,
+      body: { timezone: null },
+    });
+    expect(automatic.body.timezone).toBeNull();
+    expect((await request("GET", "auth/me", { cookie })).body.timezone).toBeNull();
   });
 
   it("persists project metadata and day notes", async () => {
@@ -346,6 +420,59 @@ describe("Next API", () => {
     expect((await request("GET", `sessions/${started.body.id}/tasks`, { cookie })).body).toEqual([]);
   });
 
+  it("treats every move to backlog as an authoritative session detach", async () => {
+    const cookie = await register("backlog-detach@example.test");
+    const started = await request("POST", "sessions/start", { cookie });
+    const task = await request("POST", "tasks", {
+      cookie,
+      body: { title: "Detach this", periodStart: "2026-08-02", sessionId: started.body.id },
+    });
+
+    const moved = await request("PATCH", `tasks/${task.body.id}`, {
+      cookie,
+      body: { periodStart: null },
+    });
+    expect(moved.body).toMatchObject({ id: task.body.id, period_start: null });
+    expect((await request("GET", `sessions/${started.body.id}/tasks`, { cookie })).body).toEqual([]);
+  });
+
+  it("rolls back task creation when attaching it fails", async () => {
+    const cookie = await register("atomic-create-attach@example.test");
+    const started = await request("POST", "sessions/start", { cookie });
+    await db.execute("CREATE TEMP TRIGGER fail_task_attach BEFORE INSERT ON session_tasks BEGIN SELECT RAISE(ABORT, 'attach failed'); END");
+    try {
+      const failed = await request("POST", "tasks", {
+        cookie,
+        body: { title: "Must roll back", periodStart: "2026-08-02", sessionId: started.body.id },
+      });
+      expect(failed.response.status).toBe(500);
+      expect((await request("GET", "tasks", { cookie })).body).toEqual([]);
+    } finally {
+      await db.execute("DROP TRIGGER fail_task_attach");
+    }
+  });
+
+  it("rolls back session and task changes when membership replacement fails", async () => {
+    const cookie = await register("atomic-session-membership@example.test");
+    const session = await request("POST", "sessions", {
+      cookie,
+      body: { startedAt: "2026-08-02T08:00:00.000Z", endedAt: "2026-08-02T09:00:00.000Z", description: "Original" },
+    });
+    const backlogTask = await request("POST", "tasks", { cookie, body: { title: "Still backlog" } });
+    await db.execute("CREATE TEMP TRIGGER fail_session_attach BEFORE INSERT ON session_tasks BEGIN SELECT RAISE(ABORT, 'membership failed'); END");
+    try {
+      const failed = await request("PATCH", `sessions/${session.body.id}`, {
+        cookie,
+        body: { description: "Must roll back", taskIds: [backlogTask.body.id], taskPeriodStart: "2026-08-02" },
+      });
+      expect(failed.response.status).toBe(500);
+      expect((await request("GET", "sessions", { cookie })).body[0].description).toBe("Original");
+      expect((await request("GET", "tasks", { cookie })).body[0]).toMatchObject({ completed_at: null, period_start: null });
+    } finally {
+      await db.execute("DROP TRIGGER fail_session_attach");
+    }
+  });
+
   it("attaches tasks created during an active session", async () => {
     const cookie = await register("active-session-task@example.test");
     const started = await request("POST", "sessions/start", { cookie });
@@ -368,6 +495,106 @@ describe("Next API", () => {
         description: "Capture why this approach won.",
       }),
     ]);
+  });
+
+  it("attaches an existing backlog task to an active session", async () => {
+    const cookie = await register("attach-backlog@example.test");
+    const started = await request("POST", "sessions/start", { cookie });
+    const task = await request("POST", "tasks", {
+      cookie,
+      body: { title: "Pull from backlog" },
+    });
+    expect(task.body.period_start).toBeNull();
+
+    const attached = await request("PATCH", `tasks/${task.body.id}`, {
+      cookie,
+      body: { sessionId: started.body.id, periodStart: "2026-08-02" },
+    });
+    expect(attached.response.status).toBe(200);
+    expect(attached.body.period_start).toBe("2026-08-02");
+    expect((await request("GET", `sessions/${started.body.id}/tasks`, { cookie })).body).toEqual([
+      expect.objectContaining({ id: task.body.id, title: "Pull from backlog" }),
+    ]);
+  });
+
+  it("detaches an open task from an active session without deleting or completing it", async () => {
+    const cookie = await register("detach-active-task@example.test");
+    const task = await request("POST", "tasks", {
+      cookie,
+      body: { title: "Release me", periodStart: "2026-08-03" },
+    });
+    const started = await request("POST", "sessions/start", {
+      cookie,
+      body: { taskIds: [task.body.id] },
+    });
+
+    const detached = await request("DELETE", `sessions/${started.body.id}/tasks/${task.body.id}`, { cookie });
+
+    expect(detached.response.status).toBe(204);
+    expect((await request("GET", `sessions/${started.body.id}/tasks`, { cookie })).body).toEqual([]);
+    expect((await request("GET", "tasks", { cookie })).body).toEqual([
+      expect.objectContaining({ id: task.body.id, period_start: "2026-08-03", completed_at: null }),
+    ]);
+  });
+
+  it("keeps a task attached when its completion is unchecked during a session", async () => {
+    const cookie = await register("uncheck-attached-task@example.test");
+    const task = await request("POST", "tasks", {
+      cookie,
+      body: { title: "Keep attached", periodStart: "2026-08-03" },
+    });
+    const started = await request("POST", "sessions/start", {
+      cookie,
+      body: { taskIds: [task.body.id] },
+    });
+    await request("PATCH", `tasks/${task.body.id}`, { cookie, body: { completed: true } });
+
+    const unchecked = await request("PATCH", `tasks/${task.body.id}`, {
+      cookie,
+      body: { completed: false },
+    });
+
+    expect(unchecked.body).toMatchObject({ id: task.body.id, period_start: "2026-08-03", completed_at: null });
+    expect((await request("GET", `sessions/${started.body.id}/tasks`, { cookie })).body).toEqual([
+      expect.objectContaining({ id: task.body.id, completed_at: null }),
+    ]);
+  });
+
+  it("rejects attaching a task to a completed session", async () => {
+    const cookie = await register("attach-completed@example.test");
+    const session = await request("POST", "sessions", {
+      cookie,
+      body: { startedAt: "2026-08-02T08:00:00.000Z", endedAt: "2026-08-02T09:00:00.000Z" },
+    });
+    const task = await request("POST", "tasks", {
+      cookie,
+      body: { title: "Too late" },
+    });
+    const attached = await request("PATCH", `tasks/${task.body.id}`, {
+      cookie,
+      body: { sessionId: session.body.id, title: "Must not change", periodStart: "2026-08-02" },
+    });
+    expect(attached.response.status).toBe(400);
+    expect((await request("GET", "tasks", { cookie })).body[0]).toMatchObject({
+      id: task.body.id, title: "Too late", period_start: null,
+    });
+  });
+
+  it("rejects an unknown attachment session before changing task fields", async () => {
+    const cookie = await register("attach-missing@example.test");
+    const task = await request("POST", "tasks", {
+      cookie,
+      body: { title: "Keep unchanged" },
+    });
+
+    const attached = await request("PATCH", `tasks/${task.body.id}`, {
+      cookie,
+      body: { sessionId: 999_999, title: "Must not change", periodStart: "2026-08-02" },
+    });
+    expect(attached.response.status).toBe(404);
+    expect((await request("GET", "tasks", { cookie })).body[0]).toMatchObject({
+      id: task.body.id, title: "Keep unchanged", period_start: null,
+    });
   });
 
   it("assigns completed tasks while editing a completed session", async () => {
@@ -416,6 +643,12 @@ describe("Next API", () => {
       },
     });
     expect(withBacklog.response.status).toBe(200);
+    expect(withBacklog.body.attachedTasks).toEqual(expect.arrayContaining([
+      expect.objectContaining({ id: backlogTask.body.id, period_start: "2026-08-02", completed_at: expect.any(String) }),
+    ]));
+    expect(withBacklog.body.changedTasks).toEqual([
+      expect.objectContaining({ id: backlogTask.body.id, period_start: "2026-08-02", completed_at: expect.any(String) }),
+    ]);
     const attached = (await request("GET", `sessions/${session.body.id}/tasks`, { cookie })).body;
     expect(attached).toEqual(expect.arrayContaining([
       expect.objectContaining({ id: backlogTask.body.id, period_start: "2026-08-02", completed_at: expect.any(String) }),
@@ -465,6 +698,32 @@ describe("Next API", () => {
       ended_at: expect.any(String),
       description: "Goal: done\nOutputs: tests\nNext: review",
     });
+  });
+
+  it("releases unfinished tasks from a stopped session and keeps completed task history", async () => {
+    const cookie = await register("release-unfinished@example.test");
+    const unfinished = await request("POST", "tasks", {
+      cookie,
+      body: { title: "Continue tomorrow", periodStart: "2026-08-03" },
+    });
+    const completed = await request("POST", "tasks", {
+      cookie,
+      body: { title: "Finished in session", periodStart: "2026-08-03" },
+    });
+    const started = await request("POST", "sessions/start", {
+      cookie,
+      body: { taskIds: [unfinished.body.id, completed.body.id] },
+    });
+    await request("PATCH", `tasks/${completed.body.id}`, { cookie, body: { completed: true } });
+
+    await request("PATCH", `sessions/${started.body.id}/stop`, { cookie });
+
+    expect((await request("GET", `sessions/${started.body.id}/tasks`, { cookie })).body).toEqual([
+      expect.objectContaining({ id: completed.body.id, completed_at: expect.any(String) }),
+    ]);
+    expect((await request("GET", "tasks", { cookie })).body).toEqual(expect.arrayContaining([
+      expect.objectContaining({ id: unfinished.body.id, period_start: "2026-08-03", completed_at: null }),
+    ]));
   });
 
   it("excludes persisted interruption pauses from session time", async () => {
@@ -642,6 +901,26 @@ describe("Next API", () => {
       productionPercentage: null,
     });
     expect((await request("GET", "sessions/active", { cookie })).body.id).toBe(completed.body.id);
+  });
+
+  it("rejects marking a session older than twelve hours as ongoing", async () => {
+    const cookie = await register("old-ongoing@example.test");
+    const completed = await request("POST", "sessions", {
+      cookie,
+      body: {
+        startedAt: new Date(Date.now() - 13 * 60 * 60 * 1000).toISOString(),
+        endedAt: new Date(Date.now() - 12 * 60 * 60 * 1000).toISOString(),
+      },
+    });
+
+    const updated = await request("PATCH", `sessions/${completed.body.id}`, {
+      cookie,
+      body: { endedAt: null },
+    });
+
+    expect(updated.response.status).toBe(400);
+    expect(updated.body.error).toBe("Sessions started more than 12 hours ago cannot be marked ongoing");
+    expect((await request("GET", "sessions/active", { cookie })).body).toBeNull();
   });
 
   it("rejects making a completed session ongoing when another is active", async () => {

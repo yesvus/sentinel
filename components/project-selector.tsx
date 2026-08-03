@@ -16,26 +16,33 @@ import { Input } from "@/components/ui/input";
 import type { Project } from "@/lib/api";
 import { ProjectIcon, NoProjectIcon } from "@/lib/icons";
 import { projectTreeWithMatches } from "@/lib/project-tree";
+import { ProjectCreatorPopover } from "@/components/project-creator-popover";
 
 export function ProjectSelector({
   projects,
   value,
   onChange,
-  onCreate,
+  onProjectCreated,
   disabled,
 }: {
   projects: Project[];
   value: number | null;
   onChange: (id: number | null) => void;
-  onCreate?: () => void;
+  onProjectCreated?: (project: Project) => void;
   disabled?: boolean;
 }) {
   const [open, setOpen] = useState(false);
+  const [createOpen, setCreateOpen] = useState(false);
+  const [createdProjects, setCreatedProjects] = useState<Project[]>([]);
   const [search, setSearch] = useState("");
-  const selected = projects.find((project) => project.id === value) ?? null;
+  const availableProjects = useMemo(() => {
+    const projectIds = new Set(projects.map((project) => project.id));
+    return [...projects, ...createdProjects.filter((project) => !projectIds.has(project.id))];
+  }, [createdProjects, projects]);
+  const selected = availableProjects.find((project) => project.id === value) ?? null;
   const active = useMemo(
-    () => projects.filter((project) => !project.archived || project.id === value),
-    [projects, value],
+    () => availableProjects.filter((project) => !project.archived || project.id === value),
+    [availableProjects, value],
   );
   const hierarchy = useMemo(() => projectTreeWithMatches(active, search), [active, search]);
 
@@ -46,7 +53,8 @@ export function ProjectSelector({
   };
 
   return (
-    <DropdownMenu open={open} onOpenChange={setOpen}>
+    <>
+      <DropdownMenu open={open} onOpenChange={setOpen}>
       <div className={disabled ? "cursor-not-allowed" : undefined}>
         <DropdownMenuTrigger
           render={
@@ -114,16 +122,23 @@ export function ProjectSelector({
             No matching projects.
           </p>
         )}
-        {onCreate && (
-          <>
-            <DropdownMenuSeparator />
-            <DropdownMenuItem onClick={() => { setOpen(false); onCreate(); }}>
-              <Plus />
-              New project
-            </DropdownMenuItem>
-          </>
-        )}
+        <DropdownMenuSeparator />
+        <DropdownMenuItem onClick={() => { setOpen(false); setCreateOpen(true); }}>
+          <Plus />
+          New project
+        </DropdownMenuItem>
       </DropdownMenuContent>
-    </DropdownMenu>
+      </DropdownMenu>
+      <ProjectCreatorPopover
+        open={createOpen}
+        onOpenChange={setCreateOpen}
+        hideTrigger
+        onCreated={(project) => {
+          setCreatedProjects((current) => [...current.filter((item) => item.id !== project.id), project]);
+          onProjectCreated?.(project);
+          choose(project.id);
+        }}
+      />
+    </>
   );
 }

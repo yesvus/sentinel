@@ -1,10 +1,10 @@
 "use client";
 
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { Card, CardHeader, CardContent } from "@/components/ui/card";
 import { Skeleton } from "@/components/ui/skeleton";
 import { sessions as sessionsApi, projects as projectsApi, notes as notesApi, tasks as tasksApi, StudySession, Project, Note, Task } from "@/lib/api";
-import { dayKey } from "@/lib/date";
+import { addDays, dayKey, startOfDay } from "@/lib/date";
 import { dailyAllocationTotals } from "@/lib/session-stats";
 import { ReportCards } from "@/components/report-cards";
 import { ProjectBreakdownCard } from "@/components/project-breakdown-card";
@@ -13,26 +13,30 @@ import { LearningProducingChart } from "@/components/learning-producing-chart";
 import { WeeklyReportHistory } from "@/components/weekly-report-history";
 import { Button } from "@/components/ui/button";
 import { orderProjectsAsTree, projectTreeText } from "@/lib/project-tree";
+import { useActiveSession } from "@/lib/active-session-context";
+import { mergeActiveSession, refreshSessionPage } from "@/lib/session-list";
+import { useAuth } from "@/lib/auth-context";
 
 const WEEKS = 14;
 const DAYS = WEEKS * 7;
 type Day = { key: string; date: Date; seconds: number };
 
-function buildLastNDays(totalsByDay: Map<string, number>, n: number): Day[] {
-  const today = new Date();
-  today.setHours(0, 0, 0, 0);
+function buildLastNDays(totalsByDay: Map<string, number>, n: number, now: number, timeZone?: string): Day[] {
+  const today = startOfDay(new Date(now), timeZone);
 
   const days: Day[] = [];
   for (let i = n - 1; i >= 0; i--) {
-    const date = new Date(today);
-    date.setDate(date.getDate() - i);
-    const key = dayKey(date);
+    const date = addDays(today, -i, timeZone);
+    const key = dayKey(date, timeZone);
     days.push({ key, date, seconds: totalsByDay.get(key) ?? 0 });
   }
   return days;
 }
 
 export default function StatsPage() {
+  const { user } = useAuth();
+  const timeZone = user?.timezone ?? undefined;
+  const { activeSession, now, sessionRevision } = useActiveSession();
   const [sessionList, setSessionList] = useState<StudySession[]>([]);
   const [historySessions, setHistorySessions] = useState<StudySession[]>([]);
   const [historyCursor, setHistoryCursor] = useState<string | null>(null);
@@ -42,31 +46,34 @@ export default function StatsPage() {
   const [noteList, setNoteList] = useState<Note[]>([]);
   const [taskList, setTaskList] = useState<Task[]>([]);
   const [loading, setLoading] = useState(true);
-  const [now, setNow] = useState(() => Date.now());
   const [selectedProject, setSelectedProject] = useState("all");
+  const historyCountRef = useRef(30);
+  const [rangeStart] = useState(() => {
+    return addDays(startOfDay(new Date(now), timeZone), -DAYS + 1, timeZone);
+  });
 
   useEffect(() => {
-    const loadStart = new Date();
-    loadStart.setHours(0, 0, 0, 0);
-    loadStart.setDate(loadStart.getDate() - DAYS + 1);
-    Promise.all([sessionsApi.list({ from: loadStart.toISOString() }), sessionsApi.page()])
+    let cancelled = false;
+    Promise.all([
+      sessionsApi.list({ from: rangeStart.toISOString() }),
+      refreshSessionPage(historyCountRef.current),
+    ])
       .then(([allSessions, firstPage]) => {
+        if (cancelled) return;
         setSessionList(allSessions);
         setHistorySessions(firstPage.items);
         setHistoryCursor(firstPage.nextCursor);
+        historyCountRef.current = Math.max(30, firstPage.items.length);
       })
-      .finally(() => setLoading(false));
+      .finally(() => { if (!cancelled) setLoading(false); });
+    return () => { cancelled = true; };
+  }, [rangeStart, sessionRevision]);
+
+  useEffect(() => {
     projectsApi.list().then(setProjectList).catch(() => {});
     notesApi.list().then(setNoteList).catch(() => {});
     tasksApi.list().then(setTaskList).catch(() => {});
   }, []);
-
-  useEffect(() => {
-    const hasActiveSession = sessionList.some((s) => s.ended_at === null);
-    if (!hasActiveSession) return;
-    const interval = setInterval(() => setNow(Date.now()), 1000);
-    return () => clearInterval(interval);
-  }, [sessionList]);
 
   function handleNoteSaved(note: Note) {
     setNoteList((list) => {
@@ -80,8 +87,15 @@ export default function StatsPage() {
   }
 
   function handleHistorySessionsChange(updater: (list: StudySession[]) => StudySession[]) {
-    setHistorySessions(updater);
-    setSessionList(updater);
+    const previousVisible = filteredHistorySessions;
+    const nextVisible = updater(previousVisible);
+    const previousIds = new Set(previousVisible.map((session) => session.id));
+    const mergeChanges = (current: StudySession[], bounded: boolean) => [
+      ...current.filter((session) => !previousIds.has(session.id)),
+      ...nextVisible.filter((session) => !bounded || new Date(session.started_at) >= rangeStart),
+    ].sort((a, b) => new Date(b.started_at).getTime() - new Date(a.started_at).getTime());
+    setHistorySessions((current) => mergeChanges(current, false));
+    setSessionList((current) => mergeChanges(current, true));
   }
 
   async function loadMoreHistory() {
@@ -94,6 +108,7 @@ export default function StatsPage() {
         const existingIds = new Set(current.map((session) => session.id));
         return [...current, ...page.items.filter((session) => !existingIds.has(session.id))];
       });
+      historyCountRef.current += page.items.length;
       setHistoryCursor(page.nextCursor);
     } catch {
       setHistoryLoadError("Could not load more history.");
@@ -103,21 +118,29 @@ export default function StatsPage() {
   }
 
   // Totals include the in-progress session's elapsed-so-far time.
-  const rangeSessions = sessionList;
+  const rangeSessions = mergeActiveSession(
+    sessionList,
+    activeSession,
+    (session) => new Date(session.started_at) >= rangeStart,
+  );
+  const mergedHistorySessions = mergeActiveSession(historySessions, activeSession);
   const filteredSessions = selectedProject === "all"
     ? rangeSessions
     : rangeSessions.filter((session) => String(session.project_id ?? "none") === selectedProject);
-  const allocationByDay = dailyAllocationTotals(filteredSessions, now);
+  const filteredHistorySessions = selectedProject === "all"
+    ? mergedHistorySessions
+    : mergedHistorySessions.filter((session) => String(session.project_id ?? "none") === selectedProject);
+  const allocationByDay = dailyAllocationTotals(filteredSessions, now, timeZone);
 
-  const rangeDays = buildLastNDays(new Map(), DAYS);
+  const rangeDays = buildLastNDays(new Map(), DAYS, now, timeZone);
   const toAllocationPoints = (days: Day[]) => days.map((day) => {
     const allocation = allocationByDay.get(day.key) ?? {
       learning: 0, producing: 0, unclassified: 0, total: 0,
     };
     return {
       key: day.key,
-      date: day.date.toLocaleDateString(undefined, { month: "long", day: "numeric", year: "numeric" }),
-      label: day.date.toLocaleDateString(undefined, { weekday: "short" }),
+      date: day.date.toLocaleDateString(undefined, { timeZone, month: "long", day: "numeric", year: "numeric" }),
+      label: day.date.toLocaleDateString(undefined, { timeZone, weekday: "short" }),
       learning: allocation.learning,
       producing: allocation.producing,
       total: allocation.total,
@@ -167,11 +190,12 @@ export default function StatsPage() {
   return (
     <div className="animate-in fade-in duration-500 fill-mode-both mx-auto w-full max-w-5xl space-y-8">
       <ReportCards
-        sessions={historySessions}
+        sessions={mergedHistorySessions}
         notes={noteList}
         now={now}
         onNoteSaved={handleNoteSaved}
         onNoteDeleted={handleNoteDeleted}
+        timeZone={timeZone}
       />
 
       <div className="flex flex-wrap items-center gap-3 print:hidden">
@@ -195,16 +219,18 @@ export default function StatsPage() {
         now={now}
         className="w-full"
         onSelectProject={setSelectedProject}
+        timeZone={timeZone}
       />
 
       <LearningProducingChart
         points={allocationPoints}
         now={now}
+        timeZone={timeZone}
       />
-      <WeeklyReportHistory />
+      <WeeklyReportHistory timeZone={timeZone} />
 
       <HistorySection
-        sessions={filteredSessions}
+        sessions={filteredHistorySessions}
         projects={projectList}
         notes={noteList}
         tasks={taskList}

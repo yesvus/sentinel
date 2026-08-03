@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { HistorySection } from "@/components/history-section";
 import {
   Breadcrumb,
@@ -22,8 +22,11 @@ import {
   tasks as tasksApi,
 } from "@/lib/api";
 import { PageHeaderActions } from "@/lib/page-header-actions-context";
+import { useActiveSession } from "@/lib/active-session-context";
+import { mergeActiveSession, refreshSessionPage } from "@/lib/session-list";
 
 export default function CalendarHistoryPage() {
+  const { activeSession, now, sessionRevision } = useActiveSession();
   const [sessionList, setSessionList] = useState<StudySession[]>([]);
   const [projectList, setProjectList] = useState<Project[]>([]);
   const [noteList, setNoteList] = useState<Note[]>([]);
@@ -32,19 +35,31 @@ export default function CalendarHistoryPage() {
   const [loading, setLoading] = useState(true);
   const [loadingMore, setLoadingMore] = useState(false);
   const [loadError, setLoadError] = useState<string | null>(null);
-  const [now] = useState(() => Date.now());
+  const loadedCountRef = useRef(30);
 
   useEffect(() => {
-    Promise.all([sessionsApi.page(), projectsApi.list(), notesApi.list(), tasksApi.list()])
-      .then(([page, projects, notes, tasks]) => {
-        setSessionList(page.items);
-        setCursor(page.nextCursor);
+    Promise.all([projectsApi.list(), notesApi.list(), tasksApi.list()])
+      .then(([projects, notes, tasks]) => {
         setProjectList(projects);
         setNoteList(notes);
         setTaskList(tasks);
       })
-      .finally(() => setLoading(false));
   }, []);
+
+  useEffect(() => {
+    let cancelled = false;
+    refreshSessionPage(loadedCountRef.current)
+      .then((page) => {
+        if (cancelled) return;
+        setSessionList(page.items);
+        setCursor(page.nextCursor);
+        loadedCountRef.current = Math.max(30, page.items.length);
+      })
+      .finally(() => { if (!cancelled) setLoading(false); });
+    return () => { cancelled = true; };
+  }, [sessionRevision]);
+
+  const canonicalSessions = mergeActiveSession(sessionList, activeSession);
 
   async function loadMore() {
     if (!cursor || loadingMore) return;
@@ -56,6 +71,7 @@ export default function CalendarHistoryPage() {
         const ids = new Set(list.map((session) => session.id));
         return [...list, ...page.items.filter((session) => !ids.has(session.id))];
       });
+      loadedCountRef.current += page.items.length;
       setCursor(page.nextCursor);
     } catch {
       setLoadError("Could not load more history.");
@@ -84,7 +100,8 @@ export default function CalendarHistoryPage() {
         </Card>
       ) : (
         <HistorySection
-          sessions={sessionList}
+          mode="page"
+          sessions={canonicalSessions}
           projects={projectList}
           notes={noteList}
           tasks={taskList}

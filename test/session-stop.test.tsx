@@ -1,5 +1,6 @@
 import { fireEvent, render, screen, waitFor } from "@testing-library/react";
 import { beforeEach, describe, expect, it, vi } from "vitest";
+import { useState } from "react";
 import AppHomePage from "@/app/app/page";
 
 const { start, stop } = vi.hoisted(() => ({
@@ -18,7 +19,42 @@ vi.mock("@/components/ui/sidebar", () => ({
 }));
 
 vi.mock("@/lib/active-session-context", () => ({
-  useInitialActiveSession: () => null,
+  useActiveSession: () => {
+    const [activeSession, setActiveSession] = useState<null | {
+      id: number;
+      started_at: string;
+      paused_at: null;
+      paused_seconds: number;
+      project_id: null;
+      description: string | null;
+    }>(null);
+    return {
+      activeSession,
+      elapsedMs: 0,
+      now: 0,
+      reconciling: false,
+      startSession: async (details: { description?: string | null }) => {
+        const result = await start(details);
+        setActiveSession({
+          id: result.id,
+          started_at: result.startedAt,
+          paused_at: null,
+          paused_seconds: 0,
+          project_id: null,
+          description: details.description ?? null,
+        });
+        return result;
+      },
+      stopSession: async (...args: Parameters<typeof stop>) => {
+        const result = await stop(...args);
+        setActiveSession(null);
+        return result;
+      },
+      updateSession: vi.fn(),
+      pauseSession: vi.fn(),
+      resumeSession: vi.fn(),
+    };
+  },
 }));
 
 vi.mock("@/lib/api", () => {
@@ -40,12 +76,12 @@ vi.mock("@/lib/api", () => {
       list: vi.fn().mockResolvedValue([]),
     },
     sessions: {
-      getActive: vi.fn().mockResolvedValue(null),
       list: vi.fn().mockResolvedValue([]),
       page: vi.fn().mockResolvedValue({ items: [], nextCursor: null }),
       start,
       stop,
       update: vi.fn().mockResolvedValue({}),
+      tasks: vi.fn().mockResolvedValue([]),
     },
   };
 });

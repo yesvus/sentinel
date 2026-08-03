@@ -1,23 +1,73 @@
 "use client";
 
-import { useState } from "react";
-import { CalendarDays, Copy, Gauge, Monitor, Moon, ShieldCheck, Sun } from "lucide-react";
+import { useEffect, useState } from "react";
+import { CalendarDays, Clock3, Copy, Gauge, Monitor, Moon, ShieldCheck, Sun } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { ApiError, auth, calendar } from "@/lib/api";
 import { useAuth } from "@/lib/auth-context";
 import { ThemeMode, useTheme } from "@/lib/theme-context";
-import { pad } from "@/lib/date";
+import { detectedTimeZone, pad, timeZoneOffsetLabel } from "@/lib/date";
 
 const WEEKDAY_NAMES = ["Sunday", "Monday", "Tuesday", "Wednesday", "Thursday", "Friday", "Saturday"];
+const CURATED_TIME_ZONES = [
+  "UTC",
+  "America/Los_Angeles",
+  "America/Denver",
+  "America/Chicago",
+  "America/New_York",
+  "America/Toronto",
+  "America/Vancouver",
+  "America/Mexico_City",
+  "America/Sao_Paulo",
+  "Europe/London",
+  "Europe/Paris",
+  "Europe/Berlin",
+  "Europe/Amsterdam",
+  "Europe/Istanbul",
+  "Africa/Cairo",
+  "Africa/Johannesburg",
+  "Asia/Dubai",
+  "Asia/Kolkata",
+  "Asia/Singapore",
+  "Asia/Shanghai",
+  "Asia/Tokyo",
+  "Australia/Perth",
+  "Australia/Sydney",
+  "Pacific/Auckland",
+];
 
 export default function SettingsPage() {
   const { user, refresh } = useAuth();
   const { mode, setMode } = useTheme();
   const [savingPrivacy, setSavingPrivacy] = useState(false);
   const [savingSessionDefault, setSavingSessionDefault] = useState(false);
+  const [timeZone, setTimeZone] = useState(() => user?.timezone ?? "");
+  const [detectedZone, setDetectedZone] = useState("Detecting...");
+  const [savingTimeZone, setSavingTimeZone] = useState(false);
+  const [timeZoneSaved, setTimeZoneSaved] = useState(false);
   const [calendarToken, setCalendarToken] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
+
+  useEffect(() => {
+    const timer = window.setTimeout(() => setDetectedZone(detectedTimeZone()), 0);
+    return () => window.clearTimeout(timer);
+  }, []);
+
+  async function saveTimeZone() {
+    setSavingTimeZone(true);
+    setTimeZoneSaved(false);
+    setError(null);
+    try {
+      await auth.updateSessionSettings({ timezone: timeZone || null });
+      await refresh();
+      setTimeZoneSaved(true);
+    } catch (err) {
+      setError(err instanceof ApiError ? err.message : "Could not save time zone");
+    } finally {
+      setSavingTimeZone(false);
+    }
+  }
 
   async function update() {
     if (!user) return;
@@ -119,6 +169,58 @@ export default function SettingsPage() {
   return (
     <div className="mx-auto w-full max-w-4xl space-y-6">
       {error && <p className="text-destructive text-sm">{error}</p>}
+      <Card>
+        <CardHeader>
+          <CardTitle className="flex items-center gap-2">
+            <Clock3 className="text-muted-foreground size-4" />
+            Time zone
+          </CardTitle>
+        </CardHeader>
+        <CardContent className="space-y-4">
+          <div className="max-w-2xl space-y-1">
+            <p className="text-sm font-medium">Calendar time zone</p>
+            <p className="text-muted-foreground text-sm">
+              Controls which day and week your sessions belong to across Calendar, History, and statistics.
+              Auto follows this browser whenever you use Sentinel on a different device.
+            </p>
+          </div>
+          <div className="flex flex-col gap-3 sm:flex-row sm:items-end">
+            <label className="flex w-full max-w-md flex-col gap-2 text-sm font-medium" htmlFor="time-zone">
+              Time zone
+              <select
+                id="time-zone"
+                value={timeZone}
+                onChange={(event) => {
+                  setTimeZone(event.target.value);
+                  setTimeZoneSaved(false);
+                }}
+                disabled={!user || savingTimeZone}
+                className="border-input bg-background h-10 rounded-md border px-3 text-sm transition-colors duration-150"
+              >
+                <option value="">
+                  Auto ({detectedZone}{detectedZone === "Detecting..." ? "" : ` · ${timeZoneOffsetLabel(detectedZone)}`})
+                </option>
+                {Array.from(new Set([
+                  ...CURATED_TIME_ZONES,
+                  ...(detectedZone !== "Detecting..." ? [detectedZone] : []),
+                  ...(user?.timezone ? [user.timezone] : []),
+                ])).sort().map((zone) => <option key={zone} value={zone}>{timeZoneOffsetLabel(zone)} · {zone}</option>)}
+              </select>
+            </label>
+            <Button
+              type="button"
+              onClick={saveTimeZone}
+              disabled={!user || savingTimeZone || timeZone === (user.timezone ?? "")}
+            >
+              {savingTimeZone ? "Saving..." : "Save time zone"}
+            </Button>
+          </div>
+          <p className="text-muted-foreground text-xs">
+            Detected browser time zone: <span className="text-foreground font-medium">{detectedZone}{detectedZone === "Detecting..." ? "" : ` (${timeZoneOffsetLabel(detectedZone)})`}</span>
+          </p>
+          {timeZoneSaved && <p className="text-sm text-emerald-600" role="status">Time zone saved.</p>}
+        </CardContent>
+      </Card>
       <Card>
         <CardHeader><CardTitle className="flex items-center gap-2"><ShieldCheck className="text-muted-foreground size-4" />Social privacy</CardTitle></CardHeader>
         <CardContent className="flex flex-col gap-4 sm:flex-row sm:items-center sm:justify-between">

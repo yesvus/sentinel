@@ -7,15 +7,15 @@ import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { reports, WeeklyReport } from "@/lib/api";
 import { formatDuration, periodComparison } from "@/lib/date";
 
-export function WeeklyReportHistory() {
+export function WeeklyReportHistory({ timeZone }: { timeZone?: string }) {
   const [items, setItems] = useState<WeeklyReport[]>([]);
   const [selected, setSelected] = useState(0);
   const [loading, setLoading] = useState(true);
 
   useEffect(() => {
-    const timezone = Intl.DateTimeFormat().resolvedOptions().timeZone || "UTC";
+    const timezone = timeZone ?? (Intl.DateTimeFormat().resolvedOptions().timeZone || "UTC");
     reports.weekly(timezone).then(setItems).catch(() => {}).finally(() => setLoading(false));
-  }, []);
+  }, [timeZone]);
 
   const report = items[selected];
   const previousReport = items[selected + 1];
@@ -66,7 +66,7 @@ export function WeeklyReportHistory() {
           <article className="space-y-5">
             <div>
               <p className="text-muted-foreground text-xs">
-                Finalized {new Date(report.finalizedAt).toLocaleDateString()} · {report.timezone}
+                Finalized {new Date(report.finalizedAt).toLocaleDateString(undefined, { timeZone })} · {report.timezone}
               </p>
             </div>
             <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-4">

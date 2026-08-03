@@ -1,19 +1,19 @@
 "use client";
 
 import { FormEvent, useEffect, useMemo, useState } from "react";
-import { Inbox, Plus, RotateCcw, Trash2 } from "lucide-react";
-import { TaskEditorPopover } from "@/components/task-editor-popover";
+import { Inbox, Plus, RotateCcw, Search } from "lucide-react";
 import { HelpTooltip } from "@/components/help-tooltip";
-import { LinkifiedText } from "@/components/linkified-text";
+import { BacklogGroupCard } from "@/components/tasks/backlog-group-card";
+import type { BacklogTaskGroup } from "@/components/tasks/backlog-group-card";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
-import { Card, CardAction, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
-import { Checkbox } from "@/components/ui/checkbox";
+import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Empty, EmptyDescription, EmptyHeader, EmptyMedia, EmptyTitle } from "@/components/ui/empty";
 import { Field, FieldError, FieldGroup, FieldLabel } from "@/components/ui/field";
 import { Input } from "@/components/ui/input";
 import { Skeleton } from "@/components/ui/skeleton";
 import { Spinner } from "@/components/ui/spinner";
+import { Textarea } from "@/components/ui/textarea";
 import { toast } from "@/components/ui/toast";
 import {
   AlertDialog,
@@ -27,26 +27,24 @@ import {
   AlertDialogTrigger,
 } from "@/components/ui/alert-dialog";
 import { ProjectSelector } from "@/components/project-selector";
-import { ProjectIcon, NoProjectIcon } from "@/lib/icons";
 import { ApiError, Project, Task, projects as projectsApi, tasks as tasksApi } from "@/lib/api";
 import { dayKey } from "@/lib/date";
-import { cn } from "@/lib/utils";
+import { removeTask as removeTaskFromList, upsertTask, upsertTasks } from "@/lib/task-collections";
+import { setTaskCompletion, taskMutations } from "@/lib/task-mutations";
+import { useAuth } from "@/lib/auth-context";
 
 const NO_PROJECT_KEY = "none";
 
-type TaskGroup = {
-  key: string;
-  project: Project | null;
-  tasks: Task[];
-};
-
 export default function TasksPage() {
+  const { user } = useAuth();
   const [taskList, setTaskList] = useState<Task[]>([]);
   const [projectList, setProjectList] = useState<Project[]>([]);
   const [loading, setLoading] = useState(true);
   const [loadError, setLoadError] = useState<string | null>(null);
   const [title, setTitle] = useState("");
+  const [description, setDescription] = useState("");
   const [projectId, setProjectId] = useState<number | null>(null);
+  const [searchQuery, setSearchQuery] = useState("");
   const [creating, setCreating] = useState(false);
   const [createError, setCreateError] = useState<string | null>(null);
   const [moving, setMoving] = useState(false);
@@ -64,7 +62,7 @@ export default function TasksPage() {
       .finally(() => setLoading(false));
   }, []);
 
-  const today = dayKey(new Date());
+  const today = dayKey(new Date(), user?.timezone ?? undefined);
   const backlogTasks = useMemo(
     () => taskList.filter((task) => task.period_start === null),
     [taskList],
@@ -78,7 +76,7 @@ export default function TasksPage() {
   const openTaskCount = backlogTasks.filter((task) => task.completed_at === null).length;
 
   const groups = useMemo(() => {
-    const grouped = new Map<string, TaskGroup>();
+    const grouped = new Map<string, BacklogTaskGroup>();
     for (const task of backlogTasks) {
       const project = projectList.find((item) => item.id === task.project_id) ?? null;
       const key = project ? String(project.id) : NO_PROJECT_KEY;
@@ -98,6 +96,21 @@ export default function TasksPage() {
       return a.project.path.localeCompare(b.project.path);
     });
   }, [backlogTasks, projectList]);
+  const normalizedSearch = searchQuery.trim().toLocaleLowerCase();
+  const filteredGroups = useMemo(() => {
+    if (!normalizedSearch) return groups;
+    return groups.flatMap((group) => {
+      const projectMatches = group.project
+        ? [group.project.name, group.project.path].some((value) => value.toLocaleLowerCase().includes(normalizedSearch))
+        : "no project".includes(normalizedSearch);
+      const tasks = projectMatches
+        ? group.tasks
+        : group.tasks.filter((task) => [task.title, task.description ?? ""]
+          .some((value) => value.toLocaleLowerCase().includes(normalizedSearch)));
+      return tasks.length > 0 ? [{ ...group, tasks }] : [];
+    });
+  }, [groups, normalizedSearch]);
+  const filteredTaskCount = filteredGroups.reduce((count, group) => count + group.tasks.length, 0);
 
   function markRecent(ids: number[]) {
     setRecentIds(ids);
@@ -110,9 +123,10 @@ export default function TasksPage() {
     setCreating(true);
     setCreateError(null);
     try {
-      const created = await tasksApi.create(null, title.trim(), projectId);
-      setTaskList((current) => [...current, created]);
+      const created = await tasksApi.create(null, title.trim(), projectId, description.trim() || null);
+      setTaskList((current) => upsertTask(current, created));
       setTitle("");
+      setDescription("");
       markRecent([created.id]);
     } catch (error) {
       setCreateError(error instanceof ApiError ? error.message : "Could not add task.");
@@ -124,9 +138,8 @@ export default function TasksPage() {
   async function movePastTasks() {
     setMoving(true);
     try {
-      const result = await tasksApi.movePastToBacklog(today);
-      const movedById = new Map(result.moved.map((task) => [task.id, task]));
-      setTaskList((current) => current.map((task) => movedById.get(task.id) ?? task));
+      const result = await taskMutations.movePastToBacklog(today);
+      setTaskList((current) => upsertTasks(current, result.moved));
       markRecent(result.moved.map((task) => task.id));
       toast.add({
         id: `backlog-moved-${Date.now()}`,
@@ -146,14 +159,14 @@ export default function TasksPage() {
   }
 
   function updateTask(updated: Task) {
-    setTaskList((current) => current.map((item) => item.id === updated.id ? updated : item));
+    setTaskList((current) => upsertTask(current, updated));
   }
 
   async function toggleTask(task: Task) {
     setTogglingId(task.id);
     try {
-      const updated = await tasksApi.update(task.id, { completed: task.completed_at === null });
-      setTaskList((current) => current.map((item) => item.id === task.id ? updated : item));
+      const updated = await setTaskCompletion(task);
+      setTaskList((current) => upsertTask(current, updated));
     } catch {
       toast.add({
         id: `backlog-toggle-error-${task.id}`,
@@ -168,9 +181,9 @@ export default function TasksPage() {
   async function removeTask(task: Task) {
     setRemovingIds((current) => [...current, task.id]);
     try {
-      await tasksApi.remove(task.id);
+      await taskMutations.remove(task);
       await new Promise((resolve) => window.setTimeout(resolve, 160));
-      setTaskList((current) => current.filter((item) => item.id !== task.id));
+      setTaskList((current) => removeTaskFromList(current, task.id));
     } catch {
       setRemovingIds((current) => current.filter((id) => id !== task.id));
       toast.add({
@@ -249,26 +262,49 @@ export default function TasksPage() {
         </CardHeader>
         <CardContent>
           <form onSubmit={createTask}>
-            <FieldGroup className="gap-2 sm:flex-row">
-              <Field className="sm:w-56 sm:shrink-0">
-                <FieldLabel className="sr-only">Project</FieldLabel>
-                <ProjectSelector projects={projectList} value={projectId} onChange={setProjectId} disabled={creating} />
-              </Field>
-              <Field className="min-w-0 flex-1" data-invalid={Boolean(createError)}>
-                <FieldLabel htmlFor="backlog-task-title" className="sr-only">Task title</FieldLabel>
-                <Input
-                  id="backlog-task-title"
-                  value={title}
-                  onChange={(event) => setTitle(event.target.value)}
-                  placeholder="Task title"
-                  aria-invalid={Boolean(createError)}
+            <FieldGroup className="gap-3">
+              <div className="flex flex-col gap-2 sm:flex-row">
+                <Field className="sm:w-56 sm:shrink-0">
+                  <FieldLabel className="sr-only">Project</FieldLabel>
+                  <ProjectSelector
+                    projects={projectList}
+                    value={projectId}
+                    onChange={setProjectId}
+                    onProjectCreated={(project) => {
+                      setProjectList((current) => [...current.filter((item) => item.id !== project.id), project]
+                        .sort((a, b) => a.path.localeCompare(b.path)));
+                      setProjectId(project.id);
+                    }}
+                    disabled={creating}
+                  />
+                </Field>
+                <Field className="min-w-0 flex-1" data-invalid={Boolean(createError)}>
+                  <FieldLabel htmlFor="backlog-task-title" className="sr-only">Task title</FieldLabel>
+                  <Input
+                    id="backlog-task-title"
+                    value={title}
+                    onChange={(event) => setTitle(event.target.value)}
+                    placeholder="Task title"
+                    aria-invalid={Boolean(createError)}
+                    disabled={creating}
+                  />
+                </Field>
+                <Button type="submit" disabled={creating || !title.trim()}>
+                  {creating ? <Spinner data-icon="inline-start" /> : <Plus data-icon="inline-start" />}
+                  {creating ? "Adding..." : "Add task"}
+                </Button>
+              </div>
+              <Field>
+                <FieldLabel htmlFor="backlog-task-description">Description (optional)</FieldLabel>
+                <Textarea
+                  id="backlog-task-description"
+                  value={description}
+                  onChange={(event) => setDescription(event.target.value)}
+                  placeholder="Add context, acceptance criteria, or the next concrete step."
+                  maxLength={4000}
                   disabled={creating}
                 />
               </Field>
-              <Button type="submit" disabled={creating || !title.trim()}>
-                {creating ? <Spinner data-icon="inline-start" /> : <Plus data-icon="inline-start" />}
-                {creating ? "Adding..." : "Add task"}
-              </Button>
             </FieldGroup>
             <FieldError className="mt-2">{createError}</FieldError>
           </form>
@@ -283,8 +319,24 @@ export default function TasksPage() {
             <h3 id="backlog-heading" className="font-medium">Backlog</h3>
             <HelpTooltip>Undated tasks, grouped by project.</HelpTooltip>
           </div>
-          <Badge variant="outline">{backlogTasks.length} total</Badge>
+          <Badge variant="outline">
+            {normalizedSearch ? `${filteredTaskCount} of ${backlogTasks.length}` : `${backlogTasks.length} total`}
+          </Badge>
         </div>
+        {!loadError && groups.length > 0 && (
+          <div className="relative">
+            <label htmlFor="backlog-search" className="sr-only">Search backlog</label>
+            <Search className="text-muted-foreground pointer-events-none absolute top-1/2 left-3 size-4 -translate-y-1/2" />
+            <Input
+              id="backlog-search"
+              type="search"
+              value={searchQuery}
+              onChange={(event) => setSearchQuery(event.target.value)}
+              placeholder="Search tasks and projects"
+              className="pl-9"
+            />
+          </div>
+        )}
         {!loadError && groups.length === 0 ? (
           <Empty className="animate-in fade-in zoom-in-95 duration-300 min-h-72 border">
             <EmptyHeader>
@@ -295,89 +347,36 @@ export default function TasksPage() {
               </EmptyDescription>
             </EmptyHeader>
           </Empty>
+        ) : !loadError && normalizedSearch && filteredGroups.length === 0 ? (
+          <Empty className="animate-in fade-in zoom-in-95 duration-300 min-h-56 border">
+            <EmptyHeader>
+              <EmptyMedia variant="icon"><Search /></EmptyMedia>
+              <EmptyTitle>No matching backlog tasks</EmptyTitle>
+              <EmptyDescription>
+                Try another task title, description, project name, or project path.
+              </EmptyDescription>
+            </EmptyHeader>
+          </Empty>
         ) : (
-          <div className="grid items-start gap-4 md:grid-cols-2">
-          {groups.map((group, groupIndex) => {
-            const activeCount = group.tasks.filter((task) => task.completed_at === null).length;
-            return (
-              <Card
+          <div className="columns-1 gap-4 md:columns-2 xl:columns-3">
+            {filteredGroups.map((group, groupIndex) => (
+              <BacklogGroupCard
                 key={group.key}
-                className="animate-in fade-in slide-in-from-bottom-2 duration-300 fill-mode-both"
-                style={{ animationDelay: `${Math.min(groupIndex * 50, 200)}ms` }}
-              >
-                <CardHeader>
-                  <CardTitle className="flex min-w-0 items-center gap-2">
-                    {group.project ? <ProjectIcon icon={group.project.icon} /> : <NoProjectIcon />}
-                    <span className="truncate" title={group.project?.path ?? "No project"}>
-                      {group.project?.name ?? "No project"}
-                    </span>
-                  </CardTitle>
-                  <CardDescription>
-                    {activeCount} open{group.project?.archived ? " · Archived project" : ""}
-                  </CardDescription>
-                  <CardAction><Badge variant="outline">{group.tasks.length}</Badge></CardAction>
-                </CardHeader>
-                <CardContent className="flex flex-col gap-1">
-                  {group.tasks.map((task) => {
-                    const removing = removingIds.includes(task.id);
-                    const recent = recentIds.includes(task.id);
-                    const completed = task.completed_at !== null;
-                    return (
-                      <div
-                        key={task.id}
-                        className={cn(
-                          "group/task flex min-w-0 items-start gap-2 rounded-lg px-2 py-2 transition-[background-color,opacity,transform] duration-200 hover:bg-muted/60",
-                          recent && "animate-in fade-in slide-in-from-top-2 duration-300",
-                          removing && "animate-out fade-out slide-out-to-right-2 pointer-events-none duration-150 fill-mode-forwards",
-                        )}
-                      >
-                        <Checkbox
-                          className="mt-0.5"
-                          checked={completed}
-                          onCheckedChange={() => toggleTask(task)}
-                          disabled={togglingId === task.id}
-                          aria-label={completed ? `Mark "${task.title}" not done` : `Mark "${task.title}" done`}
-                        />
-                        <div className="flex min-w-0 flex-1 flex-col gap-0.5">
-                          <span className={cn(
-                            "text-sm break-words transition-[color,opacity,text-decoration-color] duration-200",
-                            completed && "text-muted-foreground line-through",
-                          )}>
-                            {task.title}
-                          </span>
-                          {task.description && (
-                            <LinkifiedText text={task.description} as="p" className="text-muted-foreground line-clamp-2 text-xs leading-relaxed" />
-                          )}
-                        </div>
-                        <div className="flex shrink-0 gap-1 opacity-100 transition-opacity duration-150 sm:opacity-0 sm:group-hover/task:opacity-100 sm:group-focus-within/task:opacity-100">
-                          <TaskEditorPopover task={task} onUpdated={updateTask} />
-                          <AlertDialog>
-                            <AlertDialogTrigger
-                              render={<Button variant="ghost" size="icon-xs" aria-label={`Delete ${task.title}`} className="text-destructive hover:text-destructive" />}
-                            >
-                              <Trash2 />
-                            </AlertDialogTrigger>
-                            <AlertDialogContent size="sm">
-                              <AlertDialogHeader>
-                                <AlertDialogTitle>Delete this task?</AlertDialogTitle>
-                                <AlertDialogDescription>
-                                  “{task.title}” will be permanently removed.
-                                </AlertDialogDescription>
-                              </AlertDialogHeader>
-                              <AlertDialogFooter>
-                                <AlertDialogCancel>Cancel</AlertDialogCancel>
-                                <AlertDialogAction variant="destructive" onClick={() => removeTask(task)}>Delete</AlertDialogAction>
-                              </AlertDialogFooter>
-                            </AlertDialogContent>
-                          </AlertDialog>
-                        </div>
-                      </div>
-                    );
-                  })}
-                </CardContent>
-              </Card>
-            );
-          })}
+                group={group}
+                groupIndex={groupIndex}
+                projects={projectList}
+                togglingId={togglingId}
+                removingIds={removingIds}
+                recentIds={recentIds}
+                onCreated={(created) => {
+                  setTaskList((current) => upsertTask(current, created));
+                  markRecent([created.id]);
+                }}
+                onUpdated={updateTask}
+                onToggle={toggleTask}
+                onRemove={removeTask}
+              />
+            ))}
           </div>
         )}
       </section>

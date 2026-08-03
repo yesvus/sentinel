@@ -34,27 +34,29 @@ const config = {
 export function LearningProducingChart({
   points,
   now,
+  timeZone,
 }: {
   points: AllocationPoint[];
   now: number;
+  timeZone?: string;
 }) {
   const [mode, setMode] = useState<"duration" | "percentage">("duration");
-  const currentWeekStart = startOfWeek(new Date(now));
+  const currentWeekStart = startOfWeek(new Date(now), timeZone);
   const [selectedWeekStart, setSelectedWeekStart] = useState(currentWeekStart);
   const pointsByDay = new Map(points.map((point) => [point.key, point]));
   const selectedPoints = Array.from({ length: 7 }, (_, index) => {
-    const date = addDays(selectedWeekStart, index);
-    const key = dayKey(date);
+    const date = addDays(selectedWeekStart, index, timeZone);
+    const key = dayKey(date, timeZone);
     return pointsByDay.get(key) ?? {
       key,
-      date: date.toLocaleDateString(undefined, { month: "long", day: "numeric", year: "numeric" }),
-      label: date.toLocaleDateString(undefined, { weekday: "short" }),
+      date: date.toLocaleDateString(undefined, { timeZone, month: "long", day: "numeric", year: "numeric" }),
+      label: date.toLocaleDateString(undefined, { timeZone, weekday: "short" }),
       learning: 0,
       producing: 0,
       total: 0,
     };
   });
-  const isCurrentWeek = weekKey(selectedWeekStart) === weekKey(currentWeekStart);
+  const isCurrentWeek = weekKey(selectedWeekStart, timeZone) === weekKey(currentWeekStart, timeZone);
   const data = selectedPoints.map((point) => ({
     ...point,
     learningPercent: point.total ? Math.round(point.learning / point.total * 100) : 0,
@@ -69,20 +71,20 @@ export function LearningProducingChart({
             variant="ghost"
             size="icon-sm"
             className="text-muted-foreground"
-            onClick={() => setSelectedWeekStart((date) => addDays(date, -7))}
+            onClick={() => setSelectedWeekStart((date) => addDays(date, -7, timeZone))}
             aria-label="Previous week"
           >
             <ChevronLeft />
           </Button>
           <span className="text-muted-foreground min-w-32 text-center text-sm whitespace-nowrap">
-            {formatWeekRangeLabel(selectedWeekStart)}
+            {formatWeekRangeLabel(selectedWeekStart, timeZone)}
           </span>
           <Button
             variant="ghost"
             size="icon-sm"
             className="text-muted-foreground"
             disabled={isCurrentWeek}
-            onClick={() => setSelectedWeekStart((date) => addDays(date, 7))}
+            onClick={() => setSelectedWeekStart((date) => addDays(date, 7, timeZone))}
             aria-label="Next week"
           >
             <ChevronRight />

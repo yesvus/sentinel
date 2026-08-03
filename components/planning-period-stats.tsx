@@ -14,20 +14,30 @@ const PROJECT_COLORS = [
   "var(--project-5)", "var(--project-6)", "var(--project-7)",
 ];
 
+export function shouldShowPlanningComparison(period: "day" | "week", date: Date, now: number, timeZone?: string) {
+  const currentDate = new Date(now);
+  if (period === "day") return dayKey(date, timeZone) <= dayKey(currentDate, timeZone);
+  return dayKey(startOfWeek(date, timeZone), timeZone) <= dayKey(startOfWeek(currentDate, timeZone), timeZone);
+}
+
 export function PlanningPeriodStats({
   period,
   sessions,
   previousSessions,
   now,
   date,
+  showComparison = true,
   className,
+  timeZone,
 }: {
   period: "day" | "week";
   sessions: StudySession[];
   previousSessions: StudySession[];
   now: number;
   date: Date;
+  showComparison?: boolean;
   className?: string;
+  timeZone?: string;
 }) {
   const trackedSeconds = sessions.reduce((total, session) => total + sessionDurationSeconds(session, now), 0);
   const previousTrackedSeconds = previousSessions.reduce((total, session) => total + sessionDurationSeconds(session, now), 0);
@@ -37,10 +47,10 @@ export function PlanningPeriodStats({
   const projectColorByKey = new Map(
     breakdown.map((project, index) => [String(project.key), PROJECT_COLORS[index % PROJECT_COLORS.length]]),
   );
-  const weekStart = startOfWeek(date);
+  const weekStart = startOfWeek(date, timeZone);
   const weekDays = Array.from({ length: 7 }, (_, index) => {
-    const currentDate = addDays(weekStart, index);
-    const daySessions = sessions.filter((session) => dayKey(new Date(session.started_at)) === dayKey(currentDate));
+    const currentDate = addDays(weekStart, index, timeZone);
+    const daySessions = sessions.filter((session) => dayKey(new Date(session.started_at), timeZone) === dayKey(currentDate, timeZone));
     const projects = projectTotals(daySessions, now);
     return {
       date: currentDate,
@@ -69,16 +79,18 @@ export function PlanningPeriodStats({
                 <span className="font-mono text-2xl font-medium tracking-tight tabular-nums">{formatDuration(averageSeconds)}</span>
                 <span className="text-muted-foreground ml-1.5 text-xs">per day</span>
               </p>
-              <span className="text-primary flex items-center gap-1 text-xs font-medium">
-                {averageDelta > 0 ? <TrendingUp className="size-3.5" /> : averageDelta < 0 ? <TrendingDown className="size-3.5" /> : <Minus className="size-3.5" />}
-                {averageDelta > 0 ? "+" : averageDelta < 0 ? "−" : ""}{formatDuration(Math.abs(averageDelta))} vs {comparisonLabel}
-              </span>
+              {showComparison && (
+                <span className="text-primary flex items-center gap-1 text-xs font-medium">
+                  {averageDelta > 0 ? <TrendingUp className="size-3.5" /> : averageDelta < 0 ? <TrendingDown className="size-3.5" /> : <Minus className="size-3.5" />}
+                  {averageDelta > 0 ? "+" : averageDelta < 0 ? "−" : ""}{formatDuration(Math.abs(averageDelta))} vs {comparisonLabel}
+                </span>
+              )}
             </div>
 
             <div className="mt-2 grid grid-cols-7 gap-1 pr-8 text-center">
               {weekDays.map((day) => (
-                <span key={dayKey(day.date)} className="text-muted-foreground text-[10px] font-medium uppercase">
-                  {day.date.toLocaleDateString(undefined, { weekday: "narrow" })}
+                <span key={dayKey(day.date, timeZone)} className="text-muted-foreground text-[10px] font-medium uppercase">
+                  {day.date.toLocaleDateString(undefined, { timeZone, weekday: "narrow" })}
                 </span>
               ))}
             </div>
@@ -100,7 +112,7 @@ export function PlanningPeriodStats({
               </div>
               <div className="absolute top-0 right-8 bottom-0 left-0 grid grid-cols-7 gap-1">
                 {weekDays.map((day, dayIndex) => (
-                  <div key={dayKey(day.date)} className="flex items-end justify-center">
+                  <div key={dayKey(day.date, timeZone)} className="flex items-end justify-center">
                     <div
                       className="activity-bar-grow flex w-6 flex-col-reverse overflow-hidden rounded-sm"
                       style={{
@@ -119,12 +131,12 @@ export function PlanningPeriodStats({
                                   flexGrow: project.seconds,
                                   backgroundColor: projectColorByKey.get(String(project.key)) ?? PROJECT_COLORS[0],
                                 }}
-                                aria-label={`${day.date.toLocaleDateString(undefined, { weekday: "long" })}, ${project.name}: ${formatDuration(project.seconds)}`}
+                                aria-label={`${day.date.toLocaleDateString(undefined, { timeZone, weekday: "long" })}, ${project.name}: ${formatDuration(project.seconds)}`}
                               />
                             }
                           />
-                          <TooltipContent>
-                            {day.date.toLocaleDateString(undefined, { weekday: "short" })} · {project.name} · {formatDuration(project.seconds)}
+                          <TooltipContent side="right" sideOffset={10}>
+                            <span className="max-w-40 truncate">{project.name}</span> · {formatDuration(project.seconds)}
                           </TooltipContent>
                         </Tooltip>
                       ))}
@@ -137,9 +149,9 @@ export function PlanningPeriodStats({
             <div className="mt-1 grid grid-cols-7 gap-1 pr-8 text-center">
               {weekDays.map((day) => (
                 <span
-                  key={dayKey(day.date)}
+                  key={dayKey(day.date, timeZone)}
                   className="text-muted-foreground font-mono text-[9px] leading-none tabular-nums"
-                  title={`${day.date.toLocaleDateString()}: ${formatDuration(day.seconds)}`}
+                  title={`${day.date.toLocaleDateString(undefined, { timeZone })}: ${formatDuration(day.seconds)}`}
                 >
                   {day.seconds > 0 ? formatDuration(day.seconds) : "—"}
                 </span>
@@ -167,10 +179,12 @@ export function PlanningPeriodStats({
           <>
         <div className="animate-in fade-in slide-in-from-bottom-1 flex flex-wrap items-baseline justify-between gap-x-4 gap-y-1 duration-300">
             <p className="whitespace-nowrap font-mono text-3xl font-medium tracking-tight tabular-nums">{formatDuration(trackedSeconds)}</p>
-            <span className="text-primary flex items-center gap-1 text-sm font-medium">
-              {trackedDelta > 0 ? <TrendingUp className="size-3.5" /> : trackedDelta < 0 ? <TrendingDown className="size-3.5" /> : <Minus className="size-3.5" />}
-              {trackedDelta > 0 ? "+" : trackedDelta < 0 ? "−" : ""}{formatDuration(Math.abs(trackedDelta))} vs {comparisonLabel}
-            </span>
+            {showComparison && (
+              <span className="text-primary flex items-center gap-1 text-sm font-medium">
+                {trackedDelta > 0 ? <TrendingUp className="size-3.5" /> : trackedDelta < 0 ? <TrendingDown className="size-3.5" /> : <Minus className="size-3.5" />}
+                {trackedDelta > 0 ? "+" : trackedDelta < 0 ? "−" : ""}{formatDuration(Math.abs(trackedDelta))} vs {comparisonLabel}
+              </span>
+            )}
         </div>
 
         <div className="mt-3">

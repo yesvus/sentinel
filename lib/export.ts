@@ -1,5 +1,5 @@
 import { StudySession, Note, Project, Task } from "./api";
-import { dayKey, formatDuration, formatTime, formatWeekRangeLabel } from "./date";
+import { addDays, dayKey, formatDuration, formatTime, formatWeekRangeLabel } from "./date";
 import { splitSessionDuration, projectTotals, NO_PROJECT_LABEL, WeekStats, PartialWeekStats } from "./session-stats";
 
 const CSV_HEADER = [
@@ -32,7 +32,7 @@ function toCsvRow(fields: (string | number)[]) {
 type CsvRow = { sortKey: string; fields: (string | number)[] };
 
 /** `now` is used to compute the live duration of a still-running session. */
-function sessionCsvRow(session: StudySession, now: number): CsvRow {
+function sessionCsvRow(session: StudySession, now: number, timeZone?: string): CsvRow {
   const start = new Date(session.started_at);
   const isActive = session.ended_at === null;
   const end = isActive ? null : new Date(session.ended_at!);
@@ -46,9 +46,9 @@ function sessionCsvRow(session: StudySession, now: number): CsvRow {
     sortKey: session.started_at,
     fields: [
       "Session",
-      start.toLocaleDateString(undefined, { year: "numeric", month: "2-digit", day: "2-digit" }),
-      start.toLocaleTimeString(undefined, { hour: "2-digit", minute: "2-digit", hour12: false }),
-      end ? end.toLocaleTimeString(undefined, { hour: "2-digit", minute: "2-digit", hour12: false }) : "",
+      start.toLocaleDateString(undefined, { timeZone, year: "numeric", month: "2-digit", day: "2-digit" }),
+      start.toLocaleTimeString(undefined, { timeZone, hour: "2-digit", minute: "2-digit", hour12: false }),
+      end ? end.toLocaleTimeString(undefined, { timeZone, hour: "2-digit", minute: "2-digit", hour12: false }) : "",
       Math.round(seconds / 60),
       isActive ? "In progress" : "Completed",
       session.project_path ?? session.project_name ?? "",
@@ -88,9 +88,10 @@ export function sessionsToCsv(
   sessionList: StudySession[],
   noteList: Note[],
   projectList: Project[],
-  now: number
+  now: number,
+  timeZone?: string,
 ) {
-  const rows = [...sessionList.map((s) => sessionCsvRow(s, now)), ...noteList.map(noteCsvRow)].sort((a, b) =>
+  const rows = [...sessionList.map((s) => sessionCsvRow(s, now, timeZone)), ...noteList.map(noteCsvRow)].sort((a, b) =>
     a.sortKey.localeCompare(b.sortKey)
   );
   const usedProjectIds = new Set(
@@ -123,9 +124,10 @@ export function exportSessions(
   sessionList: StudySession[],
   noteList: Note[],
   projectList: Project[],
-  now: number
+  now: number,
+  timeZone?: string,
 ) {
-  downloadCsv(filename, sessionsToCsv(sessionList, noteList, projectList, now));
+  downloadCsv(filename, sessionsToCsv(sessionList, noteList, projectList, now, timeZone));
 }
 
 // --- Shared formatting helpers for the AI review prompts ---
@@ -151,7 +153,7 @@ function freeformSection(text: string | null | undefined) {
   return text?.trim() || "(none)";
 }
 
-function sessionSection(sessionList: StudySession[], now: number) {
+function sessionSection(sessionList: StudySession[], now: number, timeZone?: string) {
   if (!sessionList.length) return "(none)";
   return sessionList
     .slice()
@@ -159,8 +161,8 @@ function sessionSection(sessionList: StudySession[], now: number) {
     .map((session, i) => {
       const isActive = session.ended_at === null;
       const split = splitSessionDuration(session, now);
-      const startLabel = formatTime(session.started_at);
-      const endLabel = isActive ? "now" : formatTime(session.ended_at!);
+      const startLabel = formatTime(session.started_at, timeZone);
+      const endLabel = isActive ? "now" : formatTime(session.ended_at!, timeZone);
       const project = session.project_path ?? session.project_name ?? "no project";
       const splitLabel = session.production_percentage == null
         ? "split not tracked"
@@ -274,6 +276,7 @@ export function buildAiPrompt({
   weekSoFar,
   dayNote,
   now,
+  timeZone,
 }: {
   userContext: string | null;
   date: Date;
@@ -284,8 +287,9 @@ export function buildAiPrompt({
   weekSoFar: PartialWeekStats;
   dayNote: Note | undefined;
   now: number;
+  timeZone?: string;
 }) {
-  const dateLabel = `${date.toLocaleDateString(undefined, { weekday: "long" })}, ${dayKey(date)}`;
+  const dateLabel = `${date.toLocaleDateString(undefined, { timeZone, weekday: "long" })}, ${dayKey(date, timeZone)}`;
   return `You are reviewing one day of my tracked work. The data comes first, the instructions come last.
 Read everything before you respond.
 
@@ -312,7 +316,7 @@ ${aboutMeSection(userContext)}
 <date>${dateLabel}</date>
 
 <sessions_today>
-${sessionSection(sessionList, now)}
+${sessionSection(sessionList, now, timeZone)}
 </sessions_today>
 
 <day_totals>
@@ -367,11 +371,11 @@ function signedNumber(value: number, unit = "", decimals = 1) {
   return `${sign}${rounded}${unit}`;
 }
 
-function backgroundPreviousWeeksSection(previousWeeks: WeekStats[]) {
+function backgroundPreviousWeeksSection(previousWeeks: WeekStats[], timeZone?: string) {
   if (!previousWeeks.length) return "(none — not enough history yet)";
   const table = previousWeeks
     .map((week) => {
-      const label = formatWeekRangeLabel(week.weekStart);
+      const label = formatWeekRangeLabel(week.weekStart, timeZone);
       return `${label} | ${formatDuration(week.trackedSeconds)} | ${week.activeDays} | ${week.learningPercent} | ${week.topProject ?? "none"}`;
     })
     .join("\n");
@@ -471,15 +475,16 @@ export function buildWeeklyAiPrompt({
   previousWeeks,
   currentWeek,
   weekNote,
+  timeZone,
 }: {
   userContext: string | null;
   longTermGoalsText: string | null | undefined;
   previousWeeks: WeekStats[];
   currentWeek: WeekStats;
   weekNote: Note | undefined;
+  timeZone?: string;
 }) {
-  const weekEnd = new Date(currentWeek.weekStart);
-  weekEnd.setDate(weekEnd.getDate() + 6);
+  const weekEnd = addDays(currentWeek.weekStart, 6, timeZone);
   return `You are reviewing one week of my tracked work. The data comes first, the instructions come last.
 Read everything before you respond.
 
@@ -506,13 +511,13 @@ ${freeformSection(longTermGoalsText)}
 Background only. The subject of this review is the current week below. Use these weeks solely to
 tell whether something is unusual. Do not review them.
 
-${backgroundPreviousWeeksSection(previousWeeks)}
+${backgroundPreviousWeeksSection(previousWeeks, timeZone)}
 
 ${comparisonSection(currentWeek, previousWeeks)}
 </background_previous_weeks>
 
 <current_week>
-<dates>${dayKey(currentWeek.weekStart)} to ${dayKey(weekEnd)}</dates>
+<dates>${dayKey(currentWeek.weekStart, timeZone)} to ${dayKey(weekEnd, timeZone)}</dates>
 
 <stats>
 tracked ${formatDuration(currentWeek.trackedSeconds)} · active days ${currentWeek.activeDays} of 7 · Learning ${currentWeek.learningPercent}% / Producing ${100 - currentWeek.learningPercent}% ·
