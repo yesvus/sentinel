@@ -4,7 +4,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { ActiveSessionProvider, useActiveSession } from "@/lib/active-session-context";
 import type { StudySession } from "@/lib/api";
 
-const { getActive, expirePause, start, createManual, update, remove, stop, pause, resume, clearApiCache, toastAdd } = vi.hoisted(() => ({
+const { getActive, expirePause, start, createManual, update, remove, stop, pause, resume, clearApiCache, invalidateApiCache, toastAdd } = vi.hoisted(() => ({
   getActive: vi.fn(),
   expirePause: vi.fn(),
   start: vi.fn(),
@@ -15,12 +15,14 @@ const { getActive, expirePause, start, createManual, update, remove, stop, pause
   pause: vi.fn(),
   resume: vi.fn(),
   clearApiCache: vi.fn(),
+  invalidateApiCache: vi.fn(),
   toastAdd: vi.fn(),
 }));
 
 vi.mock("@/lib/api", () => ({
   ApiError: class ApiError extends Error {},
   clearApiCache,
+  invalidateApiCache,
   sessions: {
     getActive,
     expirePause,

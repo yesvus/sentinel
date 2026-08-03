@@ -1,4 +1,4 @@
-export { ApiError, api, clearApiCache } from "./api/core";
+export { ApiError, api, clearApiCache, invalidateApiCache } from "./api/core";
 export { auth } from "./api/auth";
 export type { FocusAudioType, User } from "./api/auth";
 export { noiseUsage } from "./api/noise-usage";
@@ -7,7 +7,7 @@ export type { SessionPage, SessionUpdateResult, StudySession } from "./api/sessi
 export { LONG_TERM_NOTE_KEY, notes } from "./api/notes";
 export type { Note } from "./api/notes";
 export { tasks } from "./api/tasks";
-export type { MoveToBacklogResult, Task } from "./api/tasks";
+export type { MoveToBacklogResult, ReorderEntry, Task } from "./api/tasks";
 export { projects } from "./api/projects";
 export type { Project } from "./api/projects";
 export { reports } from "./api/reports";

@@ -17,6 +17,8 @@ function parseSessionCursor(cursor: string | null): [string, number] | null {
   return null;
 }
 
+const TWELVE_HOURS_MS = 12 * 60 * 60 * 1000;
+
 async function finalizeExpiredPause(userId: number, sessionId?: number) {
   const result = await db.execute({
     sql: `SELECT sessions.id, sessions.started_at, sessions.paused_at, sessions.paused_seconds,
@@ -48,8 +50,57 @@ async function finalizeExpiredPause(userId: number, sessionId?: number) {
   return { id: Number(session.id), endedAt: new Date(endedAt).toISOString(), durationSeconds };
 }
 
+async function finalizeExpiredSession(userId: number) {
+  const result = await db.execute({
+    sql: `SELECT sessions.id, sessions.started_at, sessions.paused_at, sessions.paused_seconds,
+                 users.session_pause_timeout_minutes
+          FROM sessions JOIN users ON users.id = sessions.user_id
+          WHERE sessions.user_id = ? AND sessions.ended_at IS NULL
+          LIMIT 1`,
+    args: [userId],
+  });
+  const session = result.rows[0];
+  if (!session) return null;
+  const startedAt = new Date(session.started_at as string).getTime();
+  if (Date.now() - startedAt <= TWELVE_HOURS_MS) {
+    if (session.paused_at === null) return null;
+    const pausedAt = new Date(session.paused_at as string).getTime();
+    const timeoutSeconds = Number(session.session_pause_timeout_minutes ?? 30) * 60;
+    if (Date.now() - pausedAt <= timeoutSeconds * 1000) return null;
+    const pausedSeconds = Number(session.paused_seconds ?? 0) + timeoutSeconds;
+    const durationSeconds = Math.max(0, Math.round((pausedAt + timeoutSeconds * 1000 - startedAt) / 1000) - pausedSeconds);
+    await db.batch([
+      {
+        sql: "UPDATE sessions SET ended_at = ?, duration_seconds = ?, paused_at = NULL, paused_seconds = ? WHERE id = ? AND user_id = ? AND ended_at IS NULL",
+        args: [new Date(pausedAt + timeoutSeconds * 1000).toISOString(), durationSeconds, pausedSeconds, Number(session.id), userId],
+      },
+      {
+        sql: "DELETE FROM session_tasks WHERE session_id = ? AND task_id IN (SELECT id FROM tasks WHERE user_id = ? AND completed_at IS NULL)",
+        args: [Number(session.id), userId],
+      },
+    ], "write");
+    return { id: Number(session.id), endedAt: new Date(pausedAt + timeoutSeconds * 1000).toISOString(), durationSeconds };
+  }
+  const now = Date.now();
+  const pausedSeconds = session.paused_at === null
+    ? Number(session.paused_seconds ?? 0)
+    : Number(session.paused_seconds ?? 0) + Math.max(0, Math.round((now - new Date(session.paused_at as string).getTime()) / 1000));
+  const durationSeconds = Math.max(0, Math.round((now - startedAt) / 1000) - pausedSeconds);
+  await db.batch([
+    {
+      sql: "UPDATE sessions SET ended_at = ?, duration_seconds = ?, paused_at = NULL, paused_seconds = ? WHERE id = ? AND user_id = ? AND ended_at IS NULL",
+      args: [new Date(now).toISOString(), durationSeconds, pausedSeconds, Number(session.id), userId],
+    },
+    {
+      sql: "DELETE FROM session_tasks WHERE session_id = ? AND task_id IN (SELECT id FROM tasks WHERE user_id = ? AND completed_at IS NULL)",
+      args: [Number(session.id), userId],
+    },
+  ], "write");
+  return { id: Number(session.id), endedAt: new Date(now).toISOString(), durationSeconds };
+}
+
 async function activeSession(userId: number) {
-  await finalizeExpiredPause(userId);
+  await finalizeExpiredSession(userId);
   const result = await db.execute({
     sql: `SELECT sessions.id, sessions.started_at, sessions.ended_at,
                  sessions.duration_seconds, sessions.description, sessions.production_percentage,
@@ -112,7 +163,7 @@ export async function sessionRoutes(request: NextRequest, parts: string[], userI
     }
   }
   if (!action && request.method === "GET") {
-    await finalizeExpiredPause(userId);
+    await finalizeExpiredSession(userId);
     const requestedLimit = request.nextUrl.searchParams.get("limit");
     const limit = requestedLimit ? Number(requestedLimit) : null;
     if (requestedLimit && (!Number.isInteger(limit) || limit! < 1 || limit! > 100)) return error("limit must be an integer between 1 and 100");
@@ -180,7 +231,7 @@ export async function sessionRoutes(request: NextRequest, parts: string[], userI
   const id = Number(action);
   if (!Number.isInteger(id)) return error("Not found", 404);
   if (parts[2] === "pause" && request.method === "PATCH") {
-    await finalizeExpiredPause(userId, id);
+    await finalizeExpiredSession(userId);
     const existing = await db.execute({ sql: "SELECT paused_at, paused_seconds FROM sessions WHERE id = ? AND user_id = ? AND ended_at IS NULL", args: [id, userId] });
     const session = existing.rows[0];
     if (!session) return error("Active session not found", 404);
@@ -267,7 +318,7 @@ async function updateSession(request: NextRequest, id: number, userId: number) {
   const end = data.endedAt === null ? null : data.endedAt !== undefined ? new Date(data.endedAt as string) : wasActive ? null : new Date(session.ended_at as string);
   if (Number.isNaN(start.getTime()) || (end && Number.isNaN(end.getTime()))) return error("startedAt and endedAt must be valid dates");
   if (end === null && start.getTime() > Date.now()) return error("startedAt cannot be in the future");
-  if (!wasActive && end === null && Date.now() - start.getTime() > 12 * 60 * 60 * 1000) {
+  if (!wasActive && end === null && Date.now() - start.getTime() > TWELVE_HOURS_MS) {
     return error("Sessions started more than 12 hours ago cannot be marked ongoing");
   }
   if (end && end <= start) return error("endedAt must be after startedAt");

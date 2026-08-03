@@ -18,6 +18,7 @@ const createdTask: Task = {
   title: "Created task",
   description: null,
   completed_at: null,
+  sort_order: 0,
 };
 
 function Harness({ sessionId, running = true }: { sessionId: number | null; running?: boolean }) {

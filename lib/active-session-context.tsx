@@ -2,7 +2,7 @@
 
 import { createContext, useCallback, useContext, useEffect, useRef, useState } from "react";
 import { toast } from "@/components/ui/toast";
-import { ApiError, clearApiCache, sessions, type SessionUpdateResult, type StudySession } from "@/lib/api";
+import { ApiError, clearApiCache, invalidateApiCache, sessions, type SessionUpdateResult, type StudySession } from "@/lib/api";
 import { useAuth } from "@/lib/auth-context";
 import { formatDuration } from "@/lib/date";
 import { NOISE_SESSION_EVENT } from "@/lib/noise-player";
@@ -104,6 +104,7 @@ export function ActiveSessionProvider({ children }: { children: React.ReactNode 
     invalidateReconciliation();
     applyActive(session);
     hasReconciledRef.current = true;
+    invalidateApiCache();
     setSessionRevision((revision) => revision + 1);
   }, [applyActive, invalidateReconciliation]);
 

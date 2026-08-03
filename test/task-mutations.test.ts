@@ -5,7 +5,7 @@ import { setAttachedTaskCompletion, setTaskCompletion, taskMutations } from "@/l
 
 const task = (completed: boolean): Task => ({
   id: 7, title: "Task", description: null, project_id: null, period_start: "2026-08-02",
-  completed_at: completed ? "2026-08-02T12:00:00.000Z" : null,
+  completed_at: completed ? "2026-08-02T12:00:00.000Z" : null, sort_order: 0,
 });
 
 describe("semantic task mutations", () => {

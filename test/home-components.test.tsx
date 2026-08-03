@@ -48,6 +48,7 @@ const openTask: Task = {
   title: "Review Home",
   description: null,
   completed_at: null,
+  sort_order: 0,
 };
 
 const completedTask: Task = {

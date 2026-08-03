@@ -27,20 +27,20 @@ export function resolveProjectDrop(
   dropAtRoot: boolean,
 ): ProjectMove | null {
   if (dropAtRoot) {
-    return {
-      parentId: null,
-      position: projects.filter((project) => project.id !== moving.id && project.parentId === null && project.pinned === moving.pinned).length,
-    };
+    const sortedRoot = projects
+      .filter((project) => project.id !== moving.id && project.parentId === null && project.pinned === moving.pinned)
+      .sort((a, b) => a.sortOrder - b.sortOrder || a.name.localeCompare(b.name));
+    return { parentId: null, position: sortedRoot.length };
   }
   if (!intent) return null;
   const target = projects.find((project) => project.id === intent.targetId);
   if (!target) return null;
 
   if (intent.position === "inside") {
-    return {
-      parentId: target.id,
-      position: projects.filter((project) => project.id !== moving.id && project.parentId === target.id && project.pinned === moving.pinned).length,
-    };
+    const sortedChildren = projects
+      .filter((project) => project.id !== moving.id && project.parentId === target.id && project.pinned === moving.pinned)
+      .sort((a, b) => a.sortOrder - b.sortOrder || a.name.localeCompare(b.name));
+    return { parentId: target.id, position: sortedChildren.length };
   }
 
   const siblings = projects
