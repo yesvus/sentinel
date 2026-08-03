@@ -55,7 +55,7 @@ export function SessionTimerIndicator() {
             )}
             <span className="min-w-0 truncate">{projectLabel}</span>
           </div>
-          <p className="font-mono text-3xl font-medium tabular-nums">{formatElapsed(elapsedMs)}</p>
+          <p className="font-mono text-2xl font-medium tabular-nums sm:text-3xl">{formatElapsed(elapsedMs)}</p>
           {active.description && (
             <LinkifiedText text={active.description} as="p" className="text-muted-foreground line-clamp-3 text-sm" />
           )}

@@ -18,7 +18,7 @@ import {
 import { Spinner } from "@/components/ui/spinner";
 import { Textarea } from "@/components/ui/textarea";
 import { ApiError, Project, Task, tasks as tasksApi } from "@/lib/api";
-import { taskMutations } from "@/lib/task-mutations";
+import { taskStore } from "@/lib/task-store";
 
 export function TaskCreatorPopover({
   periodStart,
@@ -88,8 +88,8 @@ export function TaskCreatorPopover({
     setError(null);
     try {
       const updated = sessionId === undefined
-        ? await taskMutations.schedule(task, periodStart!)
-        : await taskMutations.attachToActiveSession(task, sessionId, periodStart ?? undefined);
+        ? await taskStore.schedule(task, periodStart!)
+        : await taskStore.attachToActiveSession(task, sessionId, periodStart ?? undefined);
       onCreated(updated);
     } catch (caught) {
       setError(caught instanceof ApiError ? caught.message : "Could not add this task.");

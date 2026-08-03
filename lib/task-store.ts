@@ -1,4 +1,5 @@
 import type { Task } from "@/lib/api";
+import { tasks as tasksApi } from "@/lib/api";
 
 export type SessionTaskMap = Record<number, Task[]>;
 
@@ -32,4 +33,30 @@ export function removeTaskFromSessions(sessionTasks: SessionTaskMap, taskId: num
 
 export function replaceSessionTasks(sessionTasks: SessionTaskMap, sessionId: number, tasks: Task[]) {
   return { ...sessionTasks, [sessionId]: upsertTasks([], tasks) };
+}
+
+export const taskStore = {
+  complete: (task: Task) => tasksApi.update(task.id, { completed: true }),
+  schedule: (task: Task, periodStart: string) => tasksApi.update(task.id, { periodStart }),
+  moveToBacklog: (task: Task) => tasksApi.update(task.id, { periodStart: null }),
+  markUndone: (task: Task) => tasksApi.update(task.id, { completed: false, periodStart: null }),
+  remove: async (task: Task | number) => {
+    const id = typeof task === "number" ? task : task.id;
+    await tasksApi.remove(id);
+    return id;
+  },
+  movePastToBacklog: (before: string) => tasksApi.movePastToBacklog(before),
+  attachToActiveSession: (task: Task, sessionId: number, periodStart?: string) =>
+    tasksApi.update(task.id, {
+      sessionId,
+      ...(periodStart === undefined ? {} : { periodStart }),
+    }),
+};
+
+export function setTaskCompletion(task: Task) {
+  return task.completed_at === null ? taskStore.complete(task) : taskStore.markUndone(task);
+}
+
+export function setAttachedTaskCompletion(task: Task) {
+  return tasksApi.update(task.id, { completed: task.completed_at === null });
 }

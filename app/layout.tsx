@@ -1,7 +1,5 @@
 import type { Metadata } from "next";
 import { Inter, Geist_Mono, Montserrat } from "next/font/google";
-import { AuthProvider } from "@/lib/auth-context";
-import { TooltipProvider } from "@/components/ui/tooltip";
 import { ThemeProvider } from "@/lib/theme-context";
 import "./globals.css";
 
@@ -67,11 +65,7 @@ export default function RootLayout({
         <script dangerouslySetInnerHTML={{ __html: THEME_INIT_SCRIPT }} />
       </head>
       <body className="min-h-full flex flex-col">
-        <ThemeProvider>
-          <AuthProvider>
-            <TooltipProvider>{children}</TooltipProvider>
-          </AuthProvider>
-        </ThemeProvider>
+        <ThemeProvider>{children}</ThemeProvider>
       </body>
     </html>
   );

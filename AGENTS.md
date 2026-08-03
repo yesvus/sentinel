@@ -3,6 +3,14 @@
 These instructions apply to the entire repository. Keep them focused on durable project conventions;
 temporary implementation notes belong in the relevant GitHub issue or pull request.
 
+## Skill Usage
+
+Before starting any task, inspect the available skills and load every skill that is directly relevant to
+the work before planning, editing, reviewing, or running commands. If no relevant skill exists, proceed
+normally. Do not load tangential skills merely because they are available.
+
+Always load `find-skills` when the user asks to install, discover, or search for skills.
+
 <!-- BEGIN:nextjs-agent-rules -->
 
 # Next.js: ALWAYS read docs before coding
@@ -90,6 +98,27 @@ Line count is a review signal, not an automatic design rule.
   stability or expensive recomputation has a concrete purpose.
 - Effects that fetch data must handle stale results or cancellation when dependencies can change.
 
+## Frontend Skill Policy
+
+Before implementing or reviewing frontend code, load these skills:
+
+- `frontend-ui-engineering`
+- `accessibility`
+- `vercel-react-best-practices`
+- `web-design-guidelines`
+
+Load additional skills when applicable:
+
+- Use `frontend-design` for new pages, redesigns, and visually significant components.
+- Use `make-interfaces-feel-better` for final UI polish.
+- Use `responsive-design` for substantial responsive-layout work.
+- Use `review-animations` when reviewing existing motion.
+- Use `playwright-best-practices` when creating or changing browser tests.
+- Use `next-dev-loop` to verify Next.js changes in a running application.
+
+Do not load style-specific skills such as `minimalist-ui` or `industrial-brutalist-ui` unless the user
+explicitly requests that direction.
+
 ## Vercel And Server Runtime
 
 - Hosted deployments use Vercel and Turso. Do not rely on a writable or persistent local filesystem at
@@ -131,49 +160,3 @@ Line count is a review signal, not an automatic design rule.
 - Preserve base-schema-before-migrations and post-migration index creation.
 - Mark a migration as applied only after its work succeeds. Add compatibility tests for historical schema
   shapes when a migration rebuilds or conditionally alters data.
-
-## @dnd-kit Drag and Drop
-
-The project uses `@dnd-kit/core` and `@dnd-kit/sortable` for drag-and-drop.
-
-### When to use dnd-kit directly (project tree style)
-
-- Complex drop logic with custom hit-testing (e.g. nesting projects via "before/after/inside")
-- Need full control over drop indicators, drop policies, and DragOverlay visuals
-- Multiple droppable types with custom collision detection
-
-Use `useDraggable` for the drag source, `useDroppable` for drop targets. Put `useDraggable` on the entire row with `setActivatorNodeRef` on the grip button (handle pattern). Render a `DragOverlay` for a compact card following the cursor. Use `opacity-30` on the original row while dragging. For collision detection, write a custom `point-in-rect` hit test that filters droppables by cursor position (not center distance).
-
-### When to use @dnd-kit/sortable (task list style)
-
-- Flat lists within groups where items just reorder
-- Use `useSortable` on each row, wrapping rows in `SortableContext` per group
-- Use `PointerSensor` with `activationConstraint: { distance: 8 }` so clicks on checkboxes/buttons aren't mistaken for drags
-- Use `arrayMove` from `@dnd-kit/sortable` in `onDragEnd` to compute the new order
-
-### Optimistic reorder pattern (do NOT manage local state)
-
-Do NOT maintain a separate `localOrder` state variable for optimistic reordering. Instead, call the parent's `onUpdated` callback for each task in the reordered array with updated `sort_order`. The parent holds the authoritative `taskList` state and will re-render with the new order. Fire the API call in the background; on failure, call `onUpdated` for each task with the original order to roll back.
-
-```ts
-// In handleDragEnd:
-const reordered = arrayMove(sorted, fromIndex, toIndex).map((task, index) => ({
-  ...task, sort_order: index,
-}));
-reordered.forEach((task) => onUpdated(task));
-tasksApi.reorder(buildReorderPayload(reordered)).catch(() => {
-  sorted.forEach((task) => onUpdated(task));
-});
-```
-
-### Common failure modes
-
-- **Items snap back after drop**: You're not updating the data order. Update sort_order on each item and call the parent's update callback. Do not wait for the API response.
-- **Duplicate key errors**: `arrayMove` can swap items across project groups. Always check that dragged and target tasks have the same `project_id` before reordering.
-- **Drag handle not working**: `@dnd-kit` requires `dragHandleProps` on a native DOM element (not a custom component wrapper). Use plain `<button>` or `<div>`.
-- **Drag overlay offset from cursor**: `snapCenterToCursor` modifier centers the overlay on the cursor. For grip-based drags, use a custom modifier or let the overlay render naturally at the activator position.
-- **Row disappears during drag**: `useSortable` applies a CSS transform and z-index to the element. The row stays in the DOM stream. Set `opacity` and `z-index` based on `isDragging` from the hook return.
-- **React 19 flushSync in handlers**: Don't use `flushSync` inside dnd-kit callbacks (causes "called from inside a lifecycle method" error). Use optimistic state update pattern described above instead.
-- **Branch connectors gap**: Use absolute-positioned divs with extended `top`/`bottom` values (negative) to overlap the `gap-2` spacing between rows. Never use SVG `preserveAspectRatio` with dynamic containers. Never use CSS `::before`/`::after` pseudo-elements for tree connectors — Tailwind can't resolve dynamic `:last-child` or `:first-of-type` patterns reliably.
-- **Last child excess branch line**: Compute a `Set<number>` of last-child IDs by grouping projects by `parentId`, sorting children by `sortOrder`, and taking the last. Pass a `lastChild` boolean to each row to truncate the vertical line.
-- **Nesting not working**: `closestCenter` picks the wrong droppable when children are close. Write a custom `hitTest` collision detector that does a point-in-rect check — only droppables whose rect contains the cursor Y (with ±4px tolerance) are candidates, then pick the closest by center distance.

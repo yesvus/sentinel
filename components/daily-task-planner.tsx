@@ -18,7 +18,7 @@ import { ProjectSelector } from "@/components/project-selector";
 import { ProjectIcon, NoProjectIcon } from "@/lib/icons";
 import { tasks as tasksApi, projects as projectsApi, ApiError, Task, Project, ReorderEntry } from "@/lib/api";
 import { cn } from "@/lib/utils";
-import { setAttachedTaskCompletion, taskMutations } from "@/lib/task-mutations";
+import { setAttachedTaskCompletion, taskStore } from "@/lib/task-store";
 
 const NO_PROJECT_KEY = "none";
 const PROJECT_DRAG_PREFIX = "project-";
@@ -162,7 +162,7 @@ export function DailyTaskPlanner({
 
   async function scheduleFromBacklog(task: Task) {
     try {
-      const updated = await taskMutations.schedule(task, periodStart);
+      const updated = await taskStore.schedule(task, periodStart);
       onCreated(updated);
     } catch (err) {
       setError(err instanceof ApiError ? err.message : "Couldn't schedule task");
@@ -182,7 +182,7 @@ export function DailyTaskPlanner({
   async function remove(id: number) {
     setError(null);
     try {
-      await taskMutations.remove(id);
+      await taskStore.remove(id);
       onDeleted(id);
     } catch (err) {
       setError(err instanceof ApiError ? err.message : "Couldn't delete task");
@@ -193,7 +193,7 @@ export function DailyTaskPlanner({
     setBacklogBusyId(task.id);
     setError(null);
     try {
-      const updated = await taskMutations.moveToBacklog(task);
+      const updated = await taskStore.moveToBacklog(task);
       setLeavingId(task.id);
       await new Promise((resolve) => window.setTimeout(resolve, 160));
       onUpdated(updated);

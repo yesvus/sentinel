@@ -1,10 +1,7 @@
 import { Pause, Pencil, Play, Square } from "lucide-react";
 import type { Project } from "@/lib/api";
-import { NoProjectIcon, ProjectIcon } from "@/lib/icons";
 import { cn } from "@/lib/utils";
 import { ProjectSelector } from "@/components/project-selector";
-import { Button } from "@/components/ui/button";
-import { Card, CardContent } from "@/components/ui/card";
 import { Textarea } from "@/components/ui/textarea";
 import { Spinner } from "@/components/ui/spinner";
 
@@ -60,53 +57,127 @@ export function TimerCard({
   onEditStart,
 }: TimerCardProps) {
   return (
-    <Card className="w-full max-w-sm">
-      <CardContent className="space-y-4">
-        {!isRunning && (
-          <div className="animate-in fade-in slide-in-from-top-1 pt-4 duration-300">
-            <ProjectSelector
-              projects={projects}
-              value={projectId}
-              onChange={onProjectChange}
-              onProjectCreated={onProjectCreated}
-              disabled={refreshingActive}
-            />
-          </div>
-        )}
-        <div className="flex flex-col items-center gap-5 border-b pt-4 pb-4">
-          {isRunning && (
-            <div className="animate-in fade-in slide-in-from-top-1 flex max-w-full flex-wrap items-center justify-center gap-2 duration-300">
-              <div className="bg-muted/60 text-muted-foreground flex max-w-full items-center gap-1.5 rounded-full border px-3 py-1 text-xs font-medium" title={activeProject?.path ?? "No project"}>
-                {activeProject ? <ProjectIcon icon={activeProject.icon} className="size-3.5 shrink-0" /> : <NoProjectIcon className="size-3.5 shrink-0" />}
-                <span className="truncate">{activeProject?.path ?? "No project"}</span>
-              </div>
-              {isPaused && <span className="border-amber-500/30 bg-amber-500/10 text-amber-700 animate-in fade-in zoom-in-95 rounded-full border px-2.5 py-1 text-xs font-medium duration-200 dark:text-amber-300">Paused · time excluded</span>}
-            </div>
+    <div
+      className={cn(
+        "relative w-full max-w-sm overflow-hidden rounded-3xl border bg-card transition-shadow duration-700 ease-out",
+        isRunning && "shadow-[0_0_80px_-16px_var(--primary)]"
+      )}
+    >
+      <div className="px-6 py-6">
+        <div className={cn("transition-opacity duration-200", isRunning && "opacity-50 pointer-events-none")}>
+          <ProjectSelector
+            projects={projects}
+            value={projectId}
+            onChange={onProjectChange}
+            onProjectCreated={onProjectCreated}
+            disabled={isRunning || refreshingActive}
+          />
+        </div>
+      </div>
+      <div className="border-t" />
+
+      <div className="flex flex-col items-center gap-6 px-6 pt-9 pb-6">
+        <p className="font-mono text-4xl font-medium tracking-tight tabular-nums sm:text-5xl md:text-6xl select-none">
+          {formatElapsed(elapsedMs)}
+        </p>
+
+        <div className="flex items-center gap-4">
+          {isRunning ? (
+            <button
+              type="button"
+              onClick={onPauseToggle}
+              disabled={busy}
+              aria-label={isPaused ? "Resume session" : "Pause session"}
+              className={cn(
+                "inline-flex size-11 shrink-0 items-center justify-center rounded-full border transition-all duration-200 active:scale-95",
+                isPaused
+                  ? "border-primary/40 bg-primary/10 text-primary hover:bg-primary/20"
+                  : "border-border bg-background text-foreground hover:bg-muted"
+              )}
+            >
+              {isPaused ? (
+                <Play className="ml-0.5 size-4 fill-current" />
+              ) : (
+                <Pause className="size-4 fill-current" />
+              )}
+            </button>
+          ) : (
+            <div className="size-11 shrink-0" aria-hidden="true" />
           )}
-          <p className="font-mono text-7xl font-medium tracking-tight tabular-nums">{formatElapsed(elapsedMs)}</p>
-          <div className="flex items-center gap-3">
-            {isRunning ? (
-              <Button type="button" size="icon" variant="outline" className={cn("size-10 shrink-0 rounded-full transition-[color,background-color,border-color,transform] duration-150 active:scale-95", isPaused && "border-primary/40 bg-primary/10 text-primary")} aria-label={isPaused ? "Resume session" : "Pause for an interruption"} onClick={onPauseToggle} disabled={busy}>
-                {isPaused ? <Play className="ml-0.5 size-4 fill-current" /> : <Pause className="size-4 fill-current" />}
-              </Button>
-            ) : <div className="size-10 shrink-0" aria-hidden="true" />}
-            <Button size="icon" disabled={busy} onClick={isRunning ? onRequestStop : onStart} aria-label={isRunning ? "Stop session" : busy ? "Starting session" : "Start session"} className={`size-16 shrink-0 rounded-full shadow-sm transition-[color,background-color,transform,opacity] duration-150 active:scale-95 ${isRunning ? "bg-destructive text-destructive-foreground hover:bg-destructive/90" : ""}`}>
-              {busy && !isRunning ? <Spinner className="size-6" /> : isRunning ? <Square className="size-5 fill-current" /> : <Play className="ml-0.5 size-6 fill-current" />}
-            </Button>
-            {isRunning ? (
-              <Button type="button" size="icon" variant="outline" className="text-muted-foreground size-10 shrink-0 rounded-full transition-transform duration-150 active:scale-95" aria-label="Edit start time" onClick={onEditStart}>
-                <Pencil className="size-3.5" />
-              </Button>
-            ) : <div className="size-10 shrink-0" aria-hidden="true" />}
+
+          <button
+            type="button"
+            disabled={busy}
+            onClick={isRunning ? onRequestStop : onStart}
+            aria-label={isRunning ? "Stop session" : busy ? "Starting session" : "Start session"}
+            className={cn(
+              "inline-flex size-[4.5rem] shrink-0 items-center justify-center rounded-full shadow-sm transition-all duration-200 active:scale-95",
+              isRunning
+                ? "bg-destructive text-destructive-foreground hover:bg-destructive/90"
+                : "bg-primary text-primary-foreground hover:bg-primary/80"
+            )}
+          >
+            {busy && !isRunning ? (
+              <Spinner className="size-7" />
+            ) : isRunning ? (
+              <Square className="size-5 fill-current" />
+            ) : (
+              <Play className="ml-0.5 size-6 fill-current" />
+            )}
+          </button>
+
+          {isRunning ? (
+            <button
+              type="button"
+              onClick={onEditStart}
+              aria-label="Edit start time"
+              className="inline-flex size-11 shrink-0 items-center justify-center rounded-full border border-border bg-background text-muted-foreground transition-all duration-200 hover:text-foreground active:scale-95"
+            >
+              <Pencil className="size-4" />
+            </button>
+          ) : (
+            <div className="size-11 shrink-0" aria-hidden="true" />
+          )}
+        </div>
+
+        <div
+          className={cn(
+            "grid transition-all duration-300 ease-out",
+            isRunning ? "grid-rows-[0fr] opacity-0" : "grid-rows-[1fr] opacity-100"
+          )}
+        >
+          <div className="min-h-0 overflow-hidden">
+            <p className="text-muted-foreground text-xs font-medium">
+              {busy ? "Starting..." : "Tap to start focusing"}
+            </p>
           </div>
-          {!isRunning && <p className="text-muted-foreground -mt-2 text-xs">{busy ? "Starting..." : "Tap to start focusing"}</p>}
-          {error && !stopOpen && <p className="text-destructive text-sm">{error}</p>}
         </div>
-        <div className="space-y-1">
-          <Textarea placeholder="Include more details about your session (optional)" value={description} onChange={(event) => onDescriptionChange(event.target.value)} />
-          <p className={`text-muted-foreground h-4 text-xs ${descriptionStatus === "idle" ? "invisible" : "visible"}`}>{descriptionStatus === "saving" ? "Saving..." : "Saved"}</p>
+
+        {error && !stopOpen && (
+          <p className="text-destructive text-sm" role="alert">
+            {error}
+          </p>
+        )}
+      </div>
+
+      <div className="border-t bg-muted/30 px-6 py-6">
+        <div className="space-y-2">
+          <Textarea
+            placeholder="Include more details about your session (optional)"
+            value={description}
+            onChange={(event) => onDescriptionChange(event.target.value)}
+            className="min-h-10 border-0 bg-transparent px-3 py-2 text-sm placeholder:text-muted-foreground/60 focus-visible:ring-0"
+          />
+          <p
+            className={cn(
+              "h-4 text-xs text-muted-foreground transition-opacity duration-200",
+              descriptionStatus === "idle" ? "invisible" : "visible"
+            )}
+          >
+            {descriptionStatus === "saving" ? "Saving..." : "Saved"}
+          </p>
         </div>
-      </CardContent>
-    </Card>
+      </div>
+    </div>
   );
 }

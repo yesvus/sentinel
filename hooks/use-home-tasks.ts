@@ -1,7 +1,6 @@
 import { useEffect, useRef, useState, type Dispatch, type SetStateAction } from "react";
 import { sessions, type Task } from "@/lib/api";
-import { upsertTask } from "@/lib/task-collections";
-import { setAttachedTaskCompletion } from "@/lib/task-mutations";
+import { setAttachedTaskCompletion, upsertTask } from "@/lib/task-store";
 
 export type SessionTasksLoadStatus = "idle" | "loading" | "loaded" | "error";
 
