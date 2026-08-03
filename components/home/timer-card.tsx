@@ -60,30 +60,24 @@ export function TimerCard({
   onEditStart,
 }: TimerCardProps) {
   return (
-    <Card className="w-full max-w-sm">
+    <Card
+      className={cn(
+        "w-full max-w-sm transition-shadow duration-1000",
+        isRunning && "shadow-[0_0_60px_-12px_var(--primary)]"
+      )}
+    >
       <CardContent className="space-y-4">
-        {!isRunning && (
-          <div className="animate-in fade-in slide-in-from-top-1 pt-4 duration-300">
+        <div className={cn("transition-opacity duration-200", isRunning && "cursor-not-allowed")}>
             <ProjectSelector
               projects={projects}
               value={projectId}
               onChange={onProjectChange}
               onProjectCreated={onProjectCreated}
-              disabled={refreshingActive}
+              disabled={isRunning || refreshingActive}
             />
           </div>
-        )}
         <div className="flex flex-col items-center gap-5 border-b pt-4 pb-4">
-          {isRunning && (
-            <div className="animate-in fade-in slide-in-from-top-1 flex max-w-full flex-wrap items-center justify-center gap-2 duration-300">
-              <div className="bg-muted/60 text-muted-foreground flex max-w-full items-center gap-1.5 rounded-full border px-3 py-1 text-xs font-medium" title={activeProject?.path ?? "No project"}>
-                {activeProject ? <ProjectIcon icon={activeProject.icon} className="size-3.5 shrink-0" /> : <NoProjectIcon className="size-3.5 shrink-0" />}
-                <span className="truncate">{activeProject?.path ?? "No project"}</span>
-              </div>
-              {isPaused && <span className="border-amber-500/30 bg-amber-500/10 text-amber-700 animate-in fade-in zoom-in-95 rounded-full border px-2.5 py-1 text-xs font-medium duration-200 dark:text-amber-300">Paused · time excluded</span>}
-            </div>
-          )}
-          <p className="font-mono text-7xl font-medium tracking-tight tabular-nums">{formatElapsed(elapsedMs)}</p>
+          <p className="font-mono text-5xl font-medium tracking-tight tabular-nums sm:text-6xl md:text-7xl">{formatElapsed(elapsedMs)}</p>
           <div className="flex items-center gap-3">
             {isRunning ? (
               <Button type="button" size="icon" variant="outline" className={cn("size-10 shrink-0 rounded-full transition-[color,background-color,border-color,transform] duration-150 active:scale-95", isPaused && "border-primary/40 bg-primary/10 text-primary")} aria-label={isPaused ? "Resume session" : "Pause for an interruption"} onClick={onPauseToggle} disabled={busy}>
@@ -99,7 +93,18 @@ export function TimerCard({
               </Button>
             ) : <div className="size-10 shrink-0" aria-hidden="true" />}
           </div>
-          {!isRunning && <p className="text-muted-foreground -mt-2 text-xs">{busy ? "Starting..." : "Tap to start focusing"}</p>}
+          <div
+            className={cn(
+              "grid transition-all duration-300 ease-out",
+              isRunning ? "grid-rows-[0fr] opacity-0" : "grid-rows-[1fr] opacity-100"
+            )}
+          >
+            <div className="min-h-0 overflow-hidden">
+              <p className="text-muted-foreground text-xs">
+                {busy ? "Starting..." : "Tap to start focusing"}
+              </p>
+            </div>
+          </div>
           {error && !stopOpen && <p className="text-destructive text-sm">{error}</p>}
         </div>
         <div className="space-y-1">
