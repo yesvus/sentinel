@@ -162,6 +162,18 @@ export function startOfWeek(date: Date, timeZone?: string) {
   return addDays(d, diff, timeZone);
 }
 
+/** Days from weekStart (Monday) through today, capped at 7; used to average partial weeks. */
+export function elapsedDaysInWeek(weekStart: Date, now: number, timeZone?: string) {
+  const todayKey = dayKey(new Date(now), timeZone);
+  const weekStartKey = dayKey(weekStart, timeZone);
+  let elapsed = 0;
+  for (let i = 0; i < 7; i++) {
+    if (addDateKeyDays(weekStartKey, i) > todayKey) break;
+    elapsed++;
+  }
+  return Math.max(1, elapsed);
+}
+
 /** Key identifying a week: the date-key of its Monday. */
 export function weekKey(date: Date, timeZone?: string) {
   return dayKey(startOfWeek(date, timeZone), timeZone);
