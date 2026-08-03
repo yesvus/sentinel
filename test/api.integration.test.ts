@@ -537,6 +537,29 @@ describe("Next API", () => {
     ]);
   });
 
+  it("keeps a task attached when its completion is unchecked during a session", async () => {
+    const cookie = await register("uncheck-attached-task@example.test");
+    const task = await request("POST", "tasks", {
+      cookie,
+      body: { title: "Keep attached", periodStart: "2026-08-03" },
+    });
+    const started = await request("POST", "sessions/start", {
+      cookie,
+      body: { taskIds: [task.body.id] },
+    });
+    await request("PATCH", `tasks/${task.body.id}`, { cookie, body: { completed: true } });
+
+    const unchecked = await request("PATCH", `tasks/${task.body.id}`, {
+      cookie,
+      body: { completed: false },
+    });
+
+    expect(unchecked.body).toMatchObject({ id: task.body.id, period_start: "2026-08-03", completed_at: null });
+    expect((await request("GET", `sessions/${started.body.id}/tasks`, { cookie })).body).toEqual([
+      expect.objectContaining({ id: task.body.id, completed_at: null }),
+    ]);
+  });
+
   it("rejects attaching a task to a completed session", async () => {
     const cookie = await register("attach-completed@example.test");
     const session = await request("POST", "sessions", {

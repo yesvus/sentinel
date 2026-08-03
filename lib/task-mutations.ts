@@ -22,3 +22,8 @@ export const taskMutations = {
 export function setTaskCompletion(task: Task) {
   return task.completed_at === null ? taskMutations.complete(task) : taskMutations.markUndone(task);
 }
+
+/** Toggles completion without changing date or session membership. */
+export function setAttachedTaskCompletion(task: Task) {
+  return tasksApi.update(task.id, { completed: task.completed_at === null });
+}

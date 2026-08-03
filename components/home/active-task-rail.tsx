@@ -6,6 +6,7 @@ import { LongContentFade } from "@/components/long-content-fade";
 import { TaskCreatorPopover } from "@/components/task-creator-popover";
 import { Button } from "@/components/ui/button";
 import { HomeTaskRow } from "@/components/home/home-task-row";
+import { Skeleton } from "@/components/ui/skeleton";
 
 type ActiveTaskRailProps = {
   exiting: boolean;
@@ -75,8 +76,14 @@ export function ActiveTaskRail({
               <Button type="button" variant="outline" size="sm" onClick={onRetry}><RotateCw data-icon="inline-start" />Retry</Button>
             </div>
           ) : loadStatus === "loading" && tasks.length === 0 ? (
-            <div className="animate-in fade-in flex flex-1 items-center justify-center px-2 py-6 text-center duration-200" role="status">
-              <p className="text-muted-foreground text-sm">Loading session tasks...</p>
+            <div className="animate-in fade-in flex flex-col gap-1 px-1 py-1 duration-200" role="status" aria-label="Loading session tasks">
+              {[0, 1, 2].map((item) => (
+                <div key={item} className="flex h-6 items-center gap-1.5">
+                  <Skeleton className="size-3.5 shrink-0 rounded-sm" />
+                  <Skeleton className={`h-3 ${item === 1 ? "w-2/3" : "w-4/5"}`} />
+                  <Skeleton className="ml-auto size-5 shrink-0 rounded-md" />
+                </div>
+              ))}
             </div>
           ) : tasks.length > 0 ? tasks.map((task) => (
             <HomeTaskRow

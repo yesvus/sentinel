@@ -1,7 +1,7 @@
 import { useEffect, useRef, useState, type Dispatch, type SetStateAction } from "react";
 import { sessions, type Task } from "@/lib/api";
 import { upsertTask } from "@/lib/task-collections";
-import { setTaskCompletion } from "@/lib/task-mutations";
+import { setAttachedTaskCompletion } from "@/lib/task-mutations";
 
 export type SessionTasksLoadStatus = "idle" | "loading" | "loaded" | "error";
 
@@ -120,7 +120,7 @@ export function useHomeTasks({ activeSessionId, isRunning, projectId, setTaskLis
 
   async function toggleTask(task: Task) {
     try {
-      taskUpdated(await setTaskCompletion(task));
+      taskUpdated(await setAttachedTaskCompletion(task));
     } catch {
       onError("Could not update this task.");
     }

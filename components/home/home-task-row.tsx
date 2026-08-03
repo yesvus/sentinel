@@ -34,7 +34,7 @@ export function HomeTaskRow({
   return (
     <div
       className={cn(
-        "group/task flex min-h-6 min-w-0 items-center gap-0.5 rounded-md px-1 py-0 transition-[background-color,opacity,transform] duration-150 hover:bg-muted/50",
+        "group/task flex min-h-6 min-w-0 items-start gap-0.5 rounded-md px-1 py-0 transition-[background-color,opacity,transform] duration-150 hover:bg-muted/50",
         selected && "bg-primary/10",
         recent && "animate-in fade-in slide-in-from-top-1 duration-300",
         removing && "animate-out fade-out slide-out-to-right-2 pointer-events-none fill-mode-forwards",
@@ -44,7 +44,7 @@ export function HomeTaskRow({
         <Checkbox
           checked={checked}
           onCheckedChange={onCheckedChange}
-          className="size-3.5 shrink-0 after:inset-0"
+          className="mt-[5px] size-3.5 shrink-0 after:inset-0"
           aria-label={task.title}
         />
       ) : (
@@ -54,7 +54,7 @@ export function HomeTaskRow({
           aria-pressed={checked}
           onClick={onCheckedChange}
           className={cn(
-            "flex size-4 shrink-0 items-center justify-center rounded-full transition-colors duration-150",
+            "mt-1 flex size-4 shrink-0 items-center justify-center rounded-full transition-colors duration-150",
             checked ? "text-primary" : "text-muted-foreground/60 hover:text-foreground",
           )}
         >
@@ -65,13 +65,13 @@ export function HomeTaskRow({
         type="button"
         aria-pressed={selected || undefined}
         onClick={onCheckedChange}
-        className="flex min-w-0 flex-1 flex-col justify-center text-left text-sm leading-4"
+        className="flex min-w-0 flex-1 flex-col text-left text-sm"
       >
-        <span className={cn(completed ? "text-muted-foreground line-through" : selected && "text-primary")}>
+        <span className={cn("leading-6", completed ? "text-muted-foreground line-through" : selected && "text-primary")}>
           {task.title}
         </span>
         {task.description && (
-          <span className="text-muted-foreground max-h-10 overflow-y-auto pr-0.5 text-xs leading-4 whitespace-pre-wrap break-words">
+          <span className="text-muted-foreground pr-0.5 text-xs leading-4 whitespace-pre-wrap break-words">
             {task.description}
           </span>
         )}

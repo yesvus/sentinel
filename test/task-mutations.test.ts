@@ -1,7 +1,7 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
 import type { Task } from "@/lib/api";
 import { tasks as tasksApi } from "@/lib/api";
-import { setTaskCompletion, taskMutations } from "@/lib/task-mutations";
+import { setAttachedTaskCompletion, setTaskCompletion, taskMutations } from "@/lib/task-mutations";
 
 const task = (completed: boolean): Task => ({
   id: 7, title: "Task", description: null, project_id: null, period_start: "2026-08-02",
@@ -29,5 +29,11 @@ describe("semantic task mutations", () => {
     const update = vi.spyOn(tasksApi, "update").mockResolvedValue({ ...task(false), period_start: null });
     await taskMutations.moveToBacklog(task(false));
     expect(update).toHaveBeenCalledWith(7, { periodStart: null });
+  });
+
+  it("unchecks an attached task without moving or detaching it", async () => {
+    const update = vi.spyOn(tasksApi, "update").mockResolvedValue({ ...task(true), completed_at: null });
+    await setAttachedTaskCompletion(task(true));
+    expect(update).toHaveBeenCalledWith(7, { completed: false });
   });
 });
