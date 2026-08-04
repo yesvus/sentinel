@@ -2,9 +2,10 @@ import { fireEvent, render, screen, waitFor } from "@testing-library/react";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import SettingsPage from "@/app/app/settings/page";
 
-const { refresh, updateSessionSettings } = vi.hoisted(() => ({
+const { refresh, updateSessionSettings, listTokens } = vi.hoisted(() => ({
   refresh: vi.fn(),
   updateSessionSettings: vi.fn(),
+  listTokens: vi.fn(),
 }));
 
 const user = {
@@ -45,6 +46,11 @@ vi.mock("@/lib/api", () => {
       token: vi.fn(),
       revoke: vi.fn(),
     },
+    apiTokens: {
+      list: listTokens,
+      create: vi.fn(),
+      revoke: vi.fn(),
+    },
   };
 });
 
@@ -52,6 +58,7 @@ describe("Settings time zone", () => {
   beforeEach(() => {
     refresh.mockReset().mockResolvedValue(undefined);
     updateSessionSettings.mockReset().mockResolvedValue({ timezone: "Asia/Tokyo" });
+    listTokens.mockReset().mockResolvedValue([]);
   });
 
   it("defaults to Auto, shows the detected zone, and saves a fixed override", async () => {

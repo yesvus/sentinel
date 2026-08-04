@@ -1,6 +1,8 @@
 export { ApiError, api, clearApiCache, invalidateApiCache } from "./api/core";
 export { auth } from "./api/auth";
 export type { FocusAudioType, User } from "./api/auth";
+export { apiTokens } from "./api/api-tokens";
+export type { ApiToken, CreatedApiToken } from "./api/api-tokens";
 export { noiseUsage } from "./api/noise-usage";
 export { sessions } from "./api/sessions";
 export type { SessionPage, SessionUpdateResult, StudySession } from "./api/sessions";

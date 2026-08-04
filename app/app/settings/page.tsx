@@ -8,6 +8,7 @@ import { ApiError, auth, calendar } from "@/lib/api";
 import { useAuth } from "@/lib/auth-context";
 import { ThemeMode, useTheme } from "@/lib/theme-context";
 import { detectedTimeZone, pad, timeZoneOffsetLabel } from "@/lib/date";
+import { ApiTokenSettings } from "@/components/api-token-settings";
 
 const WEEKDAY_NAMES = ["Sunday", "Monday", "Tuesday", "Wednesday", "Thursday", "Friday", "Saturday"];
 const CURATED_TIME_ZONES = [
@@ -255,13 +256,13 @@ export default function SettingsPage() {
           ) : (
             <div className="space-y-3">
               <code className="bg-muted block overflow-x-auto rounded-md p-3 text-xs">
-                {`${typeof window === "undefined" ? "" : window.location.origin}/api/calendar/feed?token=${calendarToken}`}
+                {`${typeof window === "undefined" ? "" : window.location.origin}/api/v1/calendar/feed?token=${calendarToken}`}
               </code>
               <div className="flex flex-wrap gap-2">
                 <Button
                   type="button"
                   variant="outline"
-                  onClick={() => navigator.clipboard.writeText(`${window.location.origin}/api/calendar/feed?token=${calendarToken}`)}
+                  onClick={() => navigator.clipboard.writeText(`${window.location.origin}/api/v1/calendar/feed?token=${calendarToken}`)}
                 >
                   <Copy />
                   Copy subscription URL
@@ -269,7 +270,7 @@ export default function SettingsPage() {
                 <Button
                   type="button"
                   variant="outline"
-                  render={<a href={`/api/calendar/feed?token=${calendarToken}`} download="sentinel-activity.ics" />}
+                  render={<a href={`/api/v1/calendar/feed?token=${calendarToken}`} download="sentinel-activity.ics" />}
                 >
                   Download .ics
                 </Button>
@@ -281,6 +282,7 @@ export default function SettingsPage() {
           )}
         </CardContent>
       </Card>
+      <ApiTokenSettings />
       <Card>
         <CardHeader>
           <CardTitle className="flex items-center gap-2">
