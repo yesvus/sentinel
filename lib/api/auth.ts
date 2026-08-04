@@ -22,28 +22,28 @@ export type User = {
 
 export const auth = {
   register: (email: string, password: string) =>
-    api<User>("/api/auth/register", { method: "POST", body: JSON.stringify({ email, password }) }),
+    api<User>("/api/v1/auth/register", { method: "POST", body: JSON.stringify({ email, password }) }),
   login: (email: string, password: string) =>
-    api<User>("/api/auth/login", { method: "POST", body: JSON.stringify({ email, password }) }),
-  logout: () => api<void>("/api/auth/logout", { method: "POST" }),
-  me: () => api<User>("/api/auth/me"),
+    api<User>("/api/v1/auth/login", { method: "POST", body: JSON.stringify({ email, password }) }),
+  logout: () => api<void>("/api/v1/auth/logout", { method: "POST" }),
+  me: () => api<User>("/api/v1/auth/me"),
   updateProfile: (details: { name?: string | null; avatar?: string | null; planContext?: string | null }) =>
-    api<{ name: string | null; avatar: string | null; planContext: string | null }>("/api/auth/me", {
+    api<{ name: string | null; avatar: string | null; planContext: string | null }>("/api/v1/auth/me", {
       method: "PATCH",
       body: JSON.stringify(details),
     }),
   changePassword: (currentPassword: string, newPassword: string) =>
-    api<void>("/api/auth/change-password", {
+    api<void>("/api/v1/auth/change-password", {
       method: "POST",
       body: JSON.stringify({ currentPassword, newPassword }),
     }),
   updatePrivacy: (shareSessionDescriptions: boolean) =>
-    api<{ shareSessionDescriptions: boolean }>("/api/auth/privacy", {
+    api<{ shareSessionDescriptions: boolean }>("/api/v1/auth/privacy", {
       method: "PATCH",
       body: JSON.stringify({ shareSessionDescriptions }),
     }),
   updateAudioSettings: (details: { autoStartNoise?: boolean; focusAudioType?: FocusAudioType }) =>
-    api<{ autoStartNoise: boolean; focusAudioType: FocusAudioType }>("/api/auth/audio-settings", {
+    api<{ autoStartNoise: boolean; focusAudioType: FocusAudioType }>("/api/v1/auth/audio-settings", {
       method: "PATCH",
       body: JSON.stringify(details),
     }),
@@ -64,5 +64,5 @@ export const auth = {
       planWeeklyReminderDay: number;
       planWeeklyReminderHour: number;
       timezone: string | null;
-    }>("/api/auth/session-settings", { method: "PATCH", body: JSON.stringify(settings) }),
+    }>("/api/v1/auth/session-settings", { method: "PATCH", body: JSON.stringify(settings) }),
 };

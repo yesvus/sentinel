@@ -16,9 +16,9 @@ export type Project = {
 };
 
 export const projects = {
-  list: () => api<Project[]>("/api/projects"),
+  list: () => api<Project[]>("/api/v1/projects"),
   create: (name: string, icon?: string | null, description?: string | null) =>
-    api<Project>("/api/projects", { method: "POST", body: JSON.stringify({ name, icon, description }) }),
+    api<Project>("/api/v1/projects", { method: "POST", body: JSON.stringify({ name, icon, description }) }),
   rename: (
     id: number,
     name: string,
@@ -27,16 +27,16 @@ export const projects = {
     parentId?: number | null,
     resources?: string | null,
   ) =>
-    api<Project>(`/api/projects/${id}`, {
+    api<Project>(`/api/v1/projects/${id}`, {
       method: "PATCH",
       body: JSON.stringify({ name, icon, description, parentId, resources }),
     }),
   move: (id: number, parentId: number | null, position: number) =>
-    api<Project>(`/api/projects/${id}`, {
+    api<Project>(`/api/v1/projects/${id}`, {
       method: "PATCH",
       body: JSON.stringify({ parentId, position }),
     }),
   updateState: (id: number, details: { pinned?: boolean; archived?: boolean }) =>
-    api<Project>(`/api/projects/${id}`, { method: "PATCH", body: JSON.stringify(details) }),
-  remove: (id: number) => api<void>(`/api/projects/${id}`, { method: "DELETE" }),
+    api<Project>(`/api/v1/projects/${id}`, { method: "PATCH", body: JSON.stringify(details) }),
+  remove: (id: number) => api<void>(`/api/v1/projects/${id}`, { method: "DELETE" }),
 };

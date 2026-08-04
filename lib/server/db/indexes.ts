@@ -3,6 +3,8 @@ import type { Client } from "@libsql/client";
 const indexStatements = [
   "CREATE INDEX IF NOT EXISTS idx_auth_sessions_user ON auth_sessions (user_id)",
   "CREATE INDEX IF NOT EXISTS idx_auth_sessions_expiry ON auth_sessions (expires_at)",
+  "CREATE INDEX IF NOT EXISTS idx_api_tokens_user ON api_tokens (user_id, created_at DESC)",
+  "CREATE INDEX IF NOT EXISTS idx_api_tokens_expiry ON api_tokens (expires_at)",
   "CREATE INDEX IF NOT EXISTS idx_weekly_reports_user_week ON weekly_reports (user_id, week_start)",
   "CREATE INDEX IF NOT EXISTS idx_friendships_addressee ON friendships (addressee_id, status)",
   "CREATE INDEX IF NOT EXISTS idx_social_notifications_user_created ON social_notifications (user_id, created_at DESC)",

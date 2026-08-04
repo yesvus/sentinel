@@ -3,11 +3,11 @@ import { api } from "./core";
 
 export const noiseUsage = {
   start: (audioType: FocusAudioType) =>
-    api<{ id: number }>("/api/noise-usage/start", {
+    api<{ id: number }>("/api/v1/noise-usage/start", {
       method: "POST",
       body: JSON.stringify({ audioType }),
     }),
-  heartbeat: (id: number) => api<void>(`/api/noise-usage/${id}/heartbeat`, { method: "POST" }),
+  heartbeat: (id: number) => api<void>(`/api/v1/noise-usage/${id}/heartbeat`, { method: "POST" }),
   stop: (id: number, keepalive = false) =>
-    api<void>(`/api/noise-usage/${id}/stop`, { method: "POST", keepalive }),
+    api<void>(`/api/v1/noise-usage/${id}/stop`, { method: "POST", keepalive }),
 };

@@ -10,6 +10,7 @@ export const MAX_NOTE_LENGTH = 10_000;
 export const MAX_TASK_TITLE_LENGTH = 200;
 export const MAX_PLAN_CONTEXT_LENGTH = 2_000;
 export const MAX_PLANNED_SESSION_SECONDS = 24 * 60 * 60;
+export const MAX_API_TOKEN_NAME_LENGTH = 100;
 
 export function validEmail(email: string) {
   return email.length <= 254 && /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email);

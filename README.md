@@ -31,7 +31,7 @@ cp .env.example .env.local
 pnpm dev
 ```
 
-The UI and `/api/*` endpoints run together on `http://localhost:3000`.
+The UI and `/api/v1/*` endpoints run together on `http://localhost:3000`.
 
 For a hosted environment, create a Turso database:
 ```

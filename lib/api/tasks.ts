@@ -18,7 +18,7 @@ export type MoveToBacklogResult = {
 export type ReorderEntry = { id: number; sort_order: number };
 
 export const tasks = {
-  list: () => api<Task[]>("/api/tasks"),
+  list: () => api<Task[]>("/api/v1/tasks"),
   create: (
     periodStart: string | null,
     title: string,
@@ -27,7 +27,7 @@ export const tasks = {
     sessionId?: number,
     completed?: boolean,
   ) =>
-    api<Task>("/api/tasks", {
+    api<Task>("/api/v1/tasks", {
       method: "POST",
       body: JSON.stringify({ periodStart, title, projectId, description, sessionId, completed }),
     }),
@@ -39,14 +39,14 @@ export const tasks = {
     sessionId?: number;
     sortOrder?: number;
   }) =>
-    api<Task>(`/api/tasks/${id}`, { method: "PATCH", body: JSON.stringify(details) }),
+    api<Task>(`/api/v1/tasks/${id}`, { method: "PATCH", body: JSON.stringify(details) }),
   reorder: (entries: ReorderEntry[]) =>
-    api<void>("/api/tasks/0", { method: "PATCH", body: JSON.stringify({ reorder: entries }) }),
-  backlog: () => api<Task[]>("/api/tasks/backlog"),
+    api<void>("/api/v1/tasks/0", { method: "PATCH", body: JSON.stringify({ reorder: entries }) }),
+  backlog: () => api<Task[]>("/api/v1/tasks/backlog"),
   movePastToBacklog: (before: string) =>
-    api<MoveToBacklogResult>("/api/tasks/backlog", {
+    api<MoveToBacklogResult>("/api/v1/tasks/backlog", {
       method: "POST",
       body: JSON.stringify({ before }),
     }),
-  remove: (id: number) => api<void>(`/api/tasks/${id}`, { method: "DELETE" }),
+  remove: (id: number) => api<void>(`/api/v1/tasks/${id}`, { method: "DELETE" }),
 };
