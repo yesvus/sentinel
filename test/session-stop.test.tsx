@@ -45,6 +45,7 @@ vi.mock("@/lib/active-session-context", () => ({
         });
         return result;
       },
+      startPlannedSession: vi.fn(),
       stopSession: async (...args: Parameters<typeof stop>) => {
         const result = await stop(...args);
         setActiveSession(null);
@@ -74,6 +75,10 @@ vi.mock("@/lib/api", () => {
     },
     notes: {
       list: vi.fn().mockResolvedValue([]),
+    },
+    plannedSessions: {
+      list: vi.fn().mockResolvedValue([]),
+      start: vi.fn(),
     },
     sessions: {
       list: vi.fn().mockResolvedValue([]),

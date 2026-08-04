@@ -2,7 +2,7 @@
 
 import { createContext, useCallback, useContext, useEffect, useRef, useState } from "react";
 import { toast } from "@/components/ui/toast";
-import { ApiError, clearApiCache, invalidateApiCache, sessions, type SessionUpdateResult, type StudySession } from "@/lib/api";
+import { ApiError, clearApiCache, invalidateApiCache, plannedSessions, sessions, type PlannedSession, type SessionUpdateResult, type StudySession } from "@/lib/api";
 import { useAuth } from "@/lib/auth-context";
 import { formatDuration } from "@/lib/date";
 import { NOISE_SESSION_EVENT } from "@/lib/noise-player";
@@ -29,6 +29,7 @@ type ActiveSessionContextValue = {
   reconcile: () => Promise<StudySession | null>;
   notifySessionChanged: () => Promise<StudySession | null>;
   startSession: (details: StartDetails) => Promise<StudySession>;
+  startPlannedSession: (plan: PlannedSession) => Promise<StudySession>;
   updateSession: (id: number, details: UpdateDetails) => Promise<SessionUpdateResult>;
   createManualSession: (details: Parameters<typeof sessions.createManual>[0]) => ReturnType<typeof sessions.createManual>;
   deleteSession: (id: number) => Promise<void>;
@@ -210,7 +211,7 @@ export function ActiveSessionProvider({ children }: { children: React.ReactNode 
     return () => window.clearTimeout(timer);
   }, [activeSession, applyMutation, post, reconcile, user?.sessionPauseTimeoutMinutes]);
 
-  async function startSession(details: StartDetails) {
+  async function startWith(details: StartDetails, start: () => ReturnType<typeof sessions.start>) {
     const previous = activeRef.current;
     const optimistic: StudySession = {
       id: -Date.now(),
@@ -230,7 +231,7 @@ export function ActiveSessionProvider({ children }: { children: React.ReactNode 
     if (!previous) localNoise("started");
 
     try {
-      const started = await sessions.start(details);
+      const started = await start();
       const provisional: StudySession = {
         id: started.id,
         started_at: started.startedAt,
@@ -260,6 +261,19 @@ export function ActiveSessionProvider({ children }: { children: React.ReactNode 
       if (!previous) localNoise("stopped");
       throw error;
     }
+  }
+
+  async function startSession(details: StartDetails) {
+    return startWith(details, () => sessions.start(details));
+  }
+
+  async function startPlannedSession(plan: PlannedSession) {
+    const details = {
+      projectId: plan.project_id,
+      description: plan.description,
+      taskIds: plan.tasks.map((task) => task.id),
+    };
+    return startWith(details, () => plannedSessions.start(plan.id));
   }
 
   async function updateSession(id: number, details: UpdateDetails) {
@@ -344,7 +358,7 @@ export function ActiveSessionProvider({ children }: { children: React.ReactNode 
 
   return (
     <ActiveSessionContext.Provider
-      value={{ activeSession, elapsedMs, now, sessionRevision, loading, reconciling, reconcile, notifySessionChanged, startSession, updateSession, createManualSession, deleteSession, stopSession, pauseSession, resumeSession }}
+      value={{ activeSession, elapsedMs, now, sessionRevision, loading, reconciling, reconcile, notifySessionChanged, startSession, startPlannedSession, updateSession, createManualSession, deleteSession, stopSession, pauseSession, resumeSession }}
     >
       {children}
     </ActiveSessionContext.Provider>

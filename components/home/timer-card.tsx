@@ -18,6 +18,7 @@ type TimerCardProps = {
   descriptionStatus: "idle" | "saving" | "saved";
   error: string | null;
   stopOpen: boolean;
+  startLabel?: string;
   onProjectChange: (projectId: number | null) => void;
   onProjectCreated: (project: Project) => void;
   onDescriptionChange: (description: string) => void;
@@ -48,6 +49,7 @@ export function TimerCard({
   descriptionStatus,
   error,
   stopOpen,
+  startLabel = "Start session",
   onProjectChange,
   onProjectCreated,
   onDescriptionChange,
@@ -109,7 +111,7 @@ export function TimerCard({
             type="button"
             disabled={busy}
             onClick={isRunning ? onRequestStop : onStart}
-            aria-label={isRunning ? "Stop session" : busy ? "Starting session" : "Start session"}
+            aria-label={isRunning ? "Stop session" : busy ? "Starting session" : startLabel}
             className={cn(
               "inline-flex size-[4.5rem] shrink-0 items-center justify-center rounded-full shadow-sm transition-all duration-200 active:scale-95",
               isRunning
@@ -148,7 +150,7 @@ export function TimerCard({
         >
           <div className="min-h-0 overflow-hidden">
             <p className="text-muted-foreground text-xs font-medium">
-              {busy ? "Starting..." : "Tap to start focusing"}
+              {busy ? "Starting..." : startLabel === "Start session" ? "Tap to start focusing" : "Start the selected planned session"}
             </p>
           </div>
         </div>

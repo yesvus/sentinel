@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import type { Note, Project, StudySession, Task } from "@/lib/api";
+import type { Note, PlannedSession, Project, StudySession, Task } from "@/lib/api";
 import { buildHomeModel } from "@/lib/home-model";
 import { combineLocalDateAndTime } from "@/lib/date";
 
@@ -26,6 +26,16 @@ const todaySessions: StudySession[] = [
   { id: 1, started_at: "2026-08-02T08:00:00.000Z", ended_at: "2026-08-02T08:30:00.000Z", duration_seconds: 1800, description: null, project_id: 1, project_name: "Research", project_icon: null },
 ];
 
+const plannedSessions: PlannedSession[] = [{
+  id: 11,
+  date_key: "2026-08-02",
+  project_id: 1,
+  estimated_seconds: 3_000,
+  description: "Read before drafting",
+  sort_order: 0,
+  tasks: [tasks[1]],
+}];
+
 describe("Home model", () => {
   it("groups today's tasks by project path with unassigned tasks last", () => {
     const model = buildHomeModel({ projects, tasks, notes, todaySessions, todayKey: "2026-08-02", projectId: 1, sessionTaskIds: [], now: Date.now() });
@@ -44,6 +54,15 @@ describe("Home model", () => {
     expect(model.backlogSuggestions.map((task) => task.id)).toEqual([7]);
     expect(model.activeBacklogSuggestions).toEqual([]);
     expect(model.activeProject?.name).toBe("Research");
+  });
+
+  it("puts planned sessions ahead of unbound tasks and excludes their tasks from ad-hoc selection", () => {
+    const model = buildHomeModel({ projects, tasks, notes, plannedSessions, todaySessions, todayKey: "2026-08-02", projectId: 1, sessionTaskIds: [], now: Date.now() });
+
+    const research = model.todayTaskGroups.find((group) => group.project?.id === 1)!;
+    expect(research.plannedSessions?.map((plan) => plan.id)).toEqual([11]);
+    expect(research.tasks.map((task) => task.id)).toEqual([]);
+    expect(model.todaySuggestions).toEqual([]);
   });
 
   it("combines a time with the original local calendar day", () => {

@@ -16,5 +16,5 @@ export type WeeklyReport = {
 
 export const reports = {
   weekly: (timezone: string) =>
-    api<WeeklyReport[]>(`/api/reports/weekly?timezone=${encodeURIComponent(timezone)}`),
+    api<WeeklyReport[]>(`/api/v1/reports/weekly?timezone=${encodeURIComponent(timezone)}`),
 };

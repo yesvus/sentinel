@@ -16,6 +16,7 @@ export async function taskRoutes(request: NextRequest, parts: string[], userId: 
     });
     await db.batch([
       { sql: "DELETE FROM session_tasks WHERE task_id IN (SELECT id FROM tasks WHERE user_id = ? AND period_start IS NOT NULL AND period_start < ? AND completed_at IS NULL)", args: [userId, data.before] },
+      { sql: "DELETE FROM planned_session_tasks WHERE task_id IN (SELECT id FROM tasks WHERE user_id = ? AND period_start IS NOT NULL AND period_start < ? AND completed_at IS NULL)", args: [userId, data.before] },
       { sql: "UPDATE tasks SET period_start = NULL WHERE user_id = ? AND period_start IS NOT NULL AND period_start < ? AND completed_at IS NULL", args: [userId, data.before] },
     ], "write");
     return NextResponse.json({ moved: candidates.rows.map((task) => ({ ...task, period_start: null })) });
@@ -111,7 +112,11 @@ export async function taskRoutes(request: NextRequest, parts: string[], userId: 
     }
     const statements = [
       { sql: "UPDATE tasks SET title = ?, description = ?, project_id = ?, period_start = ?, completed_at = ? WHERE id = ? AND user_id = ?", args: [title, description, row.project_id, periodStart as string | null, completedAt, id!, userId] },
-      ...(data.periodStart === null ? [{ sql: "DELETE FROM session_tasks WHERE task_id = ?", args: [id!] }] : []),
+      ...(data.periodStart === null ? [
+        { sql: "DELETE FROM session_tasks WHERE task_id = ?", args: [id!] },
+        { sql: "DELETE FROM planned_session_tasks WHERE task_id = ?", args: [id!] },
+      ] : []),
+      ...(data.completed === true ? [{ sql: "DELETE FROM planned_session_tasks WHERE task_id = ?", args: [id!] }] : []),
       ...(attachedSessionId === null ? [] : [{ sql: "INSERT OR IGNORE INTO session_tasks (session_id, task_id) VALUES (?, ?)", args: [attachedSessionId, id!] }]),
     ];
     await db.batch(statements, "write");
@@ -123,6 +128,7 @@ export async function taskRoutes(request: NextRequest, parts: string[], userId: 
     if (!owned.rows.length) return error("Task not found", 404);
     await db.batch([
       { sql: "DELETE FROM session_tasks WHERE task_id = ?", args: [id!] },
+      { sql: "DELETE FROM planned_session_tasks WHERE task_id = ?", args: [id!] },
       { sql: "DELETE FROM tasks WHERE id = ? AND user_id = ?", args: [id!, userId] },
     ], "write");
     return noContent();

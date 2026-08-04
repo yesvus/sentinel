@@ -17,13 +17,13 @@ describe("authenticated client cache", () => {
           }),
     );
 
-    await Promise.all([api("/api/projects"), api("/api/projects")]);
+    await Promise.all([api("/api/v1/projects"), api("/api/v1/projects")]);
     expect(fetchMock).toHaveBeenCalledTimes(1);
-    await api("/api/projects");
+    await api("/api/v1/projects");
     expect(fetchMock).toHaveBeenCalledTimes(1);
 
-    await api("/api/projects/1", { method: "PATCH", body: "{}" });
-    await api("/api/projects");
+    await api("/api/v1/projects/1", { method: "PATCH", body: "{}" });
+    await api("/api/v1/projects");
     expect(fetchMock).toHaveBeenCalledTimes(3);
   });
 
@@ -35,12 +35,12 @@ describe("authenticated client cache", () => {
       .mockResolvedValueOnce(new Response(null, { status: 204 }))
       .mockResolvedValueOnce(new Response(JSON.stringify([{ id: 2, name: "Fresh" }]), { status: 200 }));
 
-    const first = api<Array<{ id: number }>>("/api/projects");
-    await api("/api/projects/1", { method: "PATCH", body: "{}" });
+    const first = api<Array<{ id: number }>>("/api/v1/projects");
+    await api("/api/v1/projects/1", { method: "PATCH", body: "{}" });
     release(new Response(JSON.stringify([{ id: 1, name: "Stale" }]), { status: 200 }));
     await first;
 
-    await expect(api<Array<{ id: number }>>("/api/projects")).resolves.toEqual([{ id: 2, name: "Fresh" }]);
+    await expect(api<Array<{ id: number }>>("/api/v1/projects")).resolves.toEqual([{ id: 2, name: "Fresh" }]);
     expect(fetchMock).toHaveBeenCalledTimes(3);
   });
 });

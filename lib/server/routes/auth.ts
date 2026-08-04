@@ -2,12 +2,13 @@ import bcrypt from "bcrypt";
 import { NextRequest, NextResponse } from "next/server";
 import {
   COOKIE_OPTIONS,
+  authenticateRequest,
   createSession,
-  getUserId,
   revokeSession,
   revokeUserSessions,
   unauthorized,
 } from "../auth";
+import { apiTokenRoutes } from "./api-tokens";
 import { db } from "../db";
 import { clearRateLimit, rateLimited, rateLimitKey, recordRateLimitAttempt } from "../rate-limit";
 import { body, clientAddress, error, noContent } from "./http";
@@ -99,8 +100,11 @@ export async function authRoutes(request: NextRequest, parts: string[]) {
     return response;
   }
 
-  const userId = await getUserId(request);
+  const auth = await authenticateRequest(request);
+  if (auth.rateLimited) return error("Too many API token requests. Try again later.", 429);
+  const userId = auth.userId;
   if (!userId) return unauthorized();
+  if (action === "tokens") return apiTokenRoutes(request, parts, userId);
   if (action === "me" && request.method === "GET") {
     const result = await db.execute({
       sql: "SELECT id, email, name, avatar, share_session_descriptions, auto_start_noise, focus_audio_type, default_session_type, track_production_split, session_pause_timeout_minutes, plan_reminder_hour, plan_weekly_reminder_day, plan_weekly_reminder_hour, plan_context, timezone FROM users WHERE id = ?",

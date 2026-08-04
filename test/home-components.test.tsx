@@ -6,7 +6,7 @@ import { RecentRail } from "@/components/home/recent-rail";
 import { SessionDetailDialog } from "@/components/home/session-detail-dialog";
 import { TimerCard } from "@/components/home/timer-card";
 import { TodayRail } from "@/components/home/today-rail";
-import type { Project, StudySession, Task } from "@/lib/api";
+import type { PlannedSession, Project, StudySession, Task } from "@/lib/api";
 
 vi.mock("@/components/task-creator-popover", () => ({
   TaskCreatorPopover: ({ onCreated }: { onCreated: (task: Task) => void }) => (
@@ -60,6 +60,15 @@ const completedTask: Task = {
 
 const createdTask: Task = { ...openTask, id: 12, title: "Created task" };
 const createdProject: Project = { ...project, id: 2, name: "New project", path: "New project" };
+const plannedSession: PlannedSession = {
+  id: 3,
+  date_key: "2026-08-02",
+  project_id: project.id,
+  estimated_seconds: 3_000,
+  description: "Review the release plan",
+  sort_order: 0,
+  tasks: [openTask],
+};
 
 describe("TodayRail", () => {
   it("selects work and exposes project and create commands", () => {
@@ -104,6 +113,40 @@ describe("TodayRail", () => {
     expect(screen.queryByText("Finished task")).not.toBeInTheDocument();
     fireEvent.click(screen.getByRole("button", { name: "Add task" }));
     expect(onTaskCreated).toHaveBeenCalledWith(createdTask);
+  });
+
+  it("selects an entire planned session without exposing its tasks as independent controls", () => {
+    const onPlannedSessionSelect = vi.fn();
+    render(
+      <TodayRail
+        exiting={false}
+        loaded
+        isRunning={false}
+        refreshingActive={false}
+        todayKey="2026-08-02"
+        trackedSeconds={0}
+        groups={[{ project, plannedSessions: [plannedSession], tasks: [] }]}
+        todayTasks={[]}
+        projects={[project]}
+        projectId={project.id}
+        selectedTaskIds={[]}
+        selectedPlannedSessionId={plannedSession.id}
+        backlogSuggestions={[]}
+        onProjectSelect={vi.fn()}
+        onTaskSelect={vi.fn()}
+        onPlannedSessionSelect={onPlannedSessionSelect}
+        onTaskUpdated={vi.fn()}
+        onTaskCreated={vi.fn()}
+        onProjectUpdated={vi.fn()}
+      />,
+    );
+
+    const card = screen.getByRole("button", { name: /Planned focus/ });
+    expect(card).toHaveAttribute("aria-pressed", "true");
+    expect(screen.getByText("Review Home")).toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: "Review Home" })).not.toBeInTheDocument();
+    fireEvent.click(card);
+    expect(onPlannedSessionSelect).toHaveBeenCalledWith(plannedSession);
   });
 });
 

@@ -11,6 +11,7 @@ import { DayPlanningHeader } from "@/components/planning/day-planning-header";
 import { DayPlanningLoading } from "@/components/planning/day-planning-loading";
 import { DayPlanningNavigation } from "@/components/planning/day-planning-navigation";
 import { DaySessionTimeline } from "@/components/planning/day-session-timeline";
+import { PlannedSessions } from "@/components/planning/planned-sessions";
 import { PlanningPeriodStats, shouldShowPlanningComparison } from "@/components/planning-period-stats";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
@@ -21,9 +22,11 @@ import {
   ApiError,
   Note,
   Project,
+  PlannedSession,
   StudySession,
   Task,
   notes as notesApi,
+  plannedSessions as plannedSessionsApi,
   projects as projectsApi,
   sessions as sessionsApi,
   tasks as tasksApi,
@@ -65,6 +68,7 @@ export default function DayPlanningPage() {
   const [noteList, setNoteList] = useState<Note[]>([]);
   const [sessionList, setSessionList] = useState<StudySession[]>([]);
   const [projectList, setProjectList] = useState<Project[]>([]);
+  const [plannedSessionList, setPlannedSessionList] = useState<PlannedSession[]>([]);
   const [sessionTasks, setSessionTasks] = useState<Record<number, Task[]>>({});
   const [sessionTaskErrors, setSessionTaskErrors] = useState<Record<number, string>>({});
   const [loading, setLoading] = useState(validDay);
@@ -78,6 +82,7 @@ export default function DayPlanningPage() {
       setLoadError(null);
       setSessionTasks({});
       setSessionTaskErrors({});
+      setPlannedSessionList([]);
       const date = parseDateKey(selectedDayKey, timeZone);
       const weekStart = startOfWeek(date, timeZone);
       const previousDay = addDays(date, -1, timeZone);
@@ -88,8 +93,9 @@ export default function DayPlanningPage() {
         notesApi.list(),
         sessionsApi.list({ from: rangeStart.toISOString(), to: nextDay.toISOString() }),
         projectsApi.list(),
+        plannedSessionsApi.list(selectedDayKey),
         ])
-        .then(async ([tasks, notes, sessions, projects]) => {
+        .then(async ([tasks, notes, sessions, projects, plannedSessions]) => {
           const sessionsForDay = sessions.filter(
             (session) => dayKey(new Date(session.started_at), timeZone) === selectedDayKey,
           );
@@ -110,6 +116,7 @@ export default function DayPlanningPage() {
           setNoteList(notes);
           setSessionList(sessions);
           setProjectList(projects);
+          setPlannedSessionList(plannedSessions);
           setSessionTasks(Object.fromEntries(sessionTaskResults.flatMap((result) =>
             result.tasks ? [[result.sessionId, result.tasks]] : [])));
           setSessionTaskErrors(Object.fromEntries(sessionTaskResults.flatMap((result) =>
@@ -138,7 +145,9 @@ export default function DayPlanningPage() {
   );
 
   const dayTasks = taskList.filter((task) => task.period_start === selectedDayKey);
-  const plannedTasks = dayTasks.filter((task) => task.completed_at === null);
+  const plannedTaskIds = new Set(plannedSessionList.flatMap((plan) => plan.tasks.map((task) => task.id)));
+  const unboundDayTasks = dayTasks.filter((task) => !plannedTaskIds.has(task.id));
+  const plannedTasks = unboundDayTasks.filter((task) => task.completed_at === null);
   const backlogTasks = taskList.filter((task) => task.period_start === null);
   const dayNote = noteList.find((note) => note.scope === "day" && note.date_key === selectedDayKey);
   const selectedWeekKey = weekKey(selectedDate, timeZone);
@@ -185,6 +194,10 @@ export default function DayPlanningPage() {
     setSessionTasks((current) => task.completed_at === null && task.period_start === null
       ? removeTaskFromSessions(current, task.id)
       : replaceTaskInSessions(current, task));
+  }
+
+  function handlePlannedSessionTasksChanged(tasks: Task[]) {
+    setTaskList((current) => tasks.reduce((next, task) => upsertTask(next, task), current));
   }
 
   function handleTaskDeleted(id: number) {
@@ -304,6 +317,14 @@ export default function DayPlanningPage() {
       ) : (
         <div className="grid items-start gap-4 lg:grid-cols-[minmax(0,1fr)_minmax(22rem,0.8fr)] xl:grid-cols-[minmax(0,1.1fr)_minmax(20rem,0.8fr)_minmax(16rem,0.55fr)]">
           <div className="flex min-w-0 flex-col gap-4">
+            <PlannedSessions
+              dateKey={selectedDayKey}
+              plans={plannedSessionList}
+              projects={projectList}
+              tasks={taskList}
+              onPlansChange={setPlannedSessionList}
+              onTasksChanged={handlePlannedSessionTasksChanged}
+            />
             <Card>
               <CardHeader>
                 <CardTitle className="flex items-center gap-1">
@@ -315,7 +336,7 @@ export default function DayPlanningPage() {
               <CardContent>
                 <DailyTaskPlanner
                   periodStart={selectedDayKey}
-                  tasks={dayTasks}
+                  tasks={unboundDayTasks}
                   projects={projectList}
                   backlogTasks={backlogTasks}
                   onCreated={handleTaskCreated}

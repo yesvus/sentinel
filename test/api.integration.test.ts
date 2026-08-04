@@ -2,7 +2,7 @@
 
 import { beforeEach, describe, expect, it } from "vitest";
 import { NextRequest } from "next/server";
-import { DELETE, GET, PATCH, POST, PUT } from "@/app/api/[...path]/route";
+import { DELETE, GET, PATCH, POST, PUT } from "@/app/api/v1/[...path]/route";
 import { db, ensureDb } from "@/lib/server/db";
 
 type Method = "GET" | "POST" | "PUT" | "PATCH" | "DELETE";
@@ -11,14 +11,15 @@ const handlers = { GET, POST, PUT, PATCH, DELETE };
 async function request(
   method: Method,
   path: string,
-  options: { body?: unknown; rawBody?: string; cookie?: string; origin?: string; contentLength?: number } = {},
+  options: { body?: unknown; rawBody?: string; cookie?: string; bearer?: string; origin?: string; contentLength?: number } = {},
 ) {
   const headers = new Headers();
   if (options.body !== undefined || options.rawBody !== undefined) headers.set("content-type", "application/json");
   if (options.cookie) headers.set("cookie", options.cookie);
+  if (options.bearer) headers.set("authorization", `Bearer ${options.bearer}`);
   if (options.origin) headers.set("origin", options.origin);
   if (options.contentLength !== undefined) headers.set("content-length", String(options.contentLength));
-  const nextRequest = new NextRequest(`http://localhost:3000/api/${path}`, {
+  const nextRequest = new NextRequest(`http://localhost:3000/api/v1/${path}`, {
     method,
     headers,
     body: options.rawBody ?? (options.body === undefined ? undefined : JSON.stringify(options.body)),
@@ -44,12 +45,109 @@ async function register(email: string) {
 
 beforeEach(async () => {
   await ensureDb();
-  for (const table of ["auth_rate_limits", "auth_sessions", "weekly_reports", "social_notifications", "friendships", "notes", "focus_noise_usage", "session_tasks", "tasks", "sessions", "projects", "users"]) {
+  for (const table of ["auth_rate_limits", "api_tokens", "auth_sessions", "weekly_reports", "social_notifications", "friendships", "notes", "focus_noise_usage", "session_tasks", "planned_session_tasks", "planned_sessions", "tasks", "sessions", "projects", "users"]) {
     await db.execute(`DELETE FROM ${table}`);
   }
 });
 
 describe("Next API", () => {
+  it("issues revocable bearer tokens for the v1 API without exposing their hashes", async () => {
+    const cookie = await register("api-token@example.test");
+    const created = await request("POST", "auth/tokens", {
+      cookie,
+      body: { name: "Claude Code", expiresAt: "2030-01-01T00:00:00.000Z" },
+    });
+
+    expect(created.response.status).toBe(201);
+    expect(created.body).toMatchObject({ name: "Claude Code", token: expect.stringMatching(/^sent_v1_/) });
+    expect(created.body).not.toHaveProperty("tokenHash");
+
+    const listed = await request("GET", "auth/tokens", { cookie });
+    expect(listed.body).toEqual([expect.objectContaining({ id: created.body.id, name: "Claude Code" })]);
+    expect(listed.body[0]).not.toHaveProperty("token");
+
+    const project = await request("POST", "projects", { bearer: created.body.token, body: { name: "External planning" } });
+    expect(project.response.status).toBe(201);
+    expect((await request("GET", "projects", { bearer: created.body.token })).body).toEqual([
+      expect.objectContaining({ id: project.body.id, name: "External planning" }),
+    ]);
+
+    expect((await request("DELETE", `auth/tokens/${created.body.id}`, { cookie })).response.status).toBe(204);
+    expect((await request("GET", "projects", { bearer: created.body.token })).response.status).toBe(401);
+  });
+
+  it("rejects expired and malformed bearer credentials while preserving cookie authentication", async () => {
+    const cookie = await register("api-token-expiry@example.test");
+    const created = await request("POST", "auth/tokens", { cookie, body: { name: "Temporary" } });
+    await db.execute({ sql: "UPDATE api_tokens SET expires_at = datetime('now', '-1 second') WHERE id = ?", args: [created.body.id] });
+
+    expect((await request("GET", "projects", { bearer: created.body.token })).response.status).toBe(401);
+    expect((await request("GET", "projects", { bearer: "not a valid token" })).response.status).toBe(401);
+    expect((await request("GET", "projects", { cookie })).response.status).toBe(200);
+  });
+
+  it("creates, moves, and starts a planned session as one task-bearing active session", async () => {
+    const cookie = await register("planned-session@example.test");
+    const project = await request("POST", "projects", { cookie, body: { name: "Dissertation" } });
+    const firstTask = await request("POST", "tasks", {
+      cookie,
+      body: { periodStart: "2026-08-04", title: "Outline", projectId: project.body.id },
+    });
+    const secondTask = await request("POST", "tasks", {
+      cookie,
+      body: { periodStart: "2026-08-04", title: "Sources", projectId: project.body.id },
+    });
+    const created = await request("POST", "planned-sessions", {
+      cookie,
+      body: {
+        dateKey: "2026-08-04",
+        projectId: project.body.id,
+        estimatedSeconds: 3_600,
+        description: "Finish the opening argument",
+        taskIds: [firstTask.body.id, secondTask.body.id],
+      },
+    });
+
+    expect(created.response.status).toBe(201);
+    expect(created.body).toMatchObject({ project_id: project.body.id, estimated_seconds: 3_600 });
+    expect(created.body.tasks.map((task: { id: number }) => task.id)).toEqual([firstTask.body.id, secondTask.body.id]);
+    expect((await request("POST", "planned-sessions", {
+      cookie,
+      body: { dateKey: "2026-08-04", projectId: project.body.id, estimatedSeconds: 1_800, taskIds: [firstTask.body.id] },
+    })).response.status).toBe(400);
+
+    const moved = await request("PATCH", `planned-sessions/${created.body.id}`, {
+      cookie,
+      body: { dateKey: "2026-08-05" },
+    });
+    expect(moved.body.date_key).toBe("2026-08-05");
+    expect((await request("GET", "tasks", { cookie })).body.filter((task: { id: number }) => task.id === firstTask.body.id)[0].period_start).toBe("2026-08-05");
+
+    const started = await request("POST", `planned-sessions/${created.body.id}/start`, { cookie });
+    expect(started.response.status).toBe(200);
+    expect((await request("GET", "planned-sessions?date=2026-08-05", { cookie })).body).toEqual([]);
+    const attached = await request("GET", `sessions/${started.body.id}/tasks`, { cookie });
+    expect(attached.body.map((task: { id: number }) => task.id)).toEqual([firstTask.body.id, secondTask.body.id]);
+  });
+
+  it("releases planned membership before completing, backlogging, or deleting a task", async () => {
+    const cookie = await register("planned-membership-release@example.test");
+    const project = await request("POST", "projects", { cookie, body: { name: "Maintenance" } });
+    const task = await request("POST", "tasks", {
+      cookie,
+      body: { periodStart: "2026-08-04", title: "Update dependencies", projectId: project.body.id },
+    });
+    const plan = await request("POST", "planned-sessions", {
+      cookie,
+      body: { dateKey: "2026-08-04", projectId: project.body.id, estimatedSeconds: 1_800, taskIds: [task.body.id] },
+    });
+
+    expect((await request("PATCH", `tasks/${task.body.id}`, { cookie, body: { completed: true } })).response.status).toBe(200);
+    expect((await request("GET", "planned-sessions?date=2026-08-04", { cookie })).body[0].tasks).toEqual([]);
+    expect((await request("DELETE", `planned-sessions/${plan.body.id}`, { cookie })).response.status).toBe(204);
+    expect((await request("DELETE", `tasks/${task.body.id}`, { cookie })).response.status).toBe(204);
+  });
+
   it("keeps public and authenticated dispatcher behavior stable", async () => {
     const health = await request("GET", "health");
     expect(health.response.status).toBe(200);

@@ -1,7 +1,7 @@
 import { useEffect, useRef, useState } from "react";
 import { toast } from "@/components/ui/toast";
 import type { useActiveSession } from "@/lib/active-session-context";
-import { ApiError } from "@/lib/api";
+import { ApiError, type PlannedSession } from "@/lib/api";
 import { combineLocalDateAndTime, formatDuration, timeInputValue } from "@/lib/date";
 
 type ActiveSession = ReturnType<typeof useActiveSession>;
@@ -14,7 +14,7 @@ type HomeSessionOptions = {
 };
 
 export function useHomeSession({ active, defaultProductionPercentage, trackProductionSplit, loadSidebars }: HomeSessionOptions) {
-  const { activeSession, now, startSession, updateSession, stopSession, pauseSession, resumeSession } = active;
+  const { activeSession, now, startSession, startPlannedSession, updateSession, stopSession, pauseSession, resumeSession } = active;
   const [projectId, setProjectId] = useState<number | null>(() => activeSession?.project_id ?? null);
   const [description, setDescription] = useState(() => activeSession?.description ?? "");
   const [descriptionStatus, setDescriptionStatus] = useState<"idle" | "saving" | "saved">("idle");
@@ -142,6 +142,22 @@ export function useHomeSession({ active, defaultProductionPercentage, trackProdu
     }
   }
 
+  async function startPlanned(plan: PlannedSession) {
+    setError(null);
+    setBusy(true);
+    descriptionDirtyRef.current = false;
+    try {
+      await startPlannedSession(plan);
+      void loadSidebars();
+      return true;
+    } catch (caught) {
+      setError(caught instanceof ApiError ? caught.message : "Could not start this planned session.");
+      return false;
+    } finally {
+      setBusy(false);
+    }
+  }
+
   async function stop() {
     if (sessionId === null) return false;
     setError(null);
@@ -216,6 +232,6 @@ export function useHomeSession({ active, defaultProductionPercentage, trackProdu
     projectId, description, descriptionStatus, productionPercentage,
     busy, error, stopOpen, editStartOpen, editStartTime, editStartError, editStartBusy,
     setError, setStopOpen, setProductionPercentage, setEditStartOpen, setEditStartTime,
-    changeDetails, start, stop, togglePause, openEditStart, editStart, requestStop,
+    changeDetails, start, startPlanned, stop, togglePause, openEditStart, editStart, requestStop,
   };
 }

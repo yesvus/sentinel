@@ -41,31 +41,31 @@ export type SocialNotification = {
 };
 
 export const social = {
-  connections: () => api<Connection[]>("/api/social/connections"),
+  connections: () => api<Connection[]>("/api/v1/social/connections"),
   request: (email: string) =>
-    api<Connection>("/api/social/requests", {
+    api<Connection>("/api/v1/social/requests", {
       method: "POST",
       body: JSON.stringify({ email }),
     }),
   respond: (friendshipId: number, action: "accept" | "decline") =>
-    api<void>(`/api/social/requests/${friendshipId}`, {
+    api<void>(`/api/v1/social/requests/${friendshipId}`, {
       method: "PATCH",
       body: JSON.stringify({ action }),
     }),
   remove: (friendshipId: number) =>
-    api<void>(`/api/social/connections/${friendshipId}`, { method: "DELETE" }),
+    api<void>(`/api/v1/social/connections/${friendshipId}`, { method: "DELETE" }),
   activity: (cursor?: string | null, limit = 20) => {
     const query = new URLSearchParams({ limit: String(limit) });
     if (cursor) query.set("cursor", cursor);
-    return api<FriendActivityPage>(`/api/social/activity?${query}`);
+    return api<FriendActivityPage>(`/api/v1/social/activity?${query}`);
   },
   nudge: (userId: number) =>
-    api<{ id: number }>(`/api/social/nudges/${userId}`, { method: "POST" }),
-  notifications: () => api<SocialNotification[]>("/api/social/notifications"),
+    api<{ id: number }>(`/api/v1/social/nudges/${userId}`, { method: "POST" }),
+  notifications: () => api<SocialNotification[]>("/api/v1/social/notifications"),
   readNotifications: () =>
-    api<void>("/api/social/notifications", { method: "PATCH" }),
+    api<void>("/api/v1/social/notifications", { method: "PATCH" }),
   dismissNotification: (id: number) =>
-    api<void>(`/api/social/notifications/${id}`, { method: "DELETE" }),
+    api<void>(`/api/v1/social/notifications/${id}`, { method: "DELETE" }),
   clearNotifications: () =>
-    api<void>("/api/social/notifications", { method: "DELETE" }),
+    api<void>("/api/v1/social/notifications", { method: "DELETE" }),
 };

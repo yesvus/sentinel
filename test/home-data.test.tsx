@@ -2,15 +2,17 @@ import { render, waitFor } from "@testing-library/react";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import { useHomeData } from "@/hooks/use-home-data";
 
-const { listSessions, pageSessions } = vi.hoisted(() => ({
+const { listSessions, pageSessions, listPlannedSessions } = vi.hoisted(() => ({
   listSessions: vi.fn(),
   pageSessions: vi.fn(),
+  listPlannedSessions: vi.fn(),
 }));
 
 vi.mock("@/lib/api", () => ({
   notes: { list: vi.fn().mockResolvedValue([]) },
   projects: { list: vi.fn().mockResolvedValue([]) },
   tasks: { list: vi.fn().mockResolvedValue([]) },
+  plannedSessions: { list: listPlannedSessions },
   sessions: {
     list: listSessions,
     page: pageSessions,
@@ -27,6 +29,7 @@ describe("useHomeData", () => {
   beforeEach(() => {
     listSessions.mockReset().mockResolvedValue([]);
     pageSessions.mockReset().mockResolvedValue({ items: [], nextCursor: null });
+    listPlannedSessions.mockReset().mockResolvedValue([]);
   });
 
   it("refreshes Today and Recent data when the shared session revision changes", async () => {

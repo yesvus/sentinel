@@ -37,7 +37,7 @@ export type SessionUpdateResult = {
 
 export const sessions = {
   start: (details?: { projectId?: number | null; description?: string | null; taskIds?: number[] }) =>
-    api<{ id: number; startedAt: string }>("/api/sessions/start", {
+    api<{ id: number; startedAt: string }>("/api/v1/sessions/start", {
       method: "POST",
       body: JSON.stringify(details ?? {}),
     }),
@@ -53,33 +53,33 @@ export const sessions = {
       taskPeriodStart?: string;
     }
   ) =>
-    api<SessionUpdateResult>(`/api/sessions/${id}`, { method: "PATCH", body: JSON.stringify(details) }),
+    api<SessionUpdateResult>(`/api/v1/sessions/${id}`, { method: "PATCH", body: JSON.stringify(details) }),
   stop: (id: number, description?: string | null, productionPercentage?: number | null) =>
-    api<{ id: number; endedAt: string; durationSeconds: number; description: string | null; productionPercentage: number | null }>(`/api/sessions/${id}/stop`, {
+    api<{ id: number; endedAt: string; durationSeconds: number; description: string | null; productionPercentage: number | null }>(`/api/v1/sessions/${id}/stop`, {
       method: "PATCH",
       body: JSON.stringify({ description, productionPercentage }),
     }),
   pause: (id: number) =>
-    api<{ id: number; pausedAt: string; pausedSeconds: number }>(`/api/sessions/${id}/pause`, { method: "PATCH" }),
+    api<{ id: number; pausedAt: string; pausedSeconds: number }>(`/api/v1/sessions/${id}/pause`, { method: "PATCH" }),
   resume: (id: number) =>
-    api<{ id: number; pausedAt: null; pausedSeconds: number }>(`/api/sessions/${id}/resume`, { method: "PATCH" }),
+    api<{ id: number; pausedAt: null; pausedSeconds: number }>(`/api/v1/sessions/${id}/resume`, { method: "PATCH" }),
   expirePause: (id: number) =>
-    api<{ ended: boolean; durationSeconds?: number; endedAt?: string }>(`/api/sessions/${id}/expire-pause`, { method: "PATCH" }),
+    api<{ ended: boolean; durationSeconds?: number; endedAt?: string }>(`/api/v1/sessions/${id}/expire-pause`, { method: "PATCH" }),
   list: (range?: { from?: string; to?: string }) => {
     const query = new URLSearchParams();
     if (range?.from) query.set("from", range.from);
     if (range?.to) query.set("to", range.to);
-    return api<StudySession[]>(`/api/sessions${query.size ? `?${query}` : ""}`);
+    return api<StudySession[]>(`/api/v1/sessions${query.size ? `?${query}` : ""}`);
   },
   page: (cursor?: string | null, limit = 30) => {
     const query = new URLSearchParams({ limit: String(limit) });
     if (cursor) query.set("cursor", cursor);
-    return api<SessionPage>(`/api/sessions?${query}`);
+    return api<SessionPage>(`/api/v1/sessions?${query}`);
   },
-  getActive: () => api<StudySession | null>("/api/sessions/active"),
-  tasks: (id: number) => api<Task[]>(`/api/sessions/${id}/tasks`),
-  detachTask: (id: number, taskId: number) => api<void>(`/api/sessions/${id}/tasks/${taskId}`, { method: "DELETE" }),
-  remove: (id: number) => api<void>(`/api/sessions/${id}`, { method: "DELETE" }),
+  getActive: () => api<StudySession | null>("/api/v1/sessions/active"),
+  tasks: (id: number) => api<Task[]>(`/api/v1/sessions/${id}/tasks`),
+  detachTask: (id: number, taskId: number) => api<void>(`/api/v1/sessions/${id}/tasks/${taskId}`, { method: "DELETE" }),
+  remove: (id: number) => api<void>(`/api/v1/sessions/${id}`, { method: "DELETE" }),
   createManual: (details: {
     startedAt: string;
     endedAt: string;
@@ -87,7 +87,7 @@ export const sessions = {
     description?: string | null;
     productionPercentage?: number | null;
   }) =>
-    api<{ id: number; startedAt: string; endedAt: string; durationSeconds: number; productionPercentage: number | null }>("/api/sessions", {
+    api<{ id: number; startedAt: string; endedAt: string; durationSeconds: number; productionPercentage: number | null }>("/api/v1/sessions", {
       method: "POST",
       body: JSON.stringify(details),
     }),

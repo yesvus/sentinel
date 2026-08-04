@@ -13,10 +13,11 @@ const responseCache = new Map<string, CacheEntry>();
 const inFlightRequests = new Map<string, Promise<unknown>>();
 
 const DOMAINS: Record<string, string[]> = {
-  sessions: ["/api/sessions", "/api/reports/weekly"],
-  projects: ["/api/projects"],
-  tasks: ["/api/tasks"],
-  notes: ["/api/notes"],
+  sessions: ["/api/v1/sessions", "/api/v1/reports/weekly"],
+  projects: ["/api/v1/projects"],
+  tasks: ["/api/v1/tasks"],
+  plannedSessions: ["/api/v1/planned-sessions"],
+  notes: ["/api/v1/notes"],
 };
 
 function domainFor(path: string) {
@@ -67,7 +68,7 @@ export async function api<T>(path: string, options: RequestInit = {}): Promise<T
 
   if (method !== "GET") {
     if (domain) invalidateDomain(domain);
-    if (path.startsWith("/api/sessions") || path.startsWith("/api/session-tasks")) {
+    if (path.startsWith("/api/v1/sessions") || path.startsWith("/api/v1/session-tasks")) {
       invalidateSessionRelated();
     }
     inFlightRequests.delete(path);
