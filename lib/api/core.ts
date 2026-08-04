@@ -16,6 +16,7 @@ const DOMAINS: Record<string, string[]> = {
   sessions: ["/api/sessions", "/api/reports/weekly"],
   projects: ["/api/projects"],
   tasks: ["/api/tasks"],
+  plannedSessions: ["/api/planned-sessions"],
   notes: ["/api/notes"],
 };
 

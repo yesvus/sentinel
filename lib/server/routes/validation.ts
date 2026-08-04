@@ -9,6 +9,7 @@ export const MAX_PROJECT_RESOURCES_LENGTH = 10_000;
 export const MAX_NOTE_LENGTH = 10_000;
 export const MAX_TASK_TITLE_LENGTH = 200;
 export const MAX_PLAN_CONTEXT_LENGTH = 2_000;
+export const MAX_PLANNED_SESSION_SECONDS = 24 * 60 * 60;
 
 export function validEmail(email: string) {
   return email.length <= 254 && /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email);
@@ -33,4 +34,10 @@ export function periodStartError(value: unknown) {
   return typeof value === "string" && /^\d{4}-\d{2}-\d{2}$/.test(value)
     ? null
     : error("periodStart must be a YYYY-MM-DD date or null");
+}
+
+export function plannedSessionDurationError(value: unknown) {
+  return typeof value === "number" && Number.isInteger(value) && value >= 60 && value <= MAX_PLANNED_SESSION_SECONDS
+    ? null
+    : error("estimatedSeconds must be an integer between 60 and 86400");
 }

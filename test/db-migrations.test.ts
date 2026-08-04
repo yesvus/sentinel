@@ -47,7 +47,7 @@ describe("database migrations", () => {
 
     const applied = await client.execute("SELECT version FROM schema_migrations ORDER BY version");
     expect(applied.rows.map((row) => Number(row.version))).toEqual(
-      Array.from({ length: 16 }, (_, index) => index + 1),
+      Array.from({ length: 17 }, (_, index) => index + 1),
     );
     const indexes = await client.execute(
       "SELECT name FROM sqlite_master WHERE type = 'index' AND name = 'idx_one_open_focus_noise_usage_per_user'",
@@ -70,7 +70,7 @@ describe("database migrations", () => {
 
     await initializeDatabase(client, url);
 
-    expect((await client.execute("SELECT COUNT(*) AS count FROM schema_migrations")).rows[0].count).toBe(16);
+    expect((await client.execute("SELECT COUNT(*) AS count FROM schema_migrations")).rows[0].count).toBe(17);
     expect((await client.execute("SELECT email FROM users")).rows[0].email).toBe("repeat@example.test");
   });
 

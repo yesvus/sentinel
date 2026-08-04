@@ -14,6 +14,7 @@ import { migration013 } from "./013";
 import { migration014 } from "./014";
 import { migration015 } from "./015";
 import { migration016 } from "./016";
+import { migration017 } from "./017";
 
 export const migrations = [
   migration001,
@@ -32,4 +33,5 @@ export const migrations = [
   migration014,
   migration015,
   migration016,
+  migration017,
 ];

@@ -44,12 +44,74 @@ async function register(email: string) {
 
 beforeEach(async () => {
   await ensureDb();
-  for (const table of ["auth_rate_limits", "auth_sessions", "weekly_reports", "social_notifications", "friendships", "notes", "focus_noise_usage", "session_tasks", "tasks", "sessions", "projects", "users"]) {
+  for (const table of ["auth_rate_limits", "auth_sessions", "weekly_reports", "social_notifications", "friendships", "notes", "focus_noise_usage", "session_tasks", "planned_session_tasks", "planned_sessions", "tasks", "sessions", "projects", "users"]) {
     await db.execute(`DELETE FROM ${table}`);
   }
 });
 
 describe("Next API", () => {
+  it("creates, moves, and starts a planned session as one task-bearing active session", async () => {
+    const cookie = await register("planned-session@example.test");
+    const project = await request("POST", "projects", { cookie, body: { name: "Dissertation" } });
+    const firstTask = await request("POST", "tasks", {
+      cookie,
+      body: { periodStart: "2026-08-04", title: "Outline", projectId: project.body.id },
+    });
+    const secondTask = await request("POST", "tasks", {
+      cookie,
+      body: { periodStart: "2026-08-04", title: "Sources", projectId: project.body.id },
+    });
+    const created = await request("POST", "planned-sessions", {
+      cookie,
+      body: {
+        dateKey: "2026-08-04",
+        projectId: project.body.id,
+        estimatedSeconds: 3_600,
+        description: "Finish the opening argument",
+        taskIds: [firstTask.body.id, secondTask.body.id],
+      },
+    });
+
+    expect(created.response.status).toBe(201);
+    expect(created.body).toMatchObject({ project_id: project.body.id, estimated_seconds: 3_600 });
+    expect(created.body.tasks.map((task: { id: number }) => task.id)).toEqual([firstTask.body.id, secondTask.body.id]);
+    expect((await request("POST", "planned-sessions", {
+      cookie,
+      body: { dateKey: "2026-08-04", projectId: project.body.id, estimatedSeconds: 1_800, taskIds: [firstTask.body.id] },
+    })).response.status).toBe(400);
+
+    const moved = await request("PATCH", `planned-sessions/${created.body.id}`, {
+      cookie,
+      body: { dateKey: "2026-08-05" },
+    });
+    expect(moved.body.date_key).toBe("2026-08-05");
+    expect((await request("GET", "tasks", { cookie })).body.filter((task: { id: number }) => task.id === firstTask.body.id)[0].period_start).toBe("2026-08-05");
+
+    const started = await request("POST", `planned-sessions/${created.body.id}/start`, { cookie });
+    expect(started.response.status).toBe(200);
+    expect((await request("GET", "planned-sessions?date=2026-08-05", { cookie })).body).toEqual([]);
+    const attached = await request("GET", `sessions/${started.body.id}/tasks`, { cookie });
+    expect(attached.body.map((task: { id: number }) => task.id)).toEqual([firstTask.body.id, secondTask.body.id]);
+  });
+
+  it("releases planned membership before completing, backlogging, or deleting a task", async () => {
+    const cookie = await register("planned-membership-release@example.test");
+    const project = await request("POST", "projects", { cookie, body: { name: "Maintenance" } });
+    const task = await request("POST", "tasks", {
+      cookie,
+      body: { periodStart: "2026-08-04", title: "Update dependencies", projectId: project.body.id },
+    });
+    const plan = await request("POST", "planned-sessions", {
+      cookie,
+      body: { dateKey: "2026-08-04", projectId: project.body.id, estimatedSeconds: 1_800, taskIds: [task.body.id] },
+    });
+
+    expect((await request("PATCH", `tasks/${task.body.id}`, { cookie, body: { completed: true } })).response.status).toBe(200);
+    expect((await request("GET", "planned-sessions?date=2026-08-04", { cookie })).body[0].tasks).toEqual([]);
+    expect((await request("DELETE", `planned-sessions/${plan.body.id}`, { cookie })).response.status).toBe(204);
+    expect((await request("DELETE", `tasks/${task.body.id}`, { cookie })).response.status).toBe(204);
+  });
+
   it("keeps public and authenticated dispatcher behavior stable", async () => {
     const health = await request("GET", "health");
     expect(health.response.status).toBe(200);

@@ -7,6 +7,7 @@ import { error, MAX_BODY_BYTES, RouteContext } from "@/lib/server/routes/http";
 import { noiseUsageRoutes } from "@/lib/server/routes/noise-usage";
 import { noteRoutes } from "@/lib/server/routes/notes";
 import { projectRoutes } from "@/lib/server/routes/projects";
+import { plannedSessionRoutes } from "@/lib/server/routes/planned-sessions";
 import { reportRoutes } from "@/lib/server/routes/reports";
 import { sessionTaskRoutes } from "@/lib/server/routes/session-tasks";
 import { sessionRoutes } from "@/lib/server/routes/sessions";
@@ -39,6 +40,7 @@ async function handle(request: NextRequest, context: RouteContext) {
   if (path[0] === "projects") return projectRoutes(request, path, userId);
   if (path[0] === "notes") return noteRoutes(request, path, userId);
   if (path[0] === "tasks") return taskRoutes(request, path, userId);
+  if (path[0] === "planned-sessions") return plannedSessionRoutes(request, path, userId);
   if (path[0] === "noise-usage") return noiseUsageRoutes(request, path, userId);
   if (path[0] === "social") return socialRoutes(request, path, userId);
   if (path[0] === "reports") return reportRoutes(request, path, userId);

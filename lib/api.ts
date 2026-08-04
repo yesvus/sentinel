@@ -4,6 +4,8 @@ export type { FocusAudioType, User } from "./api/auth";
 export { noiseUsage } from "./api/noise-usage";
 export { sessions } from "./api/sessions";
 export type { SessionPage, SessionUpdateResult, StudySession } from "./api/sessions";
+export { plannedSessions } from "./api/planned-sessions";
+export type { PlannedSession } from "./api/planned-sessions";
 export { LONG_TERM_NOTE_KEY, notes } from "./api/notes";
 export type { Note } from "./api/notes";
 export { tasks } from "./api/tasks";

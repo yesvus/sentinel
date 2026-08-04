@@ -14,6 +14,8 @@ const indexStatements = [
   "CREATE INDEX IF NOT EXISTS idx_tasks_user_period ON tasks (user_id, period_start)",
   "CREATE INDEX IF NOT EXISTS idx_tasks_user_project ON tasks (user_id, project_id)",
   "CREATE INDEX IF NOT EXISTS idx_session_tasks_task ON session_tasks (task_id)",
+  "CREATE INDEX IF NOT EXISTS idx_planned_sessions_user_date ON planned_sessions (user_id, date_key, sort_order)",
+  "CREATE INDEX IF NOT EXISTS idx_planned_session_tasks_plan ON planned_session_tasks (planned_session_id)",
   "CREATE INDEX IF NOT EXISTS idx_focus_noise_usage_user_started ON focus_noise_usage (user_id, started_at DESC)",
   "CREATE UNIQUE INDEX IF NOT EXISTS idx_one_open_focus_noise_usage_per_user ON focus_noise_usage (user_id) WHERE ended_at IS NULL",
 ];
