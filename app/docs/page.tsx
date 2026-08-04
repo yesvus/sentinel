@@ -62,6 +62,43 @@ curl "$SENTINEL_BASE_URL/api/v1/projects" \\
         <p className="text-muted-foreground">Use HTTPS in hosted environments. Never include a token in a URL, commit it to a repository, or send it to an untrusted agent. Revoking it in Settings takes effect immediately.</p>
       </section>
 
+      <section className="space-y-4" aria-labelledby="agent-setup">
+        <h2 id="agent-setup" className="font-heading text-xl font-semibold">Set up any agent</h2>
+        <p className="text-muted-foreground">Sentinel&apos;s agent guide is ordinary Markdown, so it works with formal skill systems and agents that only accept project instructions or attached context. It does not depend on a particular vendor or folder name.</p>
+        <ol className="list-decimal space-y-2 pl-5 text-muted-foreground">
+          <li>Create a personal API token in Sentinel Settings. Copy it once and keep it in your agent&apos;s approved secret store.</li>
+          <li>Download the canonical guide into the project or workspace where the agent runs.</li>
+          <li>Add that file to the agent&apos;s persistent instructions, skill folder, or startup context, then tell the agent to read it before calling Sentinel.</li>
+        </ol>
+        <Code>{`curl -fsSL https://raw.githubusercontent.com/yesvus/sentinel/master/SKILL.md \\
+  -o sentinel-skill.md
+
+export SENTINEL_BASE_URL="https://sentinel.yesvus.com"
+export SENTINEL_API_TOKEN="sent_v1_…"`}</Code>
+        <p className="text-muted-foreground">Never put the token in the skill file, a repository, or a URL. Runners without automatic skill discovery can attach the complete <a className="underline underline-offset-3 hover:text-foreground" href="https://raw.githubusercontent.com/yesvus/sentinel/master/SKILL.md">raw SKILL.md</a> directly as project context.</p>
+      </section>
+
+      <section className="space-y-4" aria-labelledby="mental-model">
+        <h2 id="mental-model" className="font-heading text-xl font-semibold">How Sentinel models work</h2>
+        <div className="grid gap-3 sm:grid-cols-2">
+          <div className="rounded-lg border p-4"><h3 className="font-medium">Projects and tasks</h3><p className="mt-1 text-sm text-muted-foreground">Projects organize work and may nest three levels deep. Tasks are either unscheduled backlog items or assigned to a local calendar day. A task&apos;s project is fixed after creation.</p></div>
+          <div className="rounded-lg border p-4"><h3 className="font-medium">Plans and focus sessions</h3><p className="mt-1 text-sm text-muted-foreground">Planned sessions are intended focus blocks with selected tasks. Starting one creates the real active session and consumes the plan.</p></div>
+          <div className="rounded-lg border p-4"><h3 className="font-medium">Notes and reports</h3><p className="mt-1 text-sm text-muted-foreground">Day, week, and long-term notes preserve planning context. Weekly reports summarize completed work but do not replace live task state.</p></div>
+          <div className="rounded-lg border p-4"><h3 className="font-medium">Dates and ownership</h3><p className="mt-1 text-sm text-muted-foreground">Planning dates are local <code>YYYY-MM-DD</code> keys. Every protected record belongs to the authenticated user; treat server responses as authoritative.</p></div>
+        </div>
+      </section>
+
+      <section className="space-y-4" aria-labelledby="agent-loop">
+        <h2 id="agent-loop" className="font-heading text-xl font-semibold">A safe agent workflow</h2>
+        <ol className="grid gap-3 sm:grid-cols-2 lg:grid-cols-4">
+          <li className="rounded-lg border p-4"><p className="font-medium">1. Read</p><p className="mt-1 text-sm text-muted-foreground">Fetch current tasks, plans, sessions, and notes before reasoning about a change.</p></li>
+          <li className="rounded-lg border p-4"><p className="font-medium">2. Explain</p><p className="mt-1 text-sm text-muted-foreground">State the useful constraint or trade-off when the owner needs to decide.</p></li>
+          <li className="rounded-lg border p-4"><p className="font-medium">3. Change narrowly</p><p className="mt-1 text-sm text-muted-foreground">Apply only the requested mutation; do not invent ids, dates, or task membership.</p></li>
+          <li className="rounded-lg border p-4"><p className="font-medium">4. Reconcile</p><p className="mt-1 text-sm text-muted-foreground">Use the response or re-read state. Surface errors instead of assuming success.</p></li>
+        </ol>
+        <p className="text-muted-foreground">Ask before deleting a task, project, note, planned session, session, or token. A task moved back to the backlog is detached from active and planned sessions; a plan should never be started while another session is active.</p>
+      </section>
+
       <section className="space-y-4" aria-labelledby="workflows">
         <h2 id="workflows" className="font-heading text-xl font-semibold">Core workflows</h2>
         <div className="grid gap-4 lg:grid-cols-2">
@@ -97,6 +134,12 @@ curl "$SENTINEL_BASE_URL/api/v1/planned-sessions?date=2026-08-05" \\
             <tbody className="divide-y">{endpoints.map(([method, path, purpose]) => <tr key={`${method}-${path}`}><td className="p-3 font-mono text-xs">{method}</td><td className="p-3 font-mono text-xs">{path}</td><td className="p-3 text-muted-foreground">{purpose}</td></tr>)}</tbody>
           </table>
         </div>
+      </section>
+
+      <section className="space-y-3" aria-labelledby="responses">
+        <h2 id="responses" className="font-heading text-xl font-semibold">Response and error conventions</h2>
+        <p className="text-muted-foreground">Task and note records use keys such as <code>period_start</code>, <code>completed_at</code>, <code>project_id</code>, and <code>date_key</code>. Other responses may use camelCase. Preserve server values rather than transforming or fabricating them on the client.</p>
+        <ul className="list-disc space-y-1 pl-5 text-muted-foreground"><li><code>401</code>: token is invalid, expired, or revoked—create a new token in Settings.</li><li><code>409</code>: current state conflicts with the change—read current state again before retrying.</li><li><code>429</code>: pause and retry later; do not repeatedly poll.</li></ul>
       </section>
 
       <section className="space-y-3 border-t pt-8" aria-labelledby="calendar">
