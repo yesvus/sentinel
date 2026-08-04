@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useMemo, useState } from "react";
-import { notes, projects, sessions, tasks, type Note, type Project, type StudySession, type Task } from "@/lib/api";
+import { notes, plannedSessions, projects, sessions, tasks, type Note, type PlannedSession, type Project, type StudySession, type Task } from "@/lib/api";
 import { dayKey, startOfDay } from "@/lib/date";
 import { mergeActiveSession } from "@/lib/session-list";
 
@@ -9,6 +9,7 @@ export function useHomeData(activeSession: StudySession | null = null, sessionRe
   const [projectList, setProjectList] = useState<Project[]>([]);
   const [taskList, setTaskList] = useState<Task[]>([]);
   const [noteList, setNoteList] = useState<Note[]>([]);
+  const [plannedSessionList, setPlannedSessionList] = useState<PlannedSession[]>([]);
   const [todaySessions, setTodaySessions] = useState<StudySession[]>([]);
   const [recentSessions, setRecentSessions] = useState<StudySession[]>([]);
   const [sidebarDataLoaded, setSidebarDataLoaded] = useState(false);
@@ -28,6 +29,7 @@ export function useHomeData(activeSession: StudySession | null = null, sessionRe
       sessions.page(null, 5)
         .then((page) => setRecentSessions(page.items.filter((session) => session.ended_at !== null).slice(0, 4)))
         .catch(() => {}),
+      plannedSessions.list(dayKey(today, timeZone)).then(setPlannedSessionList).catch(() => {}),
     ]);
   }, [timeZone]);
 
@@ -91,6 +93,7 @@ export function useHomeData(activeSession: StudySession | null = null, sessionRe
     taskList,
     setTaskList,
     noteList,
+    plannedSessionList,
     todaySessions: mergedTodaySessions,
     recentSessions,
     sidebarDataLoaded,
@@ -98,6 +101,10 @@ export function useHomeData(activeSession: StudySession | null = null, sessionRe
     viewingSessionTasks,
     viewingSessionTasksStatus,
     setViewingSession,
+    upsertPlannedSession: (plannedSession: PlannedSession) => setPlannedSessionList((items) =>
+      [...items.filter((item) => item.id !== plannedSession.id), plannedSession]
+        .sort((a, b) => a.sort_order - b.sort_order || a.id - b.id)),
+    removePlannedSession: (id: number) => setPlannedSessionList((items) => items.filter((item) => item.id !== id)),
     retryViewingSessionTasks: () => setViewingSessionTasksRetry((retry) => retry + 1),
     addProject,
     loadSidebars,

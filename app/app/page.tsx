@@ -16,6 +16,7 @@ import { useActiveSession } from "@/lib/active-session-context";
 import { useAuth } from "@/lib/auth-context";
 import { dayKey, hourInTimeZone } from "@/lib/date";
 import { buildHomeModel } from "@/lib/home-model";
+import { useState } from "react";
 
 function greeting(timeZone?: string) {
   const hour = hourInTimeZone(new Date(), timeZone);
@@ -53,6 +54,7 @@ export default function AppHomePage() {
     setSidebarOpen: setOpen,
     setMobileSidebarOpen: setOpenMobile,
   });
+  const [selectedPlannedSessionId, setSelectedPlannedSessionId] = useState<number | null>(null);
 
   const todayKey = dayKey(new Date(), timeZone);
   const todayLabel = new Date().toLocaleDateString(undefined, { timeZone, weekday: "long", month: "long", day: "numeric" });
@@ -60,6 +62,7 @@ export default function AppHomePage() {
     projects: data.projectList,
     tasks: data.taskList,
     notes: data.noteList,
+    plannedSessions: data.plannedSessionList,
     todaySessions: data.todaySessions,
     todayKey,
     projectId: session.projectId,
@@ -68,10 +71,18 @@ export default function AppHomePage() {
   });
 
   async function startSession() {
+    const selectedPlannedSession = model.todayPlannedSessions.find((plan) => plan.id === selectedPlannedSessionId);
     const selectedTaskIds = [...tasks.selectedTaskIds];
-    await layout.start(() => session.start(selectedTaskIds), {
-      before: () => tasks.seedSessionTasks(selectedTaskIds),
-      success: tasks.clearSelectedTasks,
+    const taskIds = selectedPlannedSession ? selectedPlannedSession.tasks.map((task) => task.id) : selectedTaskIds;
+    await layout.start(() => selectedPlannedSession ? session.startPlanned(selectedPlannedSession) : session.start(selectedTaskIds), {
+      before: () => tasks.seedSessionTasks(taskIds),
+      success: () => {
+        tasks.clearSelectedTasks();
+        if (selectedPlannedSession) {
+          data.removePlannedSession(selectedPlannedSession.id);
+          setSelectedPlannedSessionId(null);
+        }
+      },
       failure: tasks.clearOptimisticSessionTasks,
     });
   }
@@ -99,9 +110,20 @@ export default function AppHomePage() {
           projects={data.projectList}
           projectId={session.projectId}
           selectedTaskIds={tasks.selectedTaskIds}
+          selectedPlannedSessionId={selectedPlannedSessionId}
           backlogSuggestions={model.backlogSuggestions}
-          onProjectSelect={tasks.selectProjectTasks}
-          onTaskSelect={tasks.selectTask}
+          onProjectSelect={(projectId, projectTasks) => {
+            setSelectedPlannedSessionId(null);
+            tasks.selectProjectTasks(projectId, projectTasks);
+          }}
+          onTaskSelect={(task, selected) => {
+            setSelectedPlannedSessionId(null);
+            tasks.selectTask(task, selected);
+          }}
+          onPlannedSessionSelect={(plannedSession) => {
+            setSelectedPlannedSessionId((current) => current === plannedSession.id ? null : plannedSession.id);
+            tasks.clearSelectedTasks();
+          }}
           onTaskUpdated={tasks.taskUpdated}
           onTaskCreated={tasks.todayTaskCreated}
           onProjectUpdated={data.addProject}
@@ -173,7 +195,11 @@ export default function AppHomePage() {
           descriptionStatus={session.descriptionStatus}
           error={session.error}
           stopOpen={session.stopOpen}
-          onProjectChange={(projectId) => tasks.selectProject(projectId)}
+          startLabel={selectedPlannedSessionId === null ? undefined : "Start planned session"}
+          onProjectChange={(projectId) => {
+            setSelectedPlannedSessionId(null);
+            tasks.selectProject(projectId);
+          }}
           onProjectCreated={(project) => {
             data.addProject(project);
             tasks.selectProject(project.id);

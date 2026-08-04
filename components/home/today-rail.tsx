@@ -1,12 +1,12 @@
 import { useState } from "react";
 import Link from "next/link";
-import { ListTodo } from "lucide-react";
+import { Clock3, ListTodo } from "lucide-react";
 import {
   DndContext, closestCenter, KeyboardSensor, PointerSensor, useSensor, useSensors,
   type DragEndEvent,
 } from "@dnd-kit/core";
 import { sortableKeyboardCoordinates, arrayMove, SortableContext, verticalListSortingStrategy } from "@dnd-kit/sortable";
-import type { Note, Project, Task } from "@/lib/api";
+import type { Note, PlannedSession, Project, Task } from "@/lib/api";
 import { tasks as tasksApi, projects as projectsApi } from "@/lib/api";
 import type { HomeTaskGroup } from "@/lib/home-model";
 import { formatDuration } from "@/lib/date";
@@ -43,9 +43,11 @@ type TodayRailProps = {
   projects: Project[];
   projectId: number | null;
   selectedTaskIds: number[];
+  selectedPlannedSessionId?: number | null;
   backlogSuggestions: Task[];
   onProjectSelect: (projectId: number | null, tasks: Task[]) => void;
   onTaskSelect: (task: Task, selected: boolean) => void;
+  onPlannedSessionSelect?: (plannedSession: PlannedSession) => void;
   onTaskUpdated: (task: Task) => void;
   onTaskCreated: (task: Task) => void;
   onProjectUpdated: (project: Project) => void;
@@ -64,9 +66,11 @@ export function TodayRail({
   projects,
   projectId,
   selectedTaskIds,
+  selectedPlannedSessionId = null,
   backlogSuggestions,
   onProjectSelect,
   onTaskSelect,
+  onPlannedSessionSelect = () => {},
   onTaskUpdated,
   onTaskCreated,
   onProjectUpdated,
@@ -81,14 +85,15 @@ export function TodayRail({
   const openGroups = groups
     .map((group) => ({
       ...group,
+      plannedSessions: (group.plannedSessions ?? []).slice().sort((a, b) => a.sort_order - b.sort_order || a.id - b.id),
       tasks: group.tasks
         .filter((task) => task.completed_at === null)
         .slice()
         .sort((a, b) => a.sort_order - b.sort_order || a.id - b.id),
     }))
-    .filter((group) => group.tasks.length > 0);
+    .filter((group) => group.tasks.length > 0 || group.plannedSessions.length > 0);
   const sortedOpenTasks = openGroups.flatMap((group) => group.tasks);
-  const hasOpenTasks = todayTasks.some((task) => task.completed_at === null);
+  const hasPlanning = openGroups.length > 0 || todayTasks.some((task) => task.completed_at === null);
 
   async function handleTaskDragEnd(active: DragEndEvent["active"], over: NonNullable<DragEndEvent["over"]>) {
     const fromIndex = sortedOpenTasks.findIndex((t) => String(t.id) === String(active.id));
@@ -163,6 +168,11 @@ export function TodayRail({
               {selectedTaskIds.length} selected
             </span>
           )}
+          {selectedPlannedSessionId !== null && (
+            <span className="bg-primary/10 text-primary rounded-full px-1.5 py-0.5 font-mono text-[10px] tracking-normal normal-case">
+              session selected
+            </span>
+          )}
           <HelpTooltip label="About session task selection">
             Select the tasks you intend to work on during the next session. Selecting a task does not mark it complete.
           </HelpTooltip>
@@ -213,7 +223,7 @@ export function TodayRail({
                 items={openGroups.filter(hasProject).map((g) => `${PROJECT_DRAG_PREFIX}${g.project.id}`)}
                 strategy={verticalListSortingStrategy}
               >
-              {openGroups.map(({ project, tasks }) => (
+              {openGroups.map(({ project, plannedSessions, tasks }) => (
                 <div key={project?.id ?? "none"} className="-mx-1 flex w-[calc(100%+0.5rem)] flex-col rounded px-1 py-0.5">
                   {project ? (
                     <SortableTaskRow
@@ -244,6 +254,33 @@ export function TodayRail({
                       <span className="truncate">No project</span>
                     </button>
                   )}
+                  {plannedSessions.map((plannedSession) => {
+                    const selected = selectedPlannedSessionId === plannedSession.id;
+                    return (
+                      <button
+                        key={plannedSession.id}
+                        type="button"
+                        disabled={isRunning || refreshingActive}
+                        aria-pressed={selected}
+                        onClick={() => onPlannedSessionSelect(plannedSession)}
+                        className={cn(
+                          "animate-in fade-in slide-in-from-top-1 mb-1.5 flex w-full flex-col gap-1.5 rounded-md border px-2 py-2 text-left transition-colors duration-150 disabled:cursor-default",
+                          selected ? "border-primary/50 bg-primary/10 text-primary" : "border-border/70 bg-muted/20 hover:bg-muted/50",
+                        )}
+                      >
+                        <span className="flex items-center justify-between gap-2 text-xs font-medium">
+                          <span className="flex min-w-0 items-center gap-1.5"><Clock3 className="size-3.5 shrink-0" />Planned focus</span>
+                          <span className="shrink-0 font-mono">{formatDuration(plannedSession.estimated_seconds)}</span>
+                        </span>
+                        {plannedSession.description && <span className="text-muted-foreground line-clamp-2 text-xs">{plannedSession.description}</span>}
+                        {plannedSession.tasks.length > 0 && (
+                          <span className="border-primary/10 flex flex-col gap-0.5 border-t pt-1.5 text-xs">
+                            {plannedSession.tasks.map((task) => <span key={task.id} className="truncate">{task.title}</span>)}
+                          </span>
+                        )}
+                      </button>
+                    );
+                  })}
                   <SortableContext items={tasks.map((t) => String(t.id))} strategy={verticalListSortingStrategy}>
                     <div className="flex flex-col gap-0">
                     {tasks.map((task) => {
@@ -274,7 +311,7 @@ export function TodayRail({
               </SortableContext>
             </DndContext>
           )}
-          {loaded && !hasOpenTasks && <p className="text-muted-foreground text-sm">Nothing planned for today.</p>}
+          {loaded && !hasPlanning && <p className="text-muted-foreground text-sm">Nothing planned for today.</p>}
         </LongContentFade>
       </div>
       {loaded && todayNote?.content && (
