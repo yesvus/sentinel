@@ -138,7 +138,7 @@ curl "$SENTINEL_BASE_URL/api/v1/planned-sessions?date=2026-08-05" \\
 
       <section className="space-y-3" aria-labelledby="responses">
         <h2 id="responses" className="font-heading text-xl font-semibold">Response and error conventions</h2>
-        <p className="text-muted-foreground">Task and note records use keys such as <code>period_start</code>, <code>completed_at</code>, <code>project_id</code>, and <code>date_key</code>. Other responses may use camelCase. Preserve server values rather than transforming or fabricating them on the client.</p>
+        <p className="text-muted-foreground">Task and note records use keys such as <code>period_start</code>, <code>completed_at</code>, <code>project_id</code>, and <code>date_key</code>. Task writes use camelCase; task creation prefers <code>projectId</code> but also accepts a returned <code>project_id</code> for a safe read-to-create round-trip. Other responses may use camelCase. Preserve server values rather than transforming or fabricating them on the client.</p>
         <ul className="list-disc space-y-1 pl-5 text-muted-foreground"><li><code>401</code>: token is invalid, expired, or revoked—create a new token in Settings.</li><li><code>409</code>: current state conflicts with the change—read current state again before retrying.</li><li><code>429</code>: pause and retry later; do not repeatedly poll.</li></ul>
       </section>
 

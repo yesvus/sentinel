@@ -105,7 +105,7 @@ Only attach eligible scheduled tasks. A task can belong to only one planned sess
 
 ## Response conventions
 
-Task and note records primarily use database-style keys such as `period_start`, `completed_at`, `project_id`, `date_key`, and `updated_at`. Project, report, planned-session, and session mutation responses also include camelCase fields in places. Inspect the response rather than assuming a uniform naming style.
+Task and note records primarily use database-style keys such as `period_start`, `completed_at`, `project_id`, `date_key`, and `updated_at`. When creating a task, use camelCase request keys; `projectId` is preferred, and `project_id` is also accepted for safe task read-to-create round-trips. Other task write keys remain camelCase. Project, report, planned-session, and session mutation responses also include camelCase fields in places. Inspect the response rather than assuming a uniform naming style.
 
 Common identifiers are numeric `id` values. `null` has meaning: an absent project, unscheduled task, uncompleted task, or active session end time is not a missing response field.
 

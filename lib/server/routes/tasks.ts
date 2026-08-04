@@ -1,14 +1,29 @@
 import { NextRequest, NextResponse } from "next/server";
 import { db } from "../db";
-import { body, error, noContent } from "./http";
+import { body, error, noContent, unknownFieldsError } from "./http";
 import { projectIdError } from "./ownership";
 import { MAX_DESCRIPTION_LENGTH, MAX_TASK_TITLE_LENGTH, optionalTextError, periodStartError } from "./validation";
 
 const TASK_COLUMNS = "id, period_start, project_id, title, description, completed_at, sort_order";
+const CREATE_TASK_FIELDS = ["periodStart", "projectId", "project_id", "title", "description", "completed", "sessionId"] as const;
+const UPDATE_TASK_FIELDS = ["sortOrder", "reorder", "title", "description", "projectId", "periodStart", "completed", "sessionId"] as const;
+
+function taskProjectId(data: Record<string, unknown>) {
+  const hasProjectId = Object.hasOwn(data, "projectId");
+  const hasProjectIdSnakeCase = Object.hasOwn(data, "project_id");
+  if (hasProjectId && hasProjectIdSnakeCase) {
+    const normalizedProjectId = data.projectId === null ? null : Number(data.projectId);
+    const normalizedSnakeCaseProjectId = data.project_id === null ? null : Number(data.project_id);
+    if (normalizedProjectId !== normalizedSnakeCaseProjectId) return { error: error("projectId and project_id must match") };
+  }
+  return { value: hasProjectId ? data.projectId : data.project_id };
+}
 
 export async function taskRoutes(request: NextRequest, parts: string[], userId: number) {
   if (parts[1] === "backlog" && request.method === "POST") {
     const data = await body(request);
+    const fieldsError = unknownFieldsError(data, ["before"]);
+    if (fieldsError) return fieldsError;
     if (typeof data.before !== "string" || /^\d{4}-\d{2}-\d{2}$/.test(data.before) === false) return error("before must be a YYYY-MM-DD date");
     const candidates = await db.execute({
       sql: `SELECT ${TASK_COLUMNS} FROM tasks WHERE user_id = ? AND period_start IS NOT NULL AND period_start < ? AND completed_at IS NULL ORDER BY sort_order, created_at`,
@@ -32,13 +47,17 @@ export async function taskRoutes(request: NextRequest, parts: string[], userId: 
   }
   if (id === null && request.method === "POST") {
     const data = await body(request);
+    const fieldsError = unknownFieldsError(data, CREATE_TASK_FIELDS);
+    if (fieldsError) return fieldsError;
     const periodStartInvalid = periodStartError(data.periodStart);
     if (periodStartInvalid) return periodStartInvalid;
     if (typeof data.title !== "string" || !data.title.trim()) return error("Title is required");
     if (data.title.trim().length > MAX_TASK_TITLE_LENGTH) return error(`Title must be at most ${MAX_TASK_TITLE_LENGTH} characters`);
     const descriptionError = optionalTextError(data.description, "Description", MAX_DESCRIPTION_LENGTH);
     if (descriptionError) return descriptionError;
-    const invalidProject = await projectIdError(userId, data.projectId);
+    const project = taskProjectId(data);
+    if (project.error) return project.error;
+    const invalidProject = await projectIdError(userId, project.value);
     if (invalidProject) return invalidProject;
     if (data.completed !== undefined && typeof data.completed !== "boolean") return error("completed must be a boolean");
     let attachedSessionId: number | null = null;
@@ -53,7 +72,7 @@ export async function taskRoutes(request: NextRequest, parts: string[], userId: 
     const results = await db.batch([
       {
         sql: "INSERT INTO tasks (user_id, period_start, project_id, title, description, completed_at) VALUES (?, ?, ?, ?, ?, ?)",
-        args: [userId, data.periodStart as string | null ?? null, data.projectId == null ? null : Number(data.projectId), data.title.trim(), typeof data.description === "string" ? data.description.trim() || null : null, completedAt],
+        args: [userId, data.periodStart as string | null ?? null, project.value == null ? null : Number(project.value), data.title.trim(), typeof data.description === "string" ? data.description.trim() || null : null, completedAt],
       },
       ...(attachedSessionId === null ? [] : [{
         sql: "INSERT INTO session_tasks (session_id, task_id) VALUES (?, last_insert_rowid())",
@@ -67,6 +86,8 @@ export async function taskRoutes(request: NextRequest, parts: string[], userId: 
   if (!Number.isInteger(id)) return error("Not found", 404);
   if (request.method === "PATCH") {
     const data = await body(request);
+    const fieldsError = unknownFieldsError(data, UPDATE_TASK_FIELDS);
+    if (fieldsError) return fieldsError;
     if (data.sortOrder !== undefined) {
       if (!Number.isInteger(data.sortOrder) || Number(data.sortOrder) < 0) return error("sortOrder must be a non-negative integer");
       const owned = await db.execute({ sql: "SELECT 1 FROM tasks WHERE id = ? AND user_id = ?", args: [id!, userId] });

@@ -100,7 +100,9 @@ async function createPlan(userId: number, data: Record<string, unknown>) {
       args: [userId, data.dateKey, Number(data.projectId), Number(data.estimatedSeconds), typeof data.description === "string" ? data.description.trim() || null : null, Number(nextOrder.rows[0].next_order)],
     },
     ...(taskIds.length ? [{
-      sql: `INSERT INTO planned_session_tasks (planned_session_id, task_id) VALUES ${taskIds.map(() => "(last_insert_rowid(), ?)").join(",")}`,
+      sql: `WITH plan_id(id) AS MATERIALIZED (SELECT last_insert_rowid()), task_ids(task_id) AS (VALUES ${taskIds.map(() => "(?)").join(",")})
+            INSERT INTO planned_session_tasks (planned_session_id, task_id)
+            SELECT plan_id.id, task_ids.task_id FROM plan_id CROSS JOIN task_ids`,
       args: taskIds,
     }] : []),
   ], "write");

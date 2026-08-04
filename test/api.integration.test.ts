@@ -130,6 +130,65 @@ describe("Next API", () => {
     expect(attached.body.map((task: { id: number }) => task.id)).toEqual([firstTask.body.id, secondTask.body.id]);
   });
 
+  it("keeps every task on the newly created planned session when plan and membership ids differ", async () => {
+    const cookie = await register("planned-session-membership@example.test");
+    const project = await request("POST", "projects", { cookie, body: { name: "Writing" } });
+    const firstTask = await request("POST", "tasks", {
+      cookie,
+      body: { periodStart: "2026-08-04", title: "Draft", projectId: project.body.id },
+    });
+    const secondTask = await request("POST", "tasks", {
+      cookie,
+      body: { periodStart: "2026-08-04", title: "Revise", projectId: project.body.id },
+    });
+
+    const earlierPlan = await request("POST", "planned-sessions", {
+      cookie,
+      body: { dateKey: "2026-08-04", projectId: project.body.id, estimatedSeconds: 1_800 },
+    });
+    const created = await request("POST", "planned-sessions", {
+      cookie,
+      body: {
+        dateKey: "2026-08-04",
+        projectId: project.body.id,
+        estimatedSeconds: 3_600,
+        taskIds: [firstTask.body.id, secondTask.body.id],
+      },
+    });
+
+    expect(created.response.status).toBe(201);
+    expect(created.body.tasks.map((task: { id: number }) => task.id)).toEqual([firstTask.body.id, secondTask.body.id]);
+    expect((await request("GET", "planned-sessions?date=2026-08-04", { cookie })).body).toEqual([
+      expect.objectContaining({ id: earlierPlan.body.id, tasks: [] }),
+      expect.objectContaining({ id: created.body.id, tasks: [expect.objectContaining({ id: firstTask.body.id }), expect.objectContaining({ id: secondTask.body.id })] }),
+    ]);
+  });
+
+  it("accepts the project_id returned by task reads when creating a task", async () => {
+    const cookie = await register("task-project-casing@example.test");
+    const project = await request("POST", "projects", { cookie, body: { name: "API consistency" } });
+
+    const created = await request("POST", "tasks", {
+      cookie,
+      body: { title: "Round-trip task", project_id: project.body.id },
+    });
+
+    expect(created.response.status).toBe(201);
+    expect(created.body).toMatchObject({ title: "Round-trip task", project_id: project.body.id });
+  });
+
+  it("rejects unrecognized task creation fields instead of silently ignoring them", async () => {
+    const cookie = await register("task-unknown-fields@example.test");
+
+    const created = await request("POST", "tasks", {
+      cookie,
+      body: { title: "Typo should fail", projectID: 1 },
+    });
+
+    expect(created.response.status).toBe(400);
+    expect(created.body).toEqual({ error: "Unknown field: projectID" });
+  });
+
   it("releases planned membership before completing, backlogging, or deleting a task", async () => {
     const cookie = await register("planned-membership-release@example.test");
     const project = await request("POST", "projects", { cookie, body: { name: "Maintenance" } });

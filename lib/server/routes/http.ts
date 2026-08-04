@@ -9,6 +9,12 @@ export const noContent = () => new NextResponse(null, { status: 204 });
 export const error = (message: string, status = 400) =>
   NextResponse.json({ error: message }, { status });
 
+export function unknownFieldsError(data: Record<string, unknown>, allowedFields: readonly string[]) {
+  const unknownFields = Object.keys(data).filter((field) => !allowedFields.includes(field));
+  if (!unknownFields.length) return null;
+  return error(`Unknown field${unknownFields.length === 1 ? "" : "s"}: ${unknownFields.join(", ")}`);
+}
+
 type RequestBody = Record<string, unknown>;
 
 export const body = (request: NextRequest): Promise<RequestBody> =>
