@@ -72,4 +72,32 @@ describe("session form transformations", () => {
       dates.startedAt.getMinutes(),
     ]).toEqual([2026, 7, 2, 9, 0]);
   });
+
+  it("handles overnight cross-midnight sessions across calendar days", () => {
+    // 23:30 to 01:00 on the next day
+    const dates = sessionFormDates("2026-08-02", "23:30", "01:00", false);
+    expect(dates.endedAt!.getTime() - dates.startedAt.getTime()).toBe(90 * 60 * 1000);
+    expect([
+      dates.startedAt.getFullYear(),
+      dates.startedAt.getMonth(),
+      dates.startedAt.getDate(),
+      dates.startedAt.getHours(),
+      dates.startedAt.getMinutes(),
+    ]).toEqual([2026, 7, 2, 23, 30]);
+    expect([
+      dates.endedAt!.getFullYear(),
+      dates.endedAt!.getMonth(),
+      dates.endedAt!.getDate(),
+      dates.endedAt!.getHours(),
+      dates.endedAt!.getMinutes(),
+    ]).toEqual([2026, 7, 3, 1, 0]);
+
+    const now = new Date("2026-08-03T12:00:00");
+    expect(validateSessionFormDates(dates.startedAt, dates.endedAt, now)).toBeNull();
+
+    // Rejects durations exceeding 12 hours
+    const excessiveDates = sessionFormDates("2026-08-02", "11:00", "01:00", false); // 14 hours
+    expect(validateSessionFormDates(excessiveDates.startedAt, excessiveDates.endedAt, now))
+      .toBe("Sessions cannot exceed 12 hours.");
+  });
 });

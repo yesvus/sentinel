@@ -2,7 +2,7 @@ import { FormEvent, useState } from "react";
 import type { Project, StudySession } from "@/lib/api";
 import { ApiError } from "@/lib/api";
 import { dateInputValue, timeInputValue } from "@/lib/date";
-import { ongoingSessionAgeError, sessionFormDates, validateSessionFormDates } from "@/lib/session-form";
+import { ongoingSessionAgeError, isFormOvernight, sessionFormDates, validateSessionFormDates } from "@/lib/session-form";
 import { orderProjectsAsTree } from "@/lib/project-tree";
 import { NoProjectIcon, ProjectIcon } from "@/lib/icons";
 import { useActiveSession } from "@/lib/active-session-context";
@@ -173,7 +173,14 @@ export function HistorySessionDialog({
               <Input id="add-start" type="time" value={startTime} onChange={(event) => setStartTime(event.target.value)} required />
             </div>
             <div className="space-y-2">
-              <Label htmlFor="add-end">End time</Label>
+              <div className="flex items-center gap-1.5">
+                <Label htmlFor="add-end">End time</Label>
+                {!ongoing && startTime && endTime && isFormOvernight(startTime, endTime) && (
+                  <span className="text-muted-foreground bg-muted inline-flex items-center rounded px-1.5 py-0.5 text-[10px] font-medium leading-none">
+                    +1 day
+                  </span>
+                )}
+              </div>
               <Input id="add-end" type="time" value={endTime} onChange={(event) => setEndTime(event.target.value)} disabled={ongoing} required={!ongoing} />
             </div>
           </div>

@@ -131,3 +131,72 @@ describe("daily task failures", () => {
     expect(onDeleted).not.toHaveBeenCalled();
   });
 });
+
+describe("cross-day session timeline rendering", () => {
+  const crossDaySession: StudySession = {
+    id: 99,
+    started_at: "2026-08-01T23:30:00.000Z",
+    ended_at: "2026-08-02T01:00:00.000Z",
+    duration_seconds: 5400,
+    description: "Late night coding",
+    project_id: null,
+    project_name: null,
+    project_icon: null,
+  };
+
+  it("builds timeline items with accurate day duration for both days", () => {
+    const [day1Item] = buildDaySessionTimeline([crossDaySession], {}, Date.parse("2026-08-02T02:00:00.000Z"), "2026-08-01", "UTC");
+    expect(day1Item.duration).toBe(5400);
+    expect(day1Item.dayDuration).toBe(1800);
+
+    const [day2Item] = buildDaySessionTimeline([crossDaySession], {}, Date.parse("2026-08-02T02:00:00.000Z"), "2026-08-02", "UTC");
+    expect(day2Item.duration).toBe(5400);
+    expect(day2Item.dayDuration).toBe(3600);
+  });
+
+  it("renders overnight indicators and day-specific badge on Day 1 and Day 2", () => {
+    const { rerender } = render(
+      <DaySessionTimeline
+        sessions={[crossDaySession]}
+        sessionTasks={{}}
+        sessionTaskErrors={{}}
+        taskList={[]}
+        totalSessionSeconds={1800}
+        now={Date.parse("2026-08-02T02:00:00.000Z")}
+        timeZone="UTC"
+        selectedDayKey="2026-08-01"
+        onSessionUpdated={vi.fn()}
+        onTaskUpdated={vi.fn()}
+        onSessionTasksChanged={vi.fn()}
+        onSessionTaskCreated={vi.fn()}
+        onRetrySessionTasks={vi.fn()}
+      />,
+    );
+
+    expect(screen.getByText("23:30")).toBeInTheDocument();
+    expect(screen.getByText("01:00 (+1d)")).toBeInTheDocument();
+    expect(screen.getByText("30m this day · 1h 30m total")).toBeInTheDocument();
+
+    rerender(
+      <DaySessionTimeline
+        sessions={[crossDaySession]}
+        sessionTasks={{}}
+        sessionTaskErrors={{}}
+        taskList={[]}
+        totalSessionSeconds={3600}
+        now={Date.parse("2026-08-02T02:00:00.000Z")}
+        timeZone="UTC"
+        selectedDayKey="2026-08-02"
+        onSessionUpdated={vi.fn()}
+        onTaskUpdated={vi.fn()}
+        onSessionTasksChanged={vi.fn()}
+        onSessionTaskCreated={vi.fn()}
+        onRetrySessionTasks={vi.fn()}
+      />,
+    );
+
+    expect(screen.getByText("23:30 (-1d)")).toBeInTheDocument();
+    expect(screen.getByText("01:00")).toBeInTheDocument();
+    expect(screen.getByText("1h 0m this day · 1h 30m total")).toBeInTheDocument();
+  });
+});

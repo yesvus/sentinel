@@ -86,6 +86,23 @@ describe("statistics and exports", () => {
     expect(activityStreak([session, second], new Date("2026-07-30T12:00:00.000Z"))).toBe(2);
     expect(longestActivityStreak([session, second])).toBe(2);
   });
+
+  it("accurately splits overnight cross-midnight sessions across calendar days", () => {
+    // 23:30 on 2026-08-04 to 01:00 on 2026-08-05 (90 min = 5400s)
+    const overnightSession: StudySession = {
+      ...session,
+      id: 99,
+      started_at: "2026-08-04T23:30:00.000Z",
+      ended_at: "2026-08-05T01:00:00.000Z",
+      duration_seconds: 5400,
+      paused_seconds: 0,
+    };
+    const now = new Date("2026-08-05T12:00:00.000Z").getTime();
+    const totals = dailyTotals([overnightSession], now, "UTC");
+    expect(totals.get("2026-08-04")).toBe(1800); // 30 minutes
+    expect(totals.get("2026-08-05")).toBe(3600); // 60 minutes
+    expect(activityStreak([overnightSession], new Date("2026-08-05T12:00:00.000Z"), "UTC")).toBe(2);
+  });
 });
 
 describe("scheduled theme", () => {

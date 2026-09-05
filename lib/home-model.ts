@@ -1,5 +1,5 @@
 import type { Note, PlannedSession, Project, StudySession, Task } from "@/lib/api";
-import { sessionDurationSeconds } from "@/lib/session-stats";
+import { sessionSecondsOnDay } from "@/lib/session-stats";
 
 export type HomeTaskGroup = { project: Project | null; plannedSessions?: PlannedSession[]; tasks: Task[] };
 
@@ -13,6 +13,7 @@ type HomeModelInput = {
   projectId: number | null;
   sessionTaskIds: number[];
   now: number;
+  timeZone?: string;
 };
 
 export function buildHomeModel({
@@ -25,6 +26,7 @@ export function buildHomeModel({
   projectId,
   sessionTaskIds,
   now,
+  timeZone,
 }: HomeModelInput) {
   const projectsById = new Map(projects.map((project) => [project.id, project]));
   const sessionTaskIdSet = new Set(sessionTaskIds);
@@ -81,7 +83,7 @@ export function buildHomeModel({
         !sessionTaskIdSet.has(task.id),
     ),
     todayTrackedSeconds: todaySessions.reduce(
-      (total, session) => total + sessionDurationSeconds(session, now),
+      (total, session) => total + sessionSecondsOnDay(session, todayKey, now, timeZone),
       0,
     ),
   };

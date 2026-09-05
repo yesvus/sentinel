@@ -7,7 +7,7 @@ import { Button } from "@/components/ui/button";
 import { Card, CardHeader, CardTitle, CardContent } from "@/components/ui/card";
 import { StudySession } from "@/lib/api";
 import { ProjectIcon } from "@/lib/icons";
-import { projectTotals, NO_PROJECT_LABEL } from "@/lib/session-stats";
+import { isSessionOnDay, projectTotals, NO_PROJECT_LABEL } from "@/lib/session-stats";
 import { addDays, dayKey, startOfWeek, weekKey, formatDuration, formatWeekRangeLabel } from "@/lib/date";
 import { ChartConfig, ChartContainer, ChartTooltip, ChartTooltipContent } from "@/components/ui/chart";
 import { cn } from "@/lib/utils";
@@ -37,12 +37,13 @@ export function ProjectBreakdownCard({
   const [selectedWeekStart, setSelectedWeekStart] = useState(currentWeekStart);
 
   const selectedWeekKey = weekKey(selectedWeekStart, timeZone);
+  const periodDayKey = period?.kind === "day" ? dayKey(period.date, timeZone) : undefined;
   const scopedSessions = period?.kind === "day"
-    ? sessionList.filter((session) => dayKey(new Date(session.started_at), timeZone) === dayKey(period.date, timeZone))
+    ? sessionList.filter((session) => isSessionOnDay(session, periodDayKey!, now, timeZone))
     : period?.kind === "week"
       ? sessionList.filter((session) => weekKey(new Date(session.started_at), timeZone) === weekKey(period.date, timeZone))
       : sessionList.filter((session) => weekKey(new Date(session.started_at), timeZone) === selectedWeekKey);
-  const breakdown = projectTotals(scopedSessions, now);
+  const breakdown = projectTotals(scopedSessions, now, periodDayKey, timeZone);
   const totalSeconds = breakdown.reduce((sum, p) => sum + p.seconds, 0);
   const topProject = breakdown.filter((p) => p.name !== NO_PROJECT_LABEL)[0] ?? null;
   const isCurrentWeek = selectedWeekKey === weekKey(currentWeekStart, timeZone);

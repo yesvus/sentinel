@@ -18,6 +18,17 @@ type EditStartDialogProps = {
   onSave: () => void;
 };
 
+export function resolveEditStartTime(startedAt: number, time: string, now: number): number {
+  const sameDay = combineLocalDateAndTime(startedAt, time).getTime();
+  if (Number.isNaN(sameDay)) return Number.NaN;
+  if (sameDay <= now) return sameDay;
+  const previousDay = sameDay - 24 * 60 * 60 * 1000;
+  if (previousDay <= now && now - previousDay <= 12 * 60 * 60 * 1000) {
+    return previousDay;
+  }
+  return sameDay;
+}
+
 function formatElapsed(ms: number) {
   const totalSeconds = Math.floor(ms / 1000);
   const hours = Math.floor(totalSeconds / 3600);
@@ -46,7 +57,12 @@ export function EditStartDialog({ open, busy, error, time, startedAt, now, onOpe
             <Input id="edit-start-time" type="time" value={time} onChange={(event) => onTimeChange(event.target.value)} />
           </div>
           {time && startedAt !== null && (
-            <p className="text-center text-sm font-medium" aria-live="polite">New elapsed time: {formatElapsed(Math.max(0, now - combineLocalDateAndTime(startedAt, time).getTime()))}</p>
+            <p className="text-center text-sm font-medium" aria-live="polite">
+              New elapsed time: {formatElapsed(Math.max(0, now - resolveEditStartTime(startedAt, time, now)))}
+              {resolveEditStartTime(startedAt, time, now) < combineLocalDateAndTime(startedAt, "00:00").getTime() && (
+                <span className="text-muted-foreground ml-1.5 text-xs font-normal">(Started yesterday)</span>
+              )}
+            </p>
           )}
           {error && <p className="text-destructive text-sm">{error}</p>}
         </div>

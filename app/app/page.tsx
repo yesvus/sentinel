@@ -68,6 +68,7 @@ export default function AppHomePage() {
     projectId: session.projectId,
     sessionTaskIds: tasks.sessionTaskIds,
     now: active.now,
+    timeZone,
   });
 
   async function startSession() {

@@ -79,7 +79,12 @@ export function useHomeData(activeSession: StudySession | null = null, sessionRe
     return mergeActiveSession(
       todaySessions,
       activeSession,
-      (session) => dayKey(new Date(session.started_at), timeZone) === today,
+      (session) => {
+        if (session.ended_at === null) return true;
+        const start = dayKey(new Date(session.started_at), timeZone);
+        const end = dayKey(new Date(session.ended_at), timeZone);
+        return start === today || end === today;
+      },
     );
   }, [activeSession, timeZone, todaySessions]);
 

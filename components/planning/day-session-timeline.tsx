@@ -10,7 +10,7 @@ import { Card, CardAction, CardContent, CardHeader, CardTitle } from "@/componen
 import { Empty, EmptyDescription, EmptyHeader, EmptyMedia, EmptyTitle } from "@/components/ui/empty";
 import { buildDaySessionTimeline } from "@/components/planning/day-session-timeline-model";
 import type { StudySession, Task } from "@/lib/api";
-import { formatDuration, formatTime } from "@/lib/date";
+import { formatDuration, formatTime, isCrossDay, dayKey } from "@/lib/date";
 import { NoProjectIcon, ProjectIcon } from "@/lib/icons";
 
 type DaySessionTimelineProps = {
@@ -21,6 +21,7 @@ type DaySessionTimelineProps = {
   totalSessionSeconds: number;
   now: number;
   timeZone?: string;
+  selectedDayKey?: string;
   onSessionUpdated: (session: StudySession) => void;
   onTaskUpdated: (task: Task) => void;
   onSessionTasksChanged: (sessionId: number, tasks: Task[]) => void;
@@ -36,13 +37,14 @@ export function DaySessionTimeline({
   totalSessionSeconds,
   now,
   timeZone,
+  selectedDayKey,
   onSessionUpdated,
   onTaskUpdated,
   onSessionTasksChanged,
   onSessionTaskCreated,
   onRetrySessionTasks,
 }: DaySessionTimelineProps) {
-  const items = buildDaySessionTimeline(sessions, sessionTasks, now);
+  const items = buildDaySessionTimeline(sessions, sessionTasks, now, selectedDayKey, timeZone);
   const availableTasks = taskList.filter((task) => task.completed_at !== null || task.period_start === null);
 
   return (
@@ -67,15 +69,21 @@ export function DaySessionTimeline({
           </Empty>
         ) : (
           <ol className="flex flex-col">
-            {items.map(({ session, running, duration, completedTasks }, index) => (
+            {items.map(({ session, running, duration, dayDuration, completedTasks }, index) => (
               <li
                 key={session.id}
-                className="group/session animate-in fade-in slide-in-from-bottom-1 grid grid-cols-[4.5rem_0.75rem_minmax(0,1fr)] gap-3 pb-6 duration-300 fill-mode-both last:pb-0"
+                className="group/session animate-in fade-in slide-in-from-bottom-1 grid grid-cols-[auto_0.75rem_minmax(0,1fr)] gap-3 pb-6 duration-300 fill-mode-both last:pb-0"
                 style={{ animationDelay: `${Math.min(index * 60, 240)}ms` }}
               >
-                <div className="text-muted-foreground flex flex-col gap-0.5 font-mono text-xs">
-                  <time dateTime={session.started_at}>{formatTime(session.started_at, timeZone)}</time>
-                  <span>{running ? "Now" : formatTime(session.ended_at!, timeZone)}</span>
+                <div className="text-muted-foreground flex flex-col gap-0.5 font-mono text-xs whitespace-nowrap">
+                  <time dateTime={session.started_at}>
+                    {formatTime(session.started_at, timeZone)}
+                    {selectedDayKey && dayKey(new Date(session.started_at), timeZone) < selectedDayKey ? " (-1d)" : ""}
+                  </time>
+                  <span>
+                    {running ? "Now" : formatTime(session.ended_at!, timeZone)}
+                    {!running && isCrossDay(session.started_at, session.ended_at, timeZone) && (!selectedDayKey || dayKey(new Date(session.started_at), timeZone) === selectedDayKey) ? " (+1d)" : ""}
+                  </span>
                 </div>
                 <div className="relative flex justify-center">
                   <span className="bg-primary ring-card relative mt-1.5 size-2 rounded-full ring-4" />
@@ -140,7 +148,15 @@ export function DaySessionTimeline({
                     ) : (
                       <Badge variant="outline"><NoProjectIcon />No project</Badge>
                     )}
-                    <Badge variant="secondary">{running ? "Running" : formatDuration(duration)}</Badge>
+                    <Badge variant="secondary">
+                      {running
+                        ? dayDuration < duration
+                          ? `Running (${formatDuration(dayDuration)} this day)`
+                          : "Running"
+                        : dayDuration < duration
+                          ? `${formatDuration(dayDuration)} this day · ${formatDuration(duration)} total`
+                          : formatDuration(duration)}
+                    </Badge>
                   </div>
                 </div>
               </li>
