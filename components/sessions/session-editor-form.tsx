@@ -1,4 +1,5 @@
 import type { Task } from "@/lib/api";
+import { isFormOvernight } from "@/lib/session-form";
 import { TaskEditorPopover } from "@/components/task-editor-popover";
 import { LinkifiedText } from "@/components/linkified-text";
 import { CompletedTaskPicker } from "@/components/sessions/completed-task-picker";
@@ -65,7 +66,14 @@ export function SessionEditorForm({
         </Field>
         <Field>
           <div className="flex items-center justify-between gap-2">
-            <FieldLabel htmlFor={`session-end-${sessionId}`}>End time</FieldLabel>
+            <div className="flex items-center gap-1.5">
+              <FieldLabel htmlFor={`session-end-${sessionId}`}>End time</FieldLabel>
+              {!ongoing && startTime && endTime && isFormOvernight(startTime, endTime) && (
+                <span className="text-muted-foreground bg-muted inline-flex items-center rounded px-1.5 py-0.5 text-[10px] font-medium leading-none">
+                  +1 day
+                </span>
+              )}
+            </div>
             <label htmlFor={`session-ongoing-${sessionId}`} className="text-muted-foreground flex cursor-pointer items-center gap-1.5 text-xs">
               <Checkbox
                 id={`session-ongoing-${sessionId}`}

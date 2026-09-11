@@ -41,7 +41,11 @@ import {
   weekKey,
 } from "@/lib/date";
 import { buildAiPrompt } from "@/lib/export";
-import { partialWeekStats, sessionDurationSeconds } from "@/lib/session-stats";
+import {
+  isSessionOnDay,
+  partialWeekStats,
+  sessionSecondsOnDay,
+} from "@/lib/session-stats";
 import { mergeActiveSession } from "@/lib/session-list";
 import {
   removeTask as removeTaskFromList,
@@ -97,7 +101,7 @@ export default function DayPlanningPage() {
         ])
         .then(async ([tasks, notes, sessions, projects, plannedSessions]) => {
           const sessionsForDay = sessions.filter(
-            (session) => dayKey(new Date(session.started_at), timeZone) === selectedDayKey,
+            (session) => isSessionOnDay(session, selectedDayKey, Date.now(), timeZone),
           );
           const sessionTaskResults = await Promise.all(
             sessionsForDay.map(async (session) => {
@@ -155,18 +159,21 @@ export default function DayPlanningPage() {
   const weekNote = noteList.find((note) => note.scope === "week" && note.date_key === selectedWeekKey);
   const daySessions = useMemo(
     () => canonicalSessions
-      .filter((session) => dayKey(new Date(session.started_at), timeZone) === selectedDayKey)
+      .filter((session) => isSessionOnDay(session, selectedDayKey, now, timeZone))
       .sort((a, b) => a.started_at.localeCompare(b.started_at)),
-    [canonicalSessions, selectedDayKey, timeZone],
+    [canonicalSessions, selectedDayKey, now, timeZone],
   );
   const totalSessionSeconds = daySessions.reduce(
-    (total, session) => total + sessionDurationSeconds(session, now),
+    (total, session) => total + sessionSecondsOnDay(session, selectedDayKey, now, timeZone),
     0,
   );
   const openTaskCount = plannedTasks.length;
   const previousDayKey = dayKey(addDays(selectedDate, -1, timeZone), timeZone);
-  const previousDaySessions = canonicalSessions.filter(
-    (session) => dayKey(new Date(session.started_at), timeZone) === previousDayKey,
+  const previousDaySessions = useMemo(
+    () => canonicalSessions
+      .filter((session) => isSessionOnDay(session, previousDayKey, now, timeZone))
+      .sort((a, b) => a.started_at.localeCompare(b.started_at)),
+    [canonicalSessions, previousDayKey, now, timeZone],
   );
   const todayKey = dayKey(new Date(now), timeZone);
   const isToday = selectedDayKey === todayKey;
@@ -378,6 +385,7 @@ export default function DayPlanningPage() {
             totalSessionSeconds={totalSessionSeconds}
             now={now}
             timeZone={timeZone}
+            selectedDayKey={selectedDayKey}
             onSessionUpdated={handleSessionUpdated}
             onTaskUpdated={handleTaskUpdated}
             onSessionTasksChanged={(sessionId, tasks) => setSessionTasks((current) =>

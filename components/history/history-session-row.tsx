@@ -1,7 +1,7 @@
 import { useState } from "react";
 import { CheckCircle2, CircleDot, Clock3, Pencil, Trash2 } from "lucide-react";
 import type { StudySession } from "@/lib/api";
-import { formatDuration, formatTime } from "@/lib/date";
+import { formatDuration, formatTime, isCrossDay } from "@/lib/date";
 import { sessionDurationSeconds } from "@/lib/session-stats";
 import { NoProjectIcon, ProjectIcon } from "@/lib/icons";
 import { LinkifiedText } from "@/components/linkified-text";
@@ -97,6 +97,7 @@ export function HistorySessionRow({
           </span>
           <span className="text-muted-foreground font-mono text-xs whitespace-nowrap">
             {formatTime(session.started_at, timeZone)}-{session.ended_at ? formatTime(session.ended_at, timeZone) : "now"}
+            {session.ended_at && isCrossDay(session.started_at, session.ended_at, timeZone) ? " (+1d)" : ""}
           </span>
         </div>
         <div className="flex items-center">

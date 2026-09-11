@@ -92,7 +92,9 @@ describe("timezone calendar helpers", () => {
     expect(activityStreak(sessions, new Date("2026-03-09T16:00:00.000Z"), "America/New_York")).toBe(2);
 
     const weekStart = startOfWeek(new Date("2026-03-09T16:00:00.000Z"), "America/New_York");
-    expect(weekStatsFor(sessions, weekStart, Date.now(), "America/New_York").trackedSeconds).toBe(3600);
+    expect(weekStatsFor(sessions, weekStart, Date.now(), "America/New_York").trackedSeconds).toBe(5400);
+    const prevWeekStart = startOfWeek(new Date("2026-03-08T16:00:00.000Z"), "America/New_York");
+    expect(weekStatsFor(sessions, prevWeekStart, Date.now(), "America/New_York").trackedSeconds).toBe(1800);
   });
 
   it("counts elapsed days in a partial week instead of always assuming 7", () => {

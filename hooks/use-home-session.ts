@@ -202,14 +202,19 @@ export function useHomeSession({ active, defaultProductionPercentage, trackProdu
   async function editStart() {
     if (sessionId === null || startedAt === null) return;
     setEditStartError(null);
-    const nextStartedAt = combineLocalDateAndTime(startedAt, editStartTime).getTime();
+    let nextStartedAt = combineLocalDateAndTime(startedAt, editStartTime).getTime();
     if (Number.isNaN(nextStartedAt)) {
       setEditStartError("Enter a valid start time");
       return;
     }
     if (nextStartedAt > now) {
-      setEditStartError("Start time can't be in the future");
-      return;
+      const yesterday = nextStartedAt - 24 * 60 * 60 * 1000;
+      if (yesterday <= now && now - yesterday <= 12 * 60 * 60 * 1000) {
+        nextStartedAt = yesterday;
+      } else {
+        setEditStartError("Start time can't be in the future");
+        return;
+      }
     }
     setEditStartBusy(true);
     try {

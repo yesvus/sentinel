@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from "next/server";
 import { db } from "../db";
 import { error } from "./http";
 import { addDateKeyDays, dayKey, isValidTimeZone } from "@/lib/date";
+import { sessionSecondsOnDay } from "@/lib/session-stats";
 
 function mondayForDateKey(key: string) {
   const date = new Date(`${key}T00:00:00.000Z`);
@@ -16,38 +17,54 @@ export async function reportRoutes(request: NextRequest, parts: string[], userId
     return error("Invalid timezone");
   }
   const result = await db.execute({
-    sql: `SELECT s.started_at, s.duration_seconds, s.production_percentage, project.name AS project_name
+    sql: `SELECT s.id, s.started_at, s.ended_at, s.duration_seconds, s.production_percentage, project.name AS project_name
           FROM sessions s LEFT JOIN projects project ON project.id = s.project_id AND project.user_id = s.user_id
           WHERE s.user_id = ? AND s.ended_at IS NOT NULL AND s.started_at < ?`, args: [userId, new Date().toISOString()],
   });
+  const now = Date.now();
   const sessions = result.rows.map((row) => ({
-    startedAt: row.started_at as string, duration: Number(row.duration_seconds ?? 0),
-    production: row.production_percentage === null ? 0 : Number(row.production_percentage), project: row.project_name as string | null,
+    id: Number(row.id),
+    started_at: row.started_at as string,
+    ended_at: row.ended_at as string | null,
+    duration_seconds: Number(row.duration_seconds ?? 0),
+    production_percentage: row.production_percentage === null ? null : Number(row.production_percentage),
+    project_name: row.project_name as string | null,
+    project_id: null,
+    project_icon: null,
+    description: null,
   }));
-const currentMonday = mondayForDateKey(dayKey(new Date(), timezone));
+  const currentMonday = mondayForDateKey(dayKey(new Date(), timezone));
   const todayKey = dayKey(new Date(), timezone);
   for (let offset = 1; offset <= 12; offset += 1) {
     const weekStart = addDateKeyDays(currentMonday, -7 * offset);
     const weekEnd = addDateKeyDays(weekStart, 6);
-    const weekSessions = sessions.filter((session) => mondayForDateKey(dayKey(new Date(session.startedAt), timezone)) === weekStart);
+    const daysInWeek = Array.from({ length: 7 }, (_, i) => addDateKeyDays(weekStart, i));
+    const weekSessions = sessions.filter((session) =>
+      daysInWeek.some((day) => sessionSecondsOnDay(session, day, now, timezone) > 0),
+    );
     const countableDayKeys = new Set<string>();
-    for (const session of weekSessions) {
-      const sessionDay = dayKey(new Date(session.startedAt), timezone);
-      if (sessionDay <= todayKey) countableDayKeys.add(sessionDay);
-    }
-    const activeDays = countableDayKeys.size;
-    const durations = weekSessions.map((session) => session.duration).sort((a, b) => a - b);
-    const middle = Math.floor(durations.length / 2);
-    const medianSeconds = durations.length === 0 ? null : durations.length % 2 ? durations[middle] : Math.round((durations[middle - 1] + durations[middle]) / 2);
     let learningSeconds = 0;
     let producingSeconds = 0;
     const projects = new Map<string, number>();
+
     for (const session of weekSessions) {
-      const producing = Math.round(session.duration * session.production / 100);
-      producingSeconds += producing;
-      learningSeconds += session.duration - producing;
-      if (session.project) projects.set(session.project, (projects.get(session.project) ?? 0) + session.duration);
+      for (const day of daysInWeek) {
+        const seconds = sessionSecondsOnDay(session, day, now, timezone);
+        if (seconds > 0) {
+          if (day <= todayKey) countableDayKeys.add(day);
+          const producing = Math.round(seconds * (session.production_percentage ?? 0) / 100);
+          producingSeconds += producing;
+          learningSeconds += seconds - producing;
+          if (session.project_name) {
+            projects.set(session.project_name, (projects.get(session.project_name) ?? 0) + seconds);
+          }
+        }
+      }
     }
+    const activeDays = countableDayKeys.size;
+    const durations = weekSessions.map((session) => session.duration_seconds).sort((a, b) => a - b);
+    const middle = Math.floor(durations.length / 2);
+    const medianSeconds = durations.length === 0 ? null : durations.length % 2 ? durations[middle] : Math.round((durations[middle - 1] + durations[middle]) / 2);
     const topProject = Array.from(projects.entries()).sort((a, b) => b[1] - a[1] || a[0].localeCompare(b[0]))[0]?.[0] ?? null;
     const data = {
       weekStart, weekEnd, timezone, totalSeconds: learningSeconds + producingSeconds,

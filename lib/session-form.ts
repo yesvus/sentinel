@@ -1,5 +1,11 @@
 import type { StudySession, Task } from "@/lib/api";
-import { dateInputValue, parseLocalDateTime, timeInputValue } from "@/lib/date";
+import { addDateKeyDays, dateInputValue, parseLocalDateTime, timeInputValue } from "@/lib/date";
+
+export const MAX_SESSION_DURATION_MS = 12 * 60 * 60 * 1000;
+
+export function isFormOvernight(startTime: string, endTime: string) {
+  return Boolean(startTime && endTime && endTime <= startTime);
+}
 
 export function initialSessionForm(session: StudySession, tasks: Task[], now = new Date()) {
   const start = new Date(session.started_at);
@@ -15,9 +21,14 @@ export function initialSessionForm(session: StudySession, tasks: Task[], now = n
 }
 
 export function sessionFormDates(date: string, startTime: string, endTime: string, ongoing: boolean) {
+  const startedAt = parseLocalDateTime(date, startTime);
+  if (ongoing) {
+    return { startedAt, endedAt: null };
+  }
+  const endDate = isFormOvernight(startTime, endTime) ? addDateKeyDays(date, 1) : date;
   return {
-    startedAt: parseLocalDateTime(date, startTime),
-    endedAt: ongoing ? null : parseLocalDateTime(date, endTime),
+    startedAt,
+    endedAt: parseLocalDateTime(endDate, endTime),
   };
 }
 
@@ -26,12 +37,17 @@ export function validateSessionFormDates(startedAt: Date, endedAt: Date | null, 
     return "Enter a valid date and time.";
   }
   if (startedAt > now) return "Start time cannot be in the future.";
-  if (endedAt && endedAt <= startedAt) return "End time must be after start time.";
+  if (endedAt) {
+    if (endedAt <= startedAt) return "End time must be after start time.";
+    if (endedAt.getTime() - startedAt.getTime() > MAX_SESSION_DURATION_MS) {
+      return "Sessions cannot exceed 12 hours.";
+    }
+  }
   return null;
 }
 
 export function ongoingSessionAgeError(startedAt: Date, now = new Date()) {
-  return now.getTime() - startedAt.getTime() > 12 * 60 * 60 * 1000
+  return now.getTime() - startedAt.getTime() > MAX_SESSION_DURATION_MS
     ? "Sessions started more than 12 hours ago cannot be marked ongoing."
     : null;
 }

@@ -64,7 +64,9 @@ export async function sessionRoutes(request: NextRequest, parts: string[], userI
     const to = request.nextUrl.searchParams.get("to");
     if ((from && Number.isNaN(new Date(from).getTime())) || (to && Number.isNaN(new Date(to).getTime()))) return error("from and to must be valid dates");
     const cursorClause = cursor ? "AND (sessions.started_at < ? OR (sessions.started_at = ? AND sessions.id < ?))" : "";
-    const rangeClause = `${from ? "AND sessions.started_at >= ?" : ""} ${to ? "AND sessions.started_at < ?" : ""}`;
+    const fromClause = from ? "AND (sessions.ended_at IS NULL OR sessions.ended_at > ?)" : "";
+    const toClause = to ? "AND sessions.started_at < ?" : "";
+    const rangeClause = `${fromClause} ${toClause}`;
     const args: (string | number)[] = [userId];
     if (from) args.push(new Date(from).toISOString());
     if (to) args.push(new Date(to).toISOString());

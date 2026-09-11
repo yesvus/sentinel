@@ -6,7 +6,7 @@ import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip";
 import { StudySession } from "@/lib/api";
 import { addDays, dayKey, elapsedDaysInWeek, formatDuration, startOfWeek } from "@/lib/date";
-import { projectTotals, sessionDurationSeconds } from "@/lib/session-stats";
+import { isSessionOnDay, projectTotals, sessionDurationSeconds, sessionSecondsOnDay } from "@/lib/session-stats";
 import { cn } from "@/lib/utils";
 
 const PROJECT_COLORS = [
@@ -39,19 +39,36 @@ export function PlanningPeriodStats({
   className?: string;
   timeZone?: string;
 }) {
-  const trackedSeconds = sessions.reduce((total, session) => total + sessionDurationSeconds(session, now), 0);
-  const previousTrackedSeconds = previousSessions.reduce((total, session) => total + sessionDurationSeconds(session, now), 0);
+  const currentDayKey = dayKey(date, timeZone);
+  const prevDayKey = dayKey(addDays(date, -1, timeZone), timeZone);
+  const trackedSeconds = period === "day"
+    ? sessions.reduce((total, session) => total + (
+        isSessionOnDay(session, currentDayKey, now, timeZone)
+          ? sessionSecondsOnDay(session, currentDayKey, now, timeZone)
+          : sessionDurationSeconds(session, now)
+      ), 0)
+    : sessions.reduce((total, session) => total + sessionDurationSeconds(session, now), 0);
+  const previousTrackedSeconds = period === "day"
+    ? previousSessions.reduce((total, session) => total + (
+        isSessionOnDay(session, prevDayKey, now, timeZone)
+          ? sessionSecondsOnDay(session, prevDayKey, now, timeZone)
+          : sessionDurationSeconds(session, now)
+      ), 0)
+    : previousSessions.reduce((total, session) => total + sessionDurationSeconds(session, now), 0);
   const trackedDelta = trackedSeconds - previousTrackedSeconds;
   const comparisonLabel = period === "day" ? "yesterday" : "previous week";
-  const breakdown = projectTotals(sessions, now);
+  const breakdown = period === "day"
+    ? projectTotals(sessions, now, currentDayKey, timeZone)
+    : projectTotals(sessions, now);
   const projectColorByKey = new Map(
     breakdown.map((project, index) => [String(project.key), PROJECT_COLORS[index % PROJECT_COLORS.length]]),
   );
   const weekStart = startOfWeek(date, timeZone);
   const weekDays = Array.from({ length: 7 }, (_, index) => {
     const currentDate = addDays(weekStart, index, timeZone);
-    const daySessions = sessions.filter((session) => dayKey(new Date(session.started_at), timeZone) === dayKey(currentDate, timeZone));
-    const projects = projectTotals(daySessions, now);
+    const dayK = dayKey(currentDate, timeZone);
+    const daySessions = sessions.filter((session) => isSessionOnDay(session, dayK, now, timeZone));
+    const projects = projectTotals(daySessions, now, dayK, timeZone);
     return {
       date: currentDate,
       projects,

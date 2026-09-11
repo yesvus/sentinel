@@ -242,3 +242,15 @@ export function periodComparison(current: number, previous: number): { diff: num
   }
   return { diff, percent: Math.round((diff / previous) * 100) };
 }
+
+export function isCrossDay(startedAt: Date | string, endedAt: Date | string | null, timeZone?: string) {
+  if (!endedAt) return false;
+  return dayKey(new Date(startedAt), timeZone) !== dayKey(new Date(endedAt), timeZone);
+}
+
+export function formatSessionTimeRange(startedAt: string, endedAt: string | null, timeZone?: string) {
+  const start = formatTime(startedAt, timeZone);
+  if (!endedAt) return `${start} – Now`;
+  const end = formatTime(endedAt, timeZone);
+  return isCrossDay(startedAt, endedAt, timeZone) ? `${start} – ${end} (+1d)` : `${start} – ${end}`;
+}

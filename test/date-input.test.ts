@@ -30,12 +30,16 @@ describe("local date/time inputs", () => {
     expect(parseLocalDateTime("not-a-date", "07:15").getTime()).toBeNaN();
   });
 
-  it("uses real local elapsed time across DST and still rejects overnight ranges", () => {
+  it("uses real local elapsed time across DST and supports overnight ranges", () => {
     const spring = sessionFormDates("2026-03-08", "01:30", "03:30", false);
     expect(spring.endedAt!.getTime() - spring.startedAt.getTime()).toBe(60 * 60 * 1000);
 
     const overnight = sessionFormDates("2026-08-02", "23:30", "00:30", false);
     expect(validateSessionFormDates(overnight.startedAt, overnight.endedAt, new Date("2026-08-03T12:00:00-04:00")))
-      .toBe("End time must be after start time.");
+      .toBeNull();
+
+    const overTwelveHours = sessionFormDates("2026-08-02", "23:30", "12:00", false);
+    expect(validateSessionFormDates(overTwelveHours.startedAt, overTwelveHours.endedAt, new Date("2026-08-03T12:00:00-04:00")))
+      .toBe("Sessions cannot exceed 12 hours.");
   });
 });

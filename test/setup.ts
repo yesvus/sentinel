@@ -40,3 +40,25 @@ if (typeof globalThis.BroadcastChannel === "undefined") {
     value: TestBroadcastChannel,
   });
 }
+
+if (typeof window !== "undefined") {
+  const map = new Map<string, string>();
+  const mockStorage: Storage = {
+    getItem: (k: string) => map.get(k) ?? null,
+    setItem: (k: string, v: string) => { map.set(k, String(v)); },
+    removeItem: (k: string) => { map.delete(k); },
+    clear: () => { map.clear(); },
+    get length() { return map.size; },
+    key: (i: number) => Array.from(map.keys())[i] ?? null,
+  };
+  Object.defineProperty(window, "localStorage", {
+    configurable: true,
+    writable: true,
+    value: mockStorage,
+  });
+  Object.defineProperty(globalThis, "localStorage", {
+    configurable: true,
+    writable: true,
+    value: mockStorage,
+  });
+}
