@@ -1,0 +1,32 @@
+name: Idea
+description: Feature direction, not yet scoped
+title: "[idea] "
+labels: [enhancement]
+body:
+  - type: dropdown
+    id: priority
+    attributes:
+      label: Priority
+      description: Apply the matching P0-P3 label on the right sidebar as well.
+      options:
+        - P0-critical
+        - P1-high
+        - P2-medium (normal)
+        - P3-low (parked)
+      default: 3
+    validations:
+      required: true
+  - type: textarea
+    id: what
+    attributes:
+      label: What
+      description: The idea in a few sentences.
+    validations:
+      required: true
+  - type: textarea
+    id: why
+    attributes:
+      label: Why
+      description: Who wants this and what it unlocks.
+    validations:
+      required: false
