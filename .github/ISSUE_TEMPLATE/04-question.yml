@@ -1,0 +1,25 @@
+name: Question
+description: Decision blocking or shaping work
+title: "[question] "
+labels: [question]
+body:
+  - type: dropdown
+    id: priority
+    attributes:
+      label: Priority
+      description: Apply the matching P0-P3 label on the right sidebar as well.
+      options:
+        - P0-critical (blocks active work)
+        - P1-high
+        - P2-medium (normal)
+        - P3-low (curiosity)
+      default: 2
+    validations:
+      required: true
+  - type: textarea
+    id: question
+    attributes:
+      label: Question
+      description: The decision needed, with options if known.
+    validations:
+      required: true

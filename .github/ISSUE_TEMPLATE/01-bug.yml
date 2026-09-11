@@ -1,0 +1,57 @@
+name: Bug report
+description: Something is not working as documented or expected
+title: "[bug] "
+labels: [bug]
+body:
+  - type: dropdown
+    id: priority
+    attributes:
+      label: Priority
+      description: Apply the matching P0-P3 label on the right sidebar as well.
+      options:
+        - P0-critical (crash, data loss, auth broken)
+        - P1-high (broken workflow, fix soon)
+        - P2-medium (normal, fix when convenient)
+        - P3-low (polish, no urgency)
+      default: 2
+    validations:
+      required: true
+  - type: dropdown
+    id: area
+    attributes:
+      label: Area
+      options:
+        - app (pages, components)
+        - api (route handlers)
+        - db / turso (schema, migrations)
+        - auth (sessions, tokens)
+        - docs
+        - other
+      default: 5
+    validations:
+      required: true
+  - type: textarea
+    id: what
+    attributes:
+      label: What happened
+      description: One or two sentences.
+    validations:
+      required: true
+  - type: textarea
+    id: repro
+    attributes:
+      label: Repro
+      description: Exact steps or requests, in order.
+      placeholder: |
+        1. went to ...
+        2. called `PUT /api/v1/...`
+        3. saw ...
+    validations:
+      required: true
+  - type: textarea
+    id: expected
+    attributes:
+      label: Expected
+      description: What should have happened instead.
+    validations:
+      required: true
