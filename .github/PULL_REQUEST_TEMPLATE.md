@@ -21,7 +21,7 @@ PR touches, and check each one off after a **human** verifies it by hand on
 the Vercel Preview deployment for this PR. Agent-authored PRs must not
 self-check these boxes — leave them unchecked for human review.
 
-- [ ]
+- [ ] <route/action to verify>
 
 ## Notes
 
